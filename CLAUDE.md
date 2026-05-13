@@ -66,6 +66,10 @@ Smashbox   = seller_funded_total − Outlandish
 
 Canonical example: base $100, seller-funded total $25, cap 10% → cap = $10, Outlandish = min($25, $10) = $10, Smashbox = $25 − $10 = $15.
 
+**Policy ceiling (should never trip):** total seller-funded discount per order must be `≤ 30%` of the eligible base (10% Outlandish + the next 20% Smashbox). Orders that breach it are still imported — Smashbox absorbs the excess so the exact-sum invariant holds — but they are flagged via `Order.discount_policy_violation`, surfaced in import errors, and counted on the reconciliation page. The cap lives at `SELLER_FUNDED_POLICY_CAP_PCT` in `.env`.
+
+Use `violates_policy_cap(total, eligible_base, policy_cap_pct=None)` from `app/rules/seller_funded_split.py` — the importer calls this and sets the flag.
+
 ## Order taxonomy
 
 `Order.order_type` (`OrderType` enum): `PAID` / `SAMPLE` / `PAID_SAMPLE`. The P&L includes `PAID` only. `SAMPLE` and `PAID_SAMPLE` feed the sample-tracking report. Free samples count against `FREE_SAMPLE_MONTHLY_ALLOWANCE`; anything over becomes paid oversampling.

@@ -63,6 +63,28 @@ def split_seller_funded_discount(
     return DiscountSplit(total=total_d, outlandish=outlandish, smashbox=smashbox)
 
 
+def violates_policy_cap(
+    total: Decimal | float | str | int,
+    eligible_base: Decimal | float | str | int,
+    policy_cap_pct: Decimal | float | str | None = None,
+) -> bool:
+    """True iff the total seller-funded discount exceeds the policy ceiling.
+
+    Under our policy this should NEVER happen (Outlandish 0-10%, Smashbox the
+    next 0-20%, max combined 30%). When it does, callers should still import
+    the order (Smashbox absorbs the excess so Outlandish + Smashbox == total)
+    but flag it via Order.discount_policy_violation.
+    """
+    total_d = _to_decimal(total)
+    base_d = _to_decimal(eligible_base)
+    cap_pct = _to_decimal(
+        settings.seller_funded_policy_cap_pct if policy_cap_pct is None else policy_cap_pct
+    )
+    if base_d <= 0:
+        return total_d > Decimal("0")  # any discount on a $0-base order is suspect
+    return total_d > base_d * cap_pct
+
+
 def _to_decimal(v: Decimal | float | str | int) -> Decimal:
     if isinstance(v, Decimal):
         return v

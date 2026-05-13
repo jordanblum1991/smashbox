@@ -67,6 +67,14 @@ def reconcile_month(db: Session, year: int, month: int) -> list[ReconciliationLi
         .where(Payout.paid_at >= start, Payout.paid_at < end)
     ).scalar() or 0
 
+    # Policy: total seller-funded discount per order must NEVER exceed 30% of
+    # the eligible base. Any violation should be investigated.
+    policy_violations = db.execute(
+        select(func.coalesce(func.count(Order.id), 0))
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.discount_policy_violation.is_(True))
+    ).scalar() or 0
+
     return [
         ReconciliationLine(
             label="Gross sales (paid orders) vs settlement file",
@@ -78,6 +86,12 @@ def reconcile_month(db: Session, year: int, month: int) -> list[ReconciliationLi
             derived=Decimal(str(derived_sf)),
             tiktok=Decimal(str(tiktok_sf)),
             tolerance_cents=0,  # this MUST be exact — see app/rules/seller_funded_split.py
+        ),
+        ReconciliationLine(
+            label="Policy violations (orders with seller-funded > 30% of base)",
+            derived=Decimal(str(policy_violations)),  # count, not dollars
+            tiktok=Decimal("0"),                       # target is zero
+            tolerance_cents=0,
         ),
         ReconciliationLine(
             label="Payouts (informational — net cash received this month)",

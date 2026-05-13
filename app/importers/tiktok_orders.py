@@ -27,7 +27,10 @@ from app.config import settings
 from app.importers.base import BaseImporter, ImportResult
 from app.models.import_batch import ImportBatch
 from app.models.order import Order, OrderLine, OrderType
-from app.rules.seller_funded_split import split_seller_funded_discount
+from app.rules.seller_funded_split import (
+    split_seller_funded_discount,
+    violates_policy_cap,
+)
 
 # "our internal name" -> "real TikTok header"
 HEADER_MAP = {
@@ -60,6 +63,16 @@ class TikTokOrdersImporter(BaseImporter):
                 order = _build_order(clean_id, group, batch)
                 db.add(order)
                 result.rows_imported += 1
+                if order.discount_policy_violation:
+                    pct = (
+                        (order.seller_funded_discount_total / order.gross_sales) * 100
+                        if order.gross_sales > 0 else "n/a"
+                    )
+                    result.errors.append(
+                        f"policy: order {clean_id} seller-funded discount "
+                        f"{order.seller_funded_discount_total} on base "
+                        f"{order.gross_sales} ({pct}%) exceeds 30% cap"
+                    )
             except Exception as exc:  # noqa: BLE001
                 result.skip(f"order {tiktok_order_id}: {exc}")
 
@@ -100,6 +113,7 @@ def _build_order(tiktok_order_id: str, group: pd.DataFrame, batch: ImportBatch) 
 
     # Eligible Base Amount = order gross subtotal before any discount.
     split = split_seller_funded_discount(line_seller_disc, eligible_base=line_gross)
+    policy_violation = violates_policy_cap(line_seller_disc, eligible_base=line_gross)
     order_type = OrderType.SAMPLE if line_gross == Decimal("0") else OrderType.PAID
 
     order = Order(
@@ -115,6 +129,7 @@ def _build_order(tiktok_order_id: str, group: pd.DataFrame, batch: ImportBatch) 
         seller_funded_discount_total=split.total,
         seller_funded_outlandish=split.outlandish,
         seller_funded_smashbox=split.smashbox,
+        discount_policy_violation=policy_violation,
     )
     order.lines = [_build_line(row) for _, row in group.iterrows()]
     return order

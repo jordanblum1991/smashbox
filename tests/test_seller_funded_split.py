@@ -14,6 +14,7 @@ import pytest
 from app.rules.seller_funded_split import (
     DiscountSplit,
     split_seller_funded_discount,
+    violates_policy_cap,
 )
 
 
@@ -103,3 +104,33 @@ def test_invariant_enforced_at_construction() -> None:
     """The DiscountSplit dataclass itself rejects a bad sum — belt and suspenders."""
     with pytest.raises(AssertionError):
         DiscountSplit(total=Decimal("10.00"), outlandish=Decimal("4.00"), smashbox=Decimal("5.00"))
+
+
+# ---------------------------------------------------------------------------
+# Policy cap: total seller-funded should NEVER exceed 30% of eligible base.
+
+def test_policy_at_or_below_cap_is_not_a_violation() -> None:
+    # 30% exactly is OK.
+    assert not violates_policy_cap("30.00", eligible_base="100.00", policy_cap_pct="0.30")
+    # Below cap.
+    assert not violates_policy_cap("25.00", eligible_base="100.00", policy_cap_pct="0.30")
+    # No discount.
+    assert not violates_policy_cap("0", eligible_base="100.00", policy_cap_pct="0.30")
+
+
+def test_policy_above_cap_is_a_violation() -> None:
+    assert violates_policy_cap("30.01", eligible_base="100.00", policy_cap_pct="0.30")
+    assert violates_policy_cap("26.00", eligible_base="81.00", policy_cap_pct="0.30")  # the real one
+
+
+def test_policy_violation_does_not_break_split_invariant() -> None:
+    """Even when policy is breached, Outlandish + Smashbox == total exactly."""
+    s = split_seller_funded_discount("26.00", eligible_base="81.00", cap_pct="0.10")
+    assert s.outlandish == Decimal("8.10")
+    assert s.smashbox == Decimal("17.90")
+    assert s.outlandish + s.smashbox == Decimal("26.00")
+
+
+def test_policy_zero_base_with_discount_is_a_violation() -> None:
+    """A non-zero discount on a $0 order can't possibly be within policy."""
+    assert violates_policy_cap("5.00", eligible_base="0", policy_cap_pct="0.30")

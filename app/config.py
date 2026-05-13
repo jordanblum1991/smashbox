@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     # See app/rules/seller_funded_split.py.
     outlandish_cap_pct: Decimal = Decimal("0.10")
 
+    # Policy: total seller-funded discount should NEVER exceed this fraction of
+    # the eligible base. Anything over is imported (Smashbox still absorbs it
+    # so the exact-sum invariant holds) but flagged as a policy violation.
+    seller_funded_policy_cap_pct: Decimal = Decimal("0.30")
+
     # Free monthly sample allowance (units). Over this counts as paid oversampling.
     free_sample_monthly_allowance: int = 100
 

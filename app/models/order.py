@@ -7,7 +7,7 @@ import enum
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -47,6 +47,12 @@ class Order(Base):
     seller_funded_discount_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     seller_funded_outlandish: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     seller_funded_smashbox: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+
+    # True when the TOTAL seller-funded discount exceeded
+    # settings.seller_funded_policy_cap_pct of gross_sales — should never happen
+    # under our policy. Smashbox still absorbs the excess to keep the split
+    # invariant intact; the flag exposes the violation for investigation.
+    discount_policy_violation: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     lines: Mapped[list["OrderLine"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
