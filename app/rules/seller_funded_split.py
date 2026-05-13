@@ -1,11 +1,23 @@
 """Split TikTok seller-funded discounts between Outlandish and Smashbox.
 
-INVARIANT (load-bearing): outlandish + smashbox == total, exactly. No rounding
-drift — ever. P&L reconciliation depends on this. The Outlandish share is
-computed and quantized; the Smashbox share is whatever's left.
+Business rule (confirmed 2026-05-13):
 
-The split ratio comes from settings.seller_funded_outlandish_share by default,
-but callers can pass a per-SKU or per-order override.
+    Outlandish = MIN(seller_funded_total, eligible_base × cap_pct)
+    Smashbox   = seller_funded_total - Outlandish
+
+Where:
+  - seller_funded_total is the "SKU Seller Discount" total for the order
+    (the only piece TikTok marks as seller-funded; "SKU Platform Discount"
+    is TikTok-funded and not split).
+  - eligible_base is the order's gross price basis used for discount %
+    calculations — i.e. the sum of "SKU Subtotal Before Discount" across
+    the order's lines (== Order.gross_sales).
+  - cap_pct defaults to 10% (settings.outlandish_cap_pct).
+
+INVARIANT (load-bearing): Outlandish + Smashbox == seller_funded_total, exactly.
+No rounding drift — ever. P&L reconciliation depends on this. Outlandish is
+computed and quantized; Smashbox is the residual, so the sum is exact by
+construction.
 """
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -30,24 +42,23 @@ class DiscountSplit:
 
 def split_seller_funded_discount(
     total: Decimal | float | str | int,
-    outlandish_share: Decimal | float | str | None = None,
+    eligible_base: Decimal | float | str | int = 0,
+    cap_pct: Decimal | float | str | None = None,
 ) -> DiscountSplit:
-    """Split `total` so the two parts add back to it exactly.
-
-    `outlandish_share` is a fraction in [0, 1]. The Outlandish portion is
-    rounded to cents using banker's rounding; the Smashbox portion absorbs any
-    residual so the sum is exact.
-    """
+    """Cap-then-residual split. See module docstring."""
     total_d = _to_decimal(total).quantize(CENTS, rounding=ROUND_HALF_EVEN)
-    share = _to_decimal(
-        settings.seller_funded_outlandish_share if outlandish_share is None else outlandish_share
-    )
+    base_d = _to_decimal(eligible_base).quantize(CENTS, rounding=ROUND_HALF_EVEN)
+    pct = _to_decimal(settings.outlandish_cap_pct if cap_pct is None else cap_pct)
 
-    if not (Decimal("0") <= share <= Decimal("1")):
-        raise ValueError(f"outlandish_share must be in [0, 1], got {share}")
+    if not (Decimal("0") <= pct <= Decimal("1")):
+        raise ValueError(f"cap_pct must be in [0, 1], got {pct}")
 
-    outlandish = (total_d * share).quantize(CENTS, rounding=ROUND_HALF_EVEN)
-    smashbox = total_d - outlandish  # residual — guarantees exact sum
+    cap = (base_d * pct).quantize(CENTS, rounding=ROUND_HALF_EVEN)
+    outlandish = min(total_d, cap)
+    # Guard against pathological negative inputs leaking through.
+    if outlandish < Decimal("0"):
+        outlandish = Decimal("0.00")
+    smashbox = total_d - outlandish
 
     return DiscountSplit(total=total_d, outlandish=outlandish, smashbox=smashbox)
 

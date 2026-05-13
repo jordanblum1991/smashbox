@@ -12,9 +12,10 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{REPO_ROOT / 'data' / 'smashbox.db'}"
     default_brand: str = "smashbox"
 
-    # Outlandish share of seller-funded discounts (0.0 - 1.0).
-    # Smashbox share = 1 - this. The two MUST add back exactly to the total.
-    seller_funded_outlandish_share: Decimal = Decimal("0.5")
+    # Cap on Outlandish-funded portion of a seller-funded discount, as a
+    # fraction of the order's eligible base. Smashbox absorbs anything over.
+    # See app/rules/seller_funded_split.py.
+    outlandish_cap_pct: Decimal = Decimal("0.10")
 
     # Free monthly sample allowance (units). Over this counts as paid oversampling.
     free_sample_monthly_allowance: int = 100

@@ -98,7 +98,8 @@ def _build_order(tiktok_order_id: str, group: pd.DataFrame, batch: ImportBatch) 
     shipping_after = _sum_decimal(group, HEADER_MAP["shipping_after_discount"])
     order_refund = _max_decimal(group, HEADER_MAP["order_refund_amount"])
 
-    split = split_seller_funded_discount(line_seller_disc)
+    # Eligible Base Amount = order gross subtotal before any discount.
+    split = split_seller_funded_discount(line_seller_disc, eligible_base=line_gross)
     order_type = OrderType.SAMPLE if line_gross == Decimal("0") else OrderType.PAID
 
     order = Order(

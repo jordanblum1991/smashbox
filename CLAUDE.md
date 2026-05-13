@@ -51,9 +51,20 @@ services/      (empty) Cross-cutting orchestration jobs
 
 `app/rules/seller_funded_split.py` splits TikTok's seller-funded discount between Outlandish and Smashbox. **The two parts MUST sum to the original total — exactly, no rounding drift.** Reconciliation depends on this; `test_seller_funded_split.py` enforces it across odd-cent edge cases.
 
-Implementation: compute the Outlandish share with banker's rounding to cents; assign the residual to Smashbox so the sum is exact by construction. Don't "fix" a failing test by relaxing the invariant — fix the split function.
+Implementation: compute Outlandish, quantize to cents; assign the residual to Smashbox so the sum is exact by construction. Don't "fix" a failing test by relaxing the invariant — fix the split function.
 
-Default split ratio is `SELLER_FUNDED_OUTLANDISH_SHARE` from `.env` (currently 0.5). Per-order or per-SKU overrides can be passed to `split_seller_funded_discount(total, outlandish_share=...)`.
+**Business rule (cap-then-residual, confirmed 2026-05-13):**
+
+```
+Outlandish = MIN(seller_funded_total, eligible_base × cap_pct)
+Smashbox   = seller_funded_total − Outlandish
+```
+
+- `seller_funded_total` is TikTok's `SKU Seller Discount` summed across the order (NOT `SKU Platform Discount` — that one is TikTok-funded and never split).
+- `eligible_base` is the order's gross price basis used for discount % calculations — i.e. `Order.gross_sales` (sum of `SKU Subtotal Before Discount`).
+- `cap_pct` defaults to `OUTLANDISH_CAP_PCT` (0.10). Fixed today; can be made per-period or per-SKU later.
+
+Canonical example: base $100, seller-funded total $25, cap 10% → cap = $10, Outlandish = min($25, $10) = $10, Smashbox = $25 − $10 = $15.
 
 ## Order taxonomy
 
