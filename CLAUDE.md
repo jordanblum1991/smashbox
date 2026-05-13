@@ -59,6 +59,8 @@ Default split ratio is `SELLER_FUNDED_OUTLANDISH_SHARE` from `.env` (currently 0
 
 `Order.order_type` (`OrderType` enum): `PAID` / `SAMPLE` / `PAID_SAMPLE`. The P&L includes `PAID` only. `SAMPLE` and `PAID_SAMPLE` feed the sample-tracking report. Free samples count against `FREE_SAMPLE_MONTHLY_ALLOWANCE`; anything over becomes paid oversampling.
 
+**Sample-detection rule (confirmed 2026-05-13):** a TikTok orders row is a sample iff its order-level gross sales (`SKU Subtotal Before Discount` summed across lines) is `$0`. The TikTok orders importer applies this; the samples table is reserved for samples that did NOT ship through TikTok Shop. The sample-tracking report unions both sources.
+
 `Order.unit_cogs_snapshot` is captured at import time so historical reports don't shift when the SKU master is edited later. If the snapshot is zero (legacy row) the report falls back to current `Sku.unit_cogs`.
 
 ## Money
