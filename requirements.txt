@@ -1,0 +1,20 @@
+# Python 3.14 compatibility note: many libs only ship 3.14 wheels in their latest
+# minor versions, so most pins are lower-bounds rather than equality.
+
+fastapi>=0.115
+uvicorn[standard]>=0.32
+jinja2>=3.1
+python-multipart>=0.0.18
+sqlalchemy>=2.0.36
+alembic>=1.14
+pydantic>=2.13
+pydantic-settings>=2.6
+pandas>=3.0.0
+openpyxl>=3.1
+xlsxwriter>=3.2
+python-dateutil>=2.9
+
+# dev
+pytest>=8.3
+pytest-cov>=6.0
+httpx>=0.28

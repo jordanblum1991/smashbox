@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}YTD P&L · Smashbox{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between">
+  <h1 class="text-2xl font-semibold tracking-tight">YTD P&amp;L · {{ year }}</h1>
+  <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
+</div>
+
+<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+  <table class="min-w-full text-sm">
+    <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-4 py-2">Line</th>
+        {% for m in ytd.months %}<th class="px-3 py-2 text-right">{{ "%02d" % m.month.month }}</th>{% endfor %}
+        <th class="px-4 py-2 text-right">YTD</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% set lines = [
+        ("Gross sales", "gross_sales"),
+        ("Refunds", "refunds"),
+        ("Seller-funded total", "seller_funded_total"),
+        ("Net sales", "net_sales"),
+        ("COGS", "cogs"),
+        ("Gross profit", "gross_profit"),
+        ("TikTok fees", "tiktok_fees"),
+        ("Affiliate commission", "affiliate_commission"),
+        ("Shop ads", "shop_ads_cost"),
+        ("Net profit", "net_profit"),
+      ] %}
+      {% for label, attr in lines %}
+      <tr class="{% if attr in ['net_sales','gross_profit','net_profit'] %}font-semibold bg-slate-50/40{% endif %}">
+        <td class="px-4 py-2">{{ label }}</td>
+        {% for m in ytd.months %}
+        <td class="px-3 py-2 text-right">{{ m[attr] | money }}</td>
+        {% endfor %}
+        <td class="px-4 py-2 text-right">{{ ytd.total[attr] | money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

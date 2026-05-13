@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# App data
+data/*.db
+data/*.db-journal
+uploads/*
+!uploads/.gitkeep
+exports/*
+!exports/.gitkeep
+
+# Env
+.env
+.env.local
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

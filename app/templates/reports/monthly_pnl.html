@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Monthly P&L · Smashbox{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">Monthly P&amp;L</h1>
+    <p class="text-sm text-slate-500">Smashbox TikTok Shop · {{ "%04d-%02d" % (year, month) }}</p>
+  </div>
+  <div class="flex gap-2 print:hidden">
+    <a href="/export/monthly-pnl.xlsx?year={{ year }}&month={{ month }}"
+       class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">
+      Export Excel
+    </a>
+    <button onclick="window.print()"
+       class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">
+      Print
+    </button>
+  </div>
+</div>
+
+<div class="rounded-lg border border-slate-200 bg-white p-6 print:border-0 print:p-0">
+  <table class="w-full text-sm">
+    <tbody class="divide-y divide-slate-100">
+      {% macro row(label, value, bold=false, indent=false, accent=none) %}
+      <tr class="{% if bold %}font-semibold{% endif %}">
+        <td class="py-2 {% if indent %}pl-6 text-slate-600{% endif %}">{{ label }}</td>
+        <td class="py-2 text-right {% if accent == 'pos' %}text-emerald-700{% elif accent == 'neg' %}text-rose-700{% endif %}">
+          {{ value | money }}
+        </td>
+      </tr>
+      {% endmacro %}
+
+      {{ row("Gross sales", pnl.gross_sales) }}
+      {{ row("Refunds", -pnl.refunds) }}
+      {{ row("Seller-funded discount", -pnl.seller_funded_total) }}
+      {{ row("Outlandish-funded", -pnl.seller_funded_outlandish, indent=true) }}
+      {{ row("Smashbox-funded", -pnl.seller_funded_smashbox, indent=true) }}
+      {{ row("Net sales", pnl.net_sales, bold=true) }}
+
+      {{ row("COGS", -pnl.cogs) }}
+      {{ row("Gross profit", pnl.gross_profit, bold=true, accent="pos" if pnl.gross_profit >= 0 else "neg") }}
+
+      {{ row("TikTok fees", -pnl.tiktok_fees) }}
+      {{ row("Affiliate commission", -pnl.affiliate_commission) }}
+      {{ row("Shop ads", -pnl.shop_ads_cost) }}
+      {{ row("Shipping revenue", pnl.shipping_revenue) }}
+      {{ row("Shipping cost", -pnl.shipping_cost) }}
+
+      <tr class="border-t-2 border-slate-300 text-base font-semibold">
+        <td class="py-3">Net profit</td>
+        <td class="py-3 text-right {% if pnl.net_profit >= 0 %}text-emerald-700{% else %}text-rose-700{% endif %}">
+          {{ pnl.net_profit | money }}
+        </td>
+      </tr>
+      <tr class="text-slate-500">
+        <td class="py-1 text-xs">Gross margin</td>
+        <td class="py-1 text-right text-xs">{{ pnl.gross_margin | pct }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
