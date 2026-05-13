@@ -10,8 +10,9 @@ Quirks of the real export:
   collapses lines back onto a single Order.
 - `Seller SKU` is empty for some bundle-parent rows; we fall back to `SKU ID`
   and finally ` Virtual Bundle Seller SKU` (note the leading space).
-- There is NO "free sample" flag in this file. Samples come in via a separate
-  samples import. Everything here is treated as a PAID order.
+- There is NO "free sample" flag in this file. Sample detection rule:
+  if the order's total `SKU Subtotal Before Discount` is $0, it's a SAMPLE.
+  This is the business rule confirmed 2026-05-13.
 - `SKU Seller Discount` is the seller-funded portion we split between
   Outlandish and Smashbox. `SKU Platform Discount` is TikTok's promo and is
   NOT seller-funded.
@@ -97,12 +98,13 @@ def _build_order(tiktok_order_id: str, group: pd.DataFrame, batch: ImportBatch) 
     order_refund = _max_decimal(group, HEADER_MAP["order_refund_amount"])
 
     split = split_seller_funded_discount(line_seller_disc)
+    order_type = OrderType.SAMPLE if line_gross == Decimal("0") else OrderType.PAID
 
     order = Order(
         import_batch_id=batch.id,
         tiktok_order_id=tiktok_order_id,
         placed_at=_parse_ts(first[HEADER_MAP["placed_at"]]),
-        order_type=OrderType.PAID,  # samples come from a separate import
+        order_type=order_type,
         status=str(first.get(HEADER_MAP["status"], "unknown") or "unknown"),
         brand=settings.default_brand,
         gross_sales=line_gross,
