@@ -56,7 +56,8 @@ class TikTokOrdersImporter(BaseImporter):
 
         for tiktok_order_id, group in df.groupby(HEADER_MAP["tiktok_order_id"], sort=False):
             try:
-                order = _build_order(str(tiktok_order_id), group, batch)
+                clean_id = str(tiktok_order_id).strip().rstrip("\t").strip()
+                order = _build_order(clean_id, group, batch)
                 db.add(order)
                 result.rows_imported += 1
             except Exception as exc:  # noqa: BLE001

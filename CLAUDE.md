@@ -63,6 +63,22 @@ Default split ratio is `SELLER_FUNDED_OUTLANDISH_SHARE` from `.env` (currently 0
 
 `Order.unit_cogs_snapshot` is captured at import time so historical reports don't shift when the SKU master is edited later. If the snapshot is zero (legacy row) the report falls back to current `Sku.unit_cogs`.
 
+## Settlement file is the financial source of truth
+
+The TikTok orders export (`All order-*.csv`) tells us *what was ordered*. The settlement export (`merchant_statement_profit_loss_*.xlsx`, `Orders` sheet, header on row 5) tells us *what TikTok actually paid us and what the fees were*. The settlement importer **back-fills the matching Order row** with `tiktok_fees`, `affiliate_commission`, `shop_ads_cost`, `shipping_cost`, and `refunds` — so the P&L reads a single source (Order.*) instead of joining at query time.
+
+When the settlement file is present, its `Sample order type` column overrides the gross_sales==0 sample heuristic — settlement is authoritative.
+
+TikTok reports costs as NEGATIVE numbers and inflows as POSITIVE. We store costs as POSITIVE magnitudes on `Order.*` so the P&L renderer can subtract them directly. The `_pos` helper in the settlement importer enforces this.
+
+### Quirks of the real exports (lock these in when adding more importers)
+
+- TikTok orders CSV: `Order ID` and timestamps have a **trailing `\t`** — strip on ingest.
+- Settlement workbook: header rows are NOT at the top. `Orders` sheet → header on row 5, `Adjustment` sheet → header on row 3.
+- Settlement `Adjustment ID` is **not unique** — TikTok pairs `Net earnings balance` (+) and `Net earnings deduction` (−) under the same ID. No uniqueness constraint.
+- The Adjustment sheet has a typo header: `llinked payout id` (double-`l`).
+- Settlement dates are integers like `20260421` (YYYYMMDD), not ISO strings.
+
 ## Money
 
 Always `Decimal`, never `float`. `Numeric(14, 2)` in the ORM; quantize to `0.01` when persisting. The `money` Jinja filter (`app/templating.py`) formats Decimals for display.

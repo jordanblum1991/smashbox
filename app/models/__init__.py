@@ -4,10 +4,11 @@ from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKi
 from app.models.order import Order, OrderLine, OrderType
 from app.models.payout import Payout
 from app.models.sample import Sample
-from app.models.settlement import Settlement
+from app.models.settlement import Adjustment, Settlement
 from app.models.sku import Sku
 
 __all__ = [
+    "Adjustment",
     "Bundle",
     "BundleComponent",
     "ImportBatch",

@@ -43,9 +43,8 @@ def reconcile_month(db: Session, year: int, month: int) -> list[ReconciliationLi
     ).scalar() or 0
 
     tiktok_sales = db.execute(
-        select(func.coalesce(func.sum(Settlement.amount), 0))
-        .where(Settlement.settled_at >= start, Settlement.settled_at < end)
-        .where(Settlement.event_type == "sale")
+        select(func.coalesce(func.sum(Settlement.gross_sales), 0))
+        .where(Settlement.paid_date >= start, Settlement.paid_date < end)
     ).scalar() or 0
 
     derived_sf = db.execute(
