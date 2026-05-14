@@ -1,30 +1,122 @@
 {% extends "base.html" %}
-{% block title %}Samples · Smashbox{% endblock %}
+{% block title %}{{ view.title }} · Smashbox{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex items-end justify-between">
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight">Sample tracking</h1>
-    <p class="text-sm text-slate-500">{{ month_label(year, month) }} · brand: {{ usage.brand }}</p>
+    <h1 class="text-2xl font-semibold tracking-tight">{{ view.title }}</h1>
+    <p class="text-sm text-slate-500">Brand: {{ view.brand }} · {{ view.start.strftime("%Y-%m-%d") }} → {{ view.end.strftime("%Y-%m-%d") }} (end exclusive)</p>
   </div>
   <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
 </div>
 
-<!-- Headline tiles: actual activity, no allowance comparison -->
+<!-- Period selector -->
+{% set kind = view.period_kind.value %}
+{% set sy = view.start.year %}
+{% set sm = view.start.month %}
+{# inferred end month for display defaults: the last actually-included month #}
+{% set inclusive_end = view.end.replace(day=1) %}
+{% set ey = (inclusive_end.year if inclusive_end.month != 1 else inclusive_end.year - 1) %}
+{% set em = (inclusive_end.month - 1 if inclusive_end.month != 1 else 12) %}
+
+<form method="get" action="/reports/samples"
+      class="mb-6 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
+  <div class="flex flex-wrap items-end gap-3 text-sm">
+    <div>
+      <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">View</label>
+      <select name="period" onchange="this.form.submit()"
+              class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+        <option value="month" {% if kind == "month" %}selected{% endif %}>Single month</option>
+        <option value="ytd"   {% if kind == "ytd"   %}selected{% endif %}>YTD through month</option>
+        <option value="range" {% if kind == "range" %}selected{% endif %}>Custom range</option>
+      </select>
+    </div>
+
+    {# Single-month / YTD: use one (year, month) pair #}
+    <div class="{% if kind == 'range' %}hidden{% endif %} flex flex-wrap items-end gap-3">
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Year</label>
+        <select name="year" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for y in range(2024, 2031) %}
+          <option value="{{ y }}" {% if y == sy %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">
+          {% if kind == "ytd" %}Through month{% else %}Month{% endif %}
+        </label>
+        <select name="month" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for mm in range(1, 13) %}
+          <option value="{{ mm }}" {% if mm == em %}selected{% endif %}>{{ mm | month_short }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {# Custom range: two (year, month) pairs #}
+    <div class="{% if kind != 'range' %}hidden{% endif %} flex flex-wrap items-end gap-3">
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Start year</label>
+        <select name="start_year" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for y in range(2024, 2031) %}
+          <option value="{{ y }}" {% if y == sy %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Start month</label>
+        <select name="start_month" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for mm in range(1, 13) %}
+          <option value="{{ mm }}" {% if mm == sm %}selected{% endif %}>{{ mm | month_short }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">End year</label>
+        <select name="end_year" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for y in range(2024, 2031) %}
+          <option value="{{ y }}" {% if y == ey %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">End month</label>
+        <select name="end_month" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for mm in range(1, 13) %}
+          <option value="{{ mm }}" {% if mm == em %}selected{% endif %}>{{ mm | month_short }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <noscript>
+      <button type="submit" class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">Apply</button>
+    </noscript>
+  </div>
+</form>
+
+<!-- Headline tiles -->
 <section class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
   <div class="rounded-lg border border-slate-200 bg-white p-5">
     <div class="text-xs uppercase tracking-wider text-slate-500">Total Samples Shipped</div>
-    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ usage.total_units_shipped }}</div>
-    <p class="mt-1 text-xs text-slate-500">{{ usage.sample_orders | length }} sample orders</p>
+    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ view.total_units_shipped }}</div>
+    <p class="mt-1 text-xs text-slate-500">{{ view.sample_orders | length }} sample order line{{ "" if view.sample_orders | length == 1 else "s" }}</p>
   </div>
   <div class="rounded-lg border border-slate-200 bg-white p-5">
     <div class="text-xs uppercase tracking-wider text-slate-500">Free</div>
-    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ usage.free_units_shipped }}</div>
+    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ view.free_units_shipped }}</div>
     <p class="mt-1 text-xs text-slate-500">Order type = SAMPLE (TikTok $0 free samples)</p>
   </div>
   <div class="rounded-lg border border-slate-200 bg-white p-5">
     <div class="text-xs uppercase tracking-wider text-slate-500">Paid (explicit)</div>
-    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ usage.explicit_paid_units_shipped }}</div>
+    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ view.explicit_paid_units_shipped }}</div>
     <p class="mt-1 text-xs text-slate-500">Order type = PAID_SAMPLE (only when TikTok flags it)</p>
   </div>
 </section>
@@ -34,12 +126,11 @@
   split above reflects only TikTok's own classification on each order — it is informational.
 </p>
 
-<!-- Status breakdown -->
-{% if usage.status_counts %}
+{% if view.status_counts %}
 <section class="mb-6 rounded-lg border border-slate-200 bg-white p-5">
   <h2 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Sample order status</h2>
   <div class="flex flex-wrap gap-2 text-sm">
-    {% for status, count in usage.status_counts.items() %}
+    {% for status, count in view.status_counts.items() %}
     <span class="rounded-md border border-slate-200 bg-slate-50 px-3 py-1">
       <span class="text-slate-500">{{ status }}:</span> <strong>{{ count }}</strong>
     </span>
@@ -48,7 +139,6 @@
 </section>
 {% endif %}
 
-<!-- SKU activity: samples sent vs units sold -->
 <section class="mb-6 rounded-lg border border-slate-200 bg-white">
   <h2 class="border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
     Samples vs sales by SKU
@@ -64,7 +154,7 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100">
-        {% for r in by_sku %}
+        {% for r in view.by_sku %}
         <tr>
           <td class="px-4 py-2 font-mono text-xs">{{ r.sku }}</td>
           <td class="px-4 py-2 text-right">{{ r.samples_sent }}</td>
@@ -72,20 +162,19 @@
           <td class="px-4 py-2 text-right">{{ "%.2f" % r.ratio }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No samples or sales in this month.</td></tr>
+        <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No samples or sales in this period.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
 
-<!-- Drilldown: every sample order line in this month -->
 <details class="rounded-lg border border-slate-200 bg-white print:hidden">
   <summary class="cursor-pointer px-5 py-3 text-sm font-medium">
     Sample order drill-down
-    <span class="ml-2 text-slate-500">({{ usage.sample_orders | length }} line{{ "" if usage.sample_orders | length == 1 else "s" }})</span>
+    <span class="ml-2 text-slate-500">({{ view.sample_orders | length }} line{{ "" if view.sample_orders | length == 1 else "s" }})</span>
   </summary>
-  {% if usage.sample_orders %}
+  {% if view.sample_orders %}
   <div class="overflow-x-auto">
     <table class="min-w-full text-sm">
       <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
@@ -99,7 +188,7 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100">
-        {% for r in usage.sample_orders[:300] %}
+        {% for r in view.sample_orders[:300] %}
         <tr>
           <td class="px-4 py-2 text-slate-600">{{ r.placed_at.strftime("%Y-%m-%d") }}</td>
           <td class="px-4 py-2 font-mono text-xs">{{ r.tiktok_order_id }}</td>
@@ -117,12 +206,12 @@
         {% endfor %}
       </tbody>
     </table>
-    {% if usage.sample_orders | length > 300 %}
-    <p class="px-4 py-2 text-xs text-slate-500">Showing first 300 of {{ usage.sample_orders | length }}.</p>
+    {% if view.sample_orders | length > 300 %}
+    <p class="px-4 py-2 text-xs text-slate-500">Showing first 300 of {{ view.sample_orders | length }}.</p>
     {% endif %}
   </div>
   {% else %}
-  <p class="px-5 py-3 text-sm text-slate-500">No sample orders in this month.</p>
+  <p class="px-5 py-3 text-sm text-slate-500">No sample orders in this period.</p>
   {% endif %}
 </details>
 {% endblock %}

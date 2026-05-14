@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.import_batch import ImportBatch
 from app.reports.monthly_pnl import compute_monthly_pnl
-from app.reports.sample_tracking import monthly_sample_usage
 from app.reports.settlement_only_orders import count_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.templating import templates
@@ -19,7 +18,6 @@ router = APIRouter(tags=["dashboard"])
 def home(request: Request, db: Session = Depends(get_db)):
     today = date.today()
     pnl = compute_monthly_pnl(db, today.year, today.month)
-    samples = monthly_sample_usage(db, today.year, today.month)
     unmapped = find_unmapped_skus(db)
     orphan_orders = count_settlement_only_orders(db)
     recent = (
@@ -33,7 +31,6 @@ def home(request: Request, db: Session = Depends(get_db)):
         "dashboard.html",
         {
             "pnl": pnl,
-            "samples": samples,
             "unmapped_count": len(unmapped),
             "orphan_count": orphan_orders,
             "recent": recent,

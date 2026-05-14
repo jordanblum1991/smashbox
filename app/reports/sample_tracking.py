@@ -5,26 +5,28 @@ against an allowance, does NOT compute "over-allowance" amounts, and does NOT
 treat any unit as a "paid oversample" based on volume. Every shipped sample is
 just a shipped sample.
 
-What we report instead:
-  - Total samples shipped (count of units).
+What we report:
+  - Total samples shipped (count of units) over the selected date range.
   - Free vs. explicit-paid breakdown: TikTok's own classification — `SAMPLE`
-    when the order is a $0 free creator sample, `PAID_SAMPLE` only if TikTok's
-    settlement file explicitly says so (rare; informational only).
-  - Status breakdown: how many shipped/delivered/cancelled/etc.
+    when the order is a $0 free creator sample, `PAID_SAMPLE` only when TikTok
+    flags it that way (informational only).
+  - Status breakdown across all sample orders in the range.
   - Samples sent vs units sold by SKU.
-  - Drill-down list of sample orders.
+  - Drill-down list of sample-order lines.
 
-Sources of shipped samples:
-  1. Manually-entered rows in the `samples` table (samples NOT sent through
-     TikTok Shop).
-  2. Orders with `order_type == SAMPLE` (free sample placed via TikTok Shop,
-     identified at import by gross_sales == $0).
-  3. Orders with `order_type == PAID_SAMPLE` (explicit billed oversamples — rare;
-     only set when TikTok's "Sample order type" column says so).
+Period selection:
+  - Single month       (start = first day of M, end = first day of M+1)
+  - YTD through month  (start = Jan 1 of Y, end = first day of M+1)
+  - Custom range       (start = first day of start_month, end = first day after end_month)
+
+All three modes funnel through one `compute_sample_view()` that operates on a
+half-open [start, end) datetime window. No double-counting: every order is
+placed at exactly one timestamp and falls into exactly one window.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,6 +34,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
+from app.templating import month_label
+
+
+class SamplePeriodKind(str, Enum):
+    MONTH = "month"
+    YTD = "ytd"
+    RANGE = "range"
 
 
 @dataclass
@@ -41,23 +50,7 @@ class SampleOrderRow:
     sku: str
     quantity: int
     status: str
-    is_paid: bool         # True if TikTok flagged the order as PAID_SAMPLE
-
-
-@dataclass
-class MonthlySampleUsage:
-    year: int
-    month: int
-    brand: str
-
-    free_units_shipped: int             # SAMPLE order_type + Sample table rows
-    explicit_paid_units_shipped: int    # PAID_SAMPLE order_type + paid Sample rows
-    status_counts: dict[str, int] = field(default_factory=dict)
-    sample_orders: list[SampleOrderRow] = field(default_factory=list)
-
-    @property
-    def total_units_shipped(self) -> int:
-        return self.free_units_shipped + self.explicit_paid_units_shipped
+    is_paid: bool
 
 
 @dataclass
@@ -73,18 +66,98 @@ class SampleVsSalesRow:
         return Decimal(self.units_sold) / Decimal(self.samples_sent)
 
 
-def _month_window(year: int, month: int) -> tuple[datetime, datetime]:
-    start = datetime(year, month, 1)
-    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
-    return start, end
+@dataclass
+class SampleView:
+    brand: str
+    period_kind: SamplePeriodKind
+    title_suffix: str          # "May 2026" / "YTD through May 2026" / "March 2026 – May 2026"
+    start: datetime
+    end: datetime              # half-open
+
+    free_units_shipped: int
+    explicit_paid_units_shipped: int
+    status_counts: dict[str, int] = field(default_factory=dict)
+    sample_orders: list[SampleOrderRow] = field(default_factory=list)
+    by_sku: list[SampleVsSalesRow] = field(default_factory=list)
+
+    @property
+    def total_units_shipped(self) -> int:
+        return self.free_units_shipped + self.explicit_paid_units_shipped
+
+    @property
+    def title(self) -> str:
+        return f"Sample Tracking: {self.title_suffix}"
 
 
-def monthly_sample_usage(
-    db: Session, year: int, month: int, brand: str | None = None
-) -> MonthlySampleUsage:
+# ---- Period -> window resolver --------------------------------------------
+
+def _first_of_next_month(y: int, m: int) -> datetime:
+    return datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)
+
+
+def resolve_period(
+    period: SamplePeriodKind,
+    year: int | None,
+    month: int | None,
+    start_year: int | None,
+    start_month: int | None,
+    end_year: int | None,
+    end_month: int | None,
+    *,
+    today: datetime | None = None,
+) -> tuple[datetime, datetime, str]:
+    """Return (start, end, title_suffix). End is exclusive (first of next month)."""
+    now = today or datetime.now()
+    y = year or now.year
+    m = month or now.month
+
+    if period == SamplePeriodKind.MONTH:
+        start = datetime(y, m, 1)
+        end = _first_of_next_month(y, m)
+        return start, end, month_label(y, m)
+
+    if period == SamplePeriodKind.YTD:
+        start = datetime(y, 1, 1)
+        end = _first_of_next_month(y, m)
+        return start, end, f"YTD through {month_label(y, m)}"
+
+    # RANGE — fall back to single-month-of-now if any field missing
+    sy = start_year or y
+    sm = start_month or m
+    ey = end_year or y
+    em = end_month or m
+    # Allow user to pick end < start by silently swapping (less surprising than 500ing).
+    if (ey, em) < (sy, sm):
+        sy, sm, ey, em = ey, em, sy, sm
+    start = datetime(sy, sm, 1)
+    end = _first_of_next_month(ey, em)
+    if (sy, sm) == (ey, em):
+        suffix = month_label(sy, sm)
+    else:
+        suffix = f"{month_label(sy, sm)} – {month_label(ey, em)}"
+    return start, end, suffix
+
+
+# ---- Main computation -----------------------------------------------------
+
+def compute_sample_view(
+    db: Session,
+    period: SamplePeriodKind,
+    *,
+    year: int | None = None,
+    month: int | None = None,
+    start_year: int | None = None,
+    start_month: int | None = None,
+    end_year: int | None = None,
+    end_month: int | None = None,
+    brand: str | None = None,
+) -> SampleView:
     brand = brand or settings.default_brand
-    start, end = _month_window(year, month)
+    start, end, suffix = resolve_period(
+        period, year, month, start_year, start_month, end_year, end_month
+    )
 
+    # 1. Manually-recorded samples
     free_units_table = db.execute(
         select(func.coalesce(func.sum(Sample.quantity), 0))
         .where(Sample.shipped_at >= start, Sample.shipped_at < end)
@@ -97,6 +170,7 @@ def monthly_sample_usage(
         .where(Sample.is_paid_oversample.is_(True))
     ).scalar() or 0
 
+    # 2. TikTok $0 free-sample orders
     free_units_orders = db.execute(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
@@ -104,6 +178,7 @@ def monthly_sample_usage(
         .where(Order.order_type == OrderType.SAMPLE)
     ).scalar() or 0
 
+    # 3. Explicit paid-sample orders
     paid_units_orders = db.execute(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
@@ -111,7 +186,6 @@ def monthly_sample_usage(
         .where(Order.order_type == OrderType.PAID_SAMPLE)
     ).scalar() or 0
 
-    # Status breakdown across sample-type orders in the window.
     status_rows = db.execute(
         select(Order.status, func.count(Order.id))
         .where(Order.placed_at >= start, Order.placed_at < end)
@@ -121,7 +195,6 @@ def monthly_sample_usage(
     ).all()
     status_counts = {(row[0] or "unknown"): int(row[1]) for row in status_rows}
 
-    # Drill-down: one row per OrderLine of a sample order, latest first.
     drill_rows = db.execute(
         select(Order.placed_at, Order.tiktok_order_id, OrderLine.sku,
                OrderLine.quantity, Order.status, Order.order_type)
@@ -142,18 +215,29 @@ def monthly_sample_usage(
         for r in drill_rows
     ]
 
-    return MonthlySampleUsage(
-        year=year,
-        month=month,
+    by_sku = samples_vs_sales_by_sku(db, start, end)
+
+    return SampleView(
         brand=brand,
+        period_kind=period,
+        title_suffix=suffix,
+        start=start,
+        end=end,
         free_units_shipped=int(free_units_table) + int(free_units_orders),
         explicit_paid_units_shipped=int(paid_units_table) + int(paid_units_orders),
         status_counts=status_counts,
         sample_orders=sample_orders,
+        by_sku=by_sku,
     )
 
 
 def samples_vs_sales_by_sku(db: Session, start: datetime, end: datetime) -> list[SampleVsSalesRow]:
+    """Aggregate samples sent + units sold per SKU across [start, end).
+
+    GROUP BY OrderLine.sku ensures each (order, SKU) line contributes exactly
+    once — no double counting even when an order has multiple line items or
+    when the same SKU appears across many orders in the window.
+    """
     samples_table = dict(
         db.execute(
             select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))

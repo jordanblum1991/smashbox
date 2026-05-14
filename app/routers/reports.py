@@ -14,8 +14,8 @@ from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
 from app.reports.reconciliation import reconcile_month
 from app.reports.sample_tracking import (
-    monthly_sample_usage,
-    samples_vs_sales_by_sku,
+    SamplePeriodKind,
+    compute_sample_view,
 )
 from app.reports.sku_profitability import compute_sku_profitability
 from app.reports.settlement_only_orders import find_settlement_only_orders
@@ -88,19 +88,26 @@ def sku_profitability_view(
 @router.get("/reports/samples")
 def samples_view(
     request: Request,
+    period: SamplePeriodKind = SamplePeriodKind.MONTH,
     year: int | None = None,
     month: int | None = None,
+    start_year: int | None = None,
+    start_month: int | None = None,
+    end_year: int | None = None,
+    end_month: int | None = None,
     db: Session = Depends(get_db),
 ):
-    y, m = _ym(year, month)
-    usage = monthly_sample_usage(db, y, m)
-    start = datetime(y, m, 1)
-    end = datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)
-    by_sku = samples_vs_sales_by_sku(db, start, end)
+    view = compute_sample_view(
+        db,
+        period,
+        year=year, month=month,
+        start_year=start_year, start_month=start_month,
+        end_year=end_year, end_month=end_month,
+    )
     return templates.TemplateResponse(
         request,
         "reports/sample_tracking.html",
-        {"usage": usage, "by_sku": by_sku, "year": y, "month": m},
+        {"view": view, "SamplePeriodKind": SamplePeriodKind},
     )
 
 
