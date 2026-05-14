@@ -110,6 +110,14 @@ Use `violates_policy_cap(total, eligible_base, policy_cap_pct=None)` from `app/r
 
 `Order.unit_cogs_snapshot` is captured at import time so historical reports don't shift when the SKU master is edited later. If the snapshot is zero (legacy row) the report falls back to current `Sku.unit_cogs`.
 
+## Settlement and adjustment imports are idempotent
+
+`Settlement` has `UNIQUE (tiktok_order_id, linked_statement_id)`. The importer groups Orders-sheet rows by that pair before building each Settlement (sums money columns, takes non-money fields from the first row). Original per-line payloads are preserved under `Settlement.raw_payload['lines']`.
+
+`Adjustment` has `UNIQUE (adjustment_id, adjustment_type, create_time)` — TikTok pairs balance/deduction rows under the same `adjustment_id`, so all three columns are needed to disambiguate.
+
+Both importers upsert on those natural keys (query existing, update fields if found, insert otherwise), so re-uploading the same settlement file is a no-op: row counts and money totals stay identical.
+
 ## Settlement file is the financial source of truth
 
 The TikTok orders export (`All order-*.csv`) tells us *what was ordered*. The settlement export (`merchant_statement_profit_loss_*.xlsx`, `Orders` sheet, header on row 5) tells us *what TikTok actually paid us and what the fees were*. The settlement importer **back-fills the matching Order row** with `tiktok_fees`, `affiliate_commission`, `shop_ads_cost`, `shipping_cost`, and `refunds` — so the P&L reads a single source (Order.*) instead of joining at query time.

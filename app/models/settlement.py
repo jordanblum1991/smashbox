@@ -11,7 +11,7 @@ or schema additions don't require re-importing.
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -19,7 +19,13 @@ from app.db import Base
 
 class Settlement(Base):
     __tablename__ = "settlements"
-    __table_args__ = ({"sqlite_autoincrement": True},)
+    __table_args__ = (
+        # Natural key for idempotent upsert: one settlement row per (order, statement).
+        # An order can legitimately appear in multiple statements over time (e.g.
+        # original sale + later refund) but only once per statement.
+        UniqueConstraint("tiktok_order_id", "linked_statement_id", name="uq_settlement_order_statement"),
+        {"sqlite_autoincrement": True},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
@@ -55,12 +61,19 @@ class Adjustment(Base):
     """Settlement-level adjustments (logistics reimbursements, bill payments, etc).
     Not tied to a single order — booked at the statement level."""
     __tablename__ = "adjustments"
+    __table_args__ = (
+        # Natural key for idempotent upsert. adjustment_id alone is NOT unique
+        # — TikTok reuses the same ID for paired balance/deduction rows that
+        # net to zero. Adding adjustment_type distinguishes the pair.
+        UniqueConstraint(
+            "adjustment_id", "adjustment_type", "create_time",
+            name="uq_adjustment_natural_key",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
 
-    # Not unique: TikTok reuses the same Adjustment ID for paired
-    # balance/deduction rows that net to zero.
     adjustment_id: Mapped[str] = mapped_column(String(64), index=True)
     adjustment_type: Mapped[str] = mapped_column(String(128), index=True)
     reason: Mapped[str | None] = mapped_column(String(256), nullable=True)

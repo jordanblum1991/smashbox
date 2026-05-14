@@ -10,14 +10,21 @@ The workbook has three sheets:
   - "Order payment info" — per-payment breakdown. Not consumed in v1.
 
 What this importer does:
-  1. Writes one Settlement row per Orders-sheet row (raw_payload preserves
-     every column verbatim).
-  2. Back-fills the matching Order row's `tiktok_fees`, `affiliate_commission`,
-     `shop_ads_cost`, `shipping_cost`, and `refunds` so the P&L can pull from
-     a single source (Order.*).
-  3. Promotes `Sample order type == "free sample from seller"` to authoritative
-     — overrides the gross_sales==0 heuristic from the orders-file importer.
-  4. Writes one Adjustment row per Adjustment-sheet row.
+  1. Groups the Orders sheet by (Order ID, linked statement id) — the sheet
+     has one row per SKU-line within an order, so multi-SKU orders appear
+     multiple times. Money columns are summed across the group.
+  2. Upserts one Settlement row per (order, statement) — idempotent on
+     re-upload. Original per-line payloads are preserved under
+     `raw_payload['lines']` for drill-down.
+  3. Back-fills the matching Order row's `tiktok_fees`,
+     `affiliate_commission`, `shop_ads_cost`, `shipping_cost`, and `refunds`
+     so the P&L can pull from a single source (Order.*).
+  4. Promotes `Sample order type == "free sample from seller"` to
+     authoritative — overrides the gross_sales==0 heuristic from the
+     orders-file importer.
+  5. Upserts Adjustment rows by (adjustment_id, adjustment_type, create_time)
+     — TikTok pairs balance/deduction rows under the same adjustment_id, so
+     all three columns are needed to disambiguate the pair.
 
 Cost conventions
 ----------------
@@ -110,17 +117,21 @@ class TikTokSettlementsImporter(BaseImporter):
         except ValueError as exc:
             raise ValueError(f"could not read Orders sheet: {exc}") from exc
 
-        for _, row in orders_df.iterrows():
-            order_id = _str(row.get(COL["order_id"]))
-            if not order_id:
+        # The settlement file has one row per (order, line). Aggregate up to
+        # (order_id, linked_statement_id) so the natural-key uniqueness holds
+        # and the money columns aren't silently overwritten line-by-line.
+        for (order_id, statement_id), group in orders_df.groupby(
+            [COL["order_id"], COL["linked_statement_id"]], dropna=False, sort=False
+        ):
+            oid = _str(order_id)
+            if not oid:
                 continue
             try:
-                s = _build_settlement(order_id, row, batch)
-                db.add(s)
-                _backfill_order(db, order_id, s)
+                s = _upsert_settlement(db, oid, group, batch)
+                _backfill_order(db, oid, s)
                 result.rows_imported += 1
             except Exception as exc:  # noqa: BLE001
-                result.skip(f"settlement order {order_id}: {exc}")
+                result.skip(f"settlement order {oid}: {exc}")
 
         # Adjustments are optional — sheet may be empty.
         try:
@@ -132,7 +143,7 @@ class TikTokSettlementsImporter(BaseImporter):
                 if not aid:
                     continue
                 try:
-                    db.add(_build_adjustment(aid, row, batch))
+                    _upsert_adjustment(db, aid, row, batch)
                     result.rows_imported += 1
                 except Exception as exc:  # noqa: BLE001
                     result.skip(f"adjustment {aid}: {exc}")
@@ -142,65 +153,127 @@ class TikTokSettlementsImporter(BaseImporter):
         return result
 
 
-def _build_settlement(order_id: str, row: pd.Series, batch: ImportBatch) -> Settlement:
+def _settlement_payload(order_id: str, group: pd.DataFrame, batch: ImportBatch) -> dict:
+    """Aggregate per-line rows of one (order, statement) into a single payload.
+
+    Money columns are summed across the group; date / status / sample-type
+    fields are taken from the first row (they don't vary within an order).
+    """
+    first = group.iloc[0]
+
+    def s_pos(key: str) -> "Decimal":  # noqa: F821 — Decimal imported at top
+        return sum((_pos(r, key) for _, r in group.iterrows()), Decimal("0"))
+
+    def s_dec(col: str) -> "Decimal":
+        return sum((_dec(r.get(col)) for _, r in group.iterrows()), Decimal("0"))
+
     fees = (
-        _pos(row, "referral_fee")
-        + _pos(row, "transaction_fee")
-        + _pos(row, "refund_admin_fee")
-        + _pos(row, "sales_tax_on_referral")
-        + _pos(row, "smart_promo_fee")
-        + _pos(row, "smart_promo_fee_tax")
-        + _pos(row, "campaign_resource_fee")
-        + _pos(row, "campaign_service_fee")
-        + _pos(row, "tiktok_shop_partner_commission")
-        + _pos(row, "managed_service_per_order")
-        + _pos(row, "managed_service_sales_tax")
+        s_pos("referral_fee")
+        + s_pos("transaction_fee")
+        + s_pos("refund_admin_fee")
+        + s_pos("sales_tax_on_referral")
+        + s_pos("smart_promo_fee")
+        + s_pos("smart_promo_fee_tax")
+        + s_pos("campaign_resource_fee")
+        + s_pos("campaign_service_fee")
+        + s_pos("tiktok_shop_partner_commission")
+        + s_pos("managed_service_per_order")
+        + s_pos("managed_service_sales_tax")
     )
     affiliate = (
-        _pos(row, "affiliate_commission")
-        + _pos(row, "affiliate_partner_commission")
-        + _pos(row, "affiliate_commission_deposit")
-        - _pos(row, "affiliate_commission_refund")
+        s_pos("affiliate_commission")
+        + s_pos("affiliate_partner_commission")
+        + s_pos("affiliate_commission_deposit")
+        - s_pos("affiliate_commission_refund")
     )
-    shop_ads = (
-        _pos(row, "affiliate_shop_ads_commission")
-        + _pos(row, "affiliate_partner_shop_ads")
-    )
+    shop_ads = s_pos("affiliate_shop_ads_commission") + s_pos("affiliate_partner_shop_ads")
     shipping = (
-        _pos(row, "tiktok_shipping_fee")
-        + _pos(row, "fbt_shipping_fee")
-        + _pos(row, "return_shipping_fee")
-        + _pos(row, "return_shipping_label_fee")
-        - _pos(row, "shipping_fee_subsidy")  # subsidies offset cost
-        - _pos(row, "shipping_fee_discount")
+        s_pos("tiktok_shipping_fee")
+        + s_pos("fbt_shipping_fee")
+        + s_pos("return_shipping_fee")
+        + s_pos("return_shipping_label_fee")
+        - s_pos("shipping_fee_subsidy")
+        - s_pos("shipping_fee_discount")
     )
 
-    return Settlement(
+    return dict(
         import_batch_id=batch.id,
         tiktok_order_id=order_id,
-        linked_statement_id=_str(row.get(COL["linked_statement_id"])),
-        linked_payout_id=_str(row.get(COL["linked_payout_id"])),
-        paid_date=_parse_ymd(row.get(COL["paid_date"])),
-        settled_date=_parse_ymd(row.get(COL["settled_date"])),
-        order_status=_str(row.get(COL["order_status"])),
-        sample_order_type=_str(row.get(COL["sample_order_type"])),
-        order_income=_dec(row.get(COL["order_income"])),
-        order_cost=_dec(row.get(COL["order_cost"])),
-        net_order_margin=_dec(row.get(COL["net_order_margin"])),
-        gross_sales=_pos(row, "gross_sales"),
-        gross_sales_refund=_pos(row, "gross_sales_refund"),
-        seller_discount=_pos(row, "seller_discount"),
-        seller_discount_refund=_pos(row, "seller_discount_refund"),
+        linked_statement_id=_str(first.get(COL["linked_statement_id"])),
+        linked_payout_id=_str(first.get(COL["linked_payout_id"])),
+        paid_date=_parse_ymd(first.get(COL["paid_date"])),
+        settled_date=_parse_ymd(first.get(COL["settled_date"])),
+        order_status=_str(first.get(COL["order_status"])),
+        sample_order_type=_str(first.get(COL["sample_order_type"])),
+        order_income=s_dec(COL["order_income"]),
+        order_cost=s_dec(COL["order_cost"]),
+        net_order_margin=s_dec(COL["net_order_margin"]),
+        gross_sales=s_pos("gross_sales"),
+        gross_sales_refund=s_pos("gross_sales_refund"),
+        seller_discount=s_pos("seller_discount"),
+        seller_discount_refund=s_pos("seller_discount_refund"),
         tiktok_fees=fees,
         affiliate_commission=affiliate,
         shop_ads_cost=shop_ads,
         shipping_cost=shipping,
-        raw_payload={k: (None if pd.isna(v) else str(v)) for k, v in row.items()},
+        # Keep every original line so callers can drill down later.
+        raw_payload={
+            "lines": [
+                {k: (None if pd.isna(v) else str(v)) for k, v in row.items()}
+                for _, row in group.iterrows()
+            ]
+        },
     )
 
 
-def _build_adjustment(adj_id: str, row: pd.Series, batch: ImportBatch) -> Adjustment:
-    return Adjustment(
+def _upsert_settlement(db: Session, order_id: str, group: pd.DataFrame, batch: ImportBatch) -> Settlement:
+    """Insert or update by the natural key (tiktok_order_id, linked_statement_id)."""
+    payload = _settlement_payload(order_id, group, batch)
+    statement_id = payload["linked_statement_id"]
+
+    existing = db.execute(
+        select(Settlement)
+        .where(Settlement.tiktok_order_id == order_id)
+        .where(Settlement.linked_statement_id == statement_id)
+    ).scalar_one_or_none()
+
+    if existing is None:
+        obj = Settlement(**payload)
+        db.add(obj)
+        return obj
+
+    for k, v in payload.items():
+        setattr(existing, k, v)
+    return existing
+
+
+def _upsert_adjustment(db: Session, adj_id: str, row: pd.Series, batch: ImportBatch) -> Adjustment:
+    """Insert or update by (adjustment_id, adjustment_type, create_time).
+
+    Reminder: TikTok pairs balance/deduction rows under the same adjustment_id,
+    so the type column is needed to disambiguate the pair.
+    """
+    payload = _adjustment_payload(adj_id, row, batch)
+
+    existing = db.execute(
+        select(Adjustment)
+        .where(Adjustment.adjustment_id == adj_id)
+        .where(Adjustment.adjustment_type == payload["adjustment_type"])
+        .where(Adjustment.create_time == payload["create_time"])
+    ).scalar_one_or_none()
+
+    if existing is None:
+        obj = Adjustment(**payload)
+        db.add(obj)
+        return obj
+
+    for k, v in payload.items():
+        setattr(existing, k, v)
+    return existing
+
+
+def _adjustment_payload(adj_id: str, row: pd.Series, batch: ImportBatch) -> dict:
+    return dict(
         import_batch_id=batch.id,
         adjustment_id=adj_id,
         adjustment_type=_str(row.get(ADJ_COL["adjustment_type"])) or "unknown",
