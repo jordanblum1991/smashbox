@@ -19,6 +19,27 @@
   </div>
 </div>
 
+{% if pnl.orders_count > 0 and pnl.orders_settled < pnl.orders_count %}
+{% set pct = pnl.settlement_coverage_pct %}
+{% set sev = 'rose' if pct < 50 else 'amber' %}
+<div class="mb-4 rounded-lg border border-{{ sev }}-200 bg-{{ sev }}-50 px-4 py-3 text-sm text-{{ sev }}-900">
+  <div class="flex items-center justify-between">
+    <div>
+      <strong>Settlement coverage: {{ "%.0f" % pct }}%</strong>
+      &nbsp;·&nbsp; {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders settled by TikTok.
+    </div>
+    <div class="text-xs">
+      {{ pnl.orders_count - pnl.orders_settled }} order{{ '' if pnl.orders_count - pnl.orders_settled == 1 else 's' }} pending
+    </div>
+  </div>
+  <p class="mt-1 text-xs">
+    Pending orders contribute to Gross Sales and the discount lines, but TikTok hasn't yet reported their fees,
+    affiliate commission, shop ads, or shipping cost. Those lines are <strong>understated</strong> and Net Profit is
+    <strong>overstated</strong> until you upload an updated settlement file that covers this month.
+  </p>
+</div>
+{% endif %}
+
 <div class="rounded-lg border border-slate-200 bg-white p-6 print:border-0 print:p-0">
   <table class="w-full text-sm">
     <tbody class="divide-y divide-slate-100">

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models.order import Order, OrderLine, OrderType
@@ -45,6 +45,20 @@ class MonthlyPnL:
     shipping_revenue: Decimal
     shipping_cost: Decimal
     net_profit: Decimal
+
+    # Settlement coverage — what fraction of paid orders in this month have
+    # been settled by TikTok (and therefore have fees / shipping / etc).
+    # Pending orders still contribute gross sales and discount lines but
+    # contribute $0 to the cost lines, so coverage < 100% means costs are
+    # understated and net profit is overstated.
+    orders_count: int = 0
+    orders_settled: int = 0
+
+    @property
+    def settlement_coverage_pct(self) -> Decimal:
+        if self.orders_count == 0:
+            return Decimal("0")
+        return (Decimal(self.orders_settled) / Decimal(self.orders_count)) * 100
 
     # Convenience aggregate for reconciliation against TikTok's reported total.
     @property
@@ -74,6 +88,10 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
             func.coalesce(func.sum(Order.shop_ads_cost), 0).label("shop_ads_cost"),
             func.coalesce(func.sum(Order.shipping_revenue), 0).label("ship_rev"),
             func.coalesce(func.sum(Order.shipping_cost), 0).label("ship_cost"),
+            func.count(Order.id).label("orders_count"),
+            # Settlement back-fill writes tiktok_fees > 0 (every settled order
+            # has at least a referral fee). Use that as the settled flag.
+            func.sum(case((Order.tiktok_fees > 0, 1), else_=0)).label("orders_settled"),
         )
         .where(Order.placed_at >= start, Order.placed_at < end)
         .where(Order.order_type == OrderType.PAID)
@@ -113,6 +131,8 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         shipping_revenue=ship_rev,
         shipping_cost=ship_cost,
         net_profit=net_profit,
+        orders_count=int(row.orders_count or 0),
+        orders_settled=int(row.orders_settled or 0),
     )
 
 
