@@ -139,6 +139,18 @@ def test_policy_above_cap_is_a_violation() -> None:
     assert violates_policy_cap("26.00", eligible_base="81.00", policy_cap_pct="0.30")  # the real one
 
 
+def test_policy_base_is_msrp_not_post_tiktok() -> None:
+    """Real example: SKU C2NP11 — 25.9% of MSRP (OK), 41.2% of post-TikTok (would trip).
+
+    The importer passes MSRP (gross) as the policy base, so this line is
+    NOT a violation under our policy.
+    """
+    # Should NOT trip when checked against MSRP $27.00:
+    assert not violates_policy_cap("7.00", eligible_base="27.00", policy_cap_pct="0.30")
+    # Would trip if we (wrongly) checked against post-TikTok $17.00:
+    assert violates_policy_cap("7.00", eligible_base="17.00", policy_cap_pct="0.30")
+
+
 def test_policy_violation_does_not_break_split_invariant() -> None:
     """Even when policy is breached, Outlandish + Smashbox == total exactly."""
     s = split_seller_funded_discount("26.00", eligible_base="81.00", cap_pct="0.10")

@@ -88,9 +88,11 @@ Gross Product Sales
 = Net Customer Sales (a.k.a. Net Product Revenue)
 ```
 
-**Policy ceiling (should never trip):** total seller-funded discount per line must be `≤ 30%` of the line's post-TikTok price. Lines that breach it are still imported — Smashbox absorbs the excess so the exact-sum invariant holds — but they are flagged via `OrderLine.discount_policy_violation`, the order's `discount_policy_violation` flag is set, the import logs a `policy:` warning, and reconciliation surfaces the count. Cap lives at `SELLER_FUNDED_POLICY_CAP_PCT` (0.30).
+**Policy ceiling — uses a DIFFERENT base than the split:** total seller-funded discount per line must be `≤ 30%` of the line's **MSRP (gross_sales)** — NOT post-TikTok price. This decoupling is intentional: the split uses post-TikTok per the business rule, but the policy ceiling uses conventional discount-percentage language ("no SKU goes over 30% off retail"). Mixing the two bases would flag many lines as "violations" simply because TikTok ran a stacking platform promo.
 
-Use `violates_policy_cap(total, eligible_base, policy_cap_pct=None)` from `app/rules/seller_funded_split.py` — the importer calls this per-line and sets the flag.
+Lines that breach the policy are still imported — Smashbox absorbs the excess so the exact-sum invariant holds — but they are flagged via `OrderLine.discount_policy_violation`, the order's flag is set too, the import logs a `policy:` warning, and reconciliation surfaces the count. Cap lives at `SELLER_FUNDED_POLICY_CAP_PCT` (0.30).
+
+Use `violates_policy_cap(total, eligible_base, policy_cap_pct=None)` from `app/rules/seller_funded_split.py` — the importer calls this per-line **with `eligible_base=gross_sales`**, even though the splitter uses `post_tiktok_price`.
 
 ## Order taxonomy
 

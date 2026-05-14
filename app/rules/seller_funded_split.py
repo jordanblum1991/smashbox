@@ -70,10 +70,14 @@ def violates_policy_cap(
 ) -> bool:
     """True iff the total seller-funded discount exceeds the policy ceiling.
 
-    Under our policy this should NEVER happen (Outlandish 0-10%, Smashbox the
-    next 0-20%, max combined 30%). When it does, callers should still import
-    the order (Smashbox absorbs the excess so Outlandish + Smashbox == total)
-    but flag it via Order.discount_policy_violation.
+    NOTE: the policy ceiling uses MSRP / gross as `eligible_base` (conventional
+    discount-percentage language: "no SKU goes over 30% off retail"), which is
+    DIFFERENT from the base used by `split_seller_funded_discount` (post-TikTok
+    price). Don't confuse the two — the importer passes them separately.
+
+    Under our policy this should NEVER trip. When it does, callers should still
+    import the line (Smashbox absorbs the excess so Outlandish + Smashbox == total)
+    but flag it via OrderLine.discount_policy_violation.
     """
     total_d = _to_decimal(total)
     base_d = _to_decimal(eligible_base)

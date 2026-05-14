@@ -76,14 +76,13 @@ class TikTokOrdersImporter(BaseImporter):
                         if not line.discount_policy_violation:
                             continue
                         pct = (
-                            (line.seller_funded_discount / line.post_tiktok_price) * 100
-                            if line.post_tiktok_price > 0 else "n/a"
+                            (line.seller_funded_discount / line.gross_sales) * 100
+                            if line.gross_sales > 0 else "n/a"
                         )
                         result.errors.append(
                             f"policy: order {clean_id} sku {line.sku}: seller-funded "
-                            f"{line.seller_funded_discount} on post-TikTok base "
-                            f"{line.post_tiktok_price} ({pct}%) exceeds "
-                            f"{settings.seller_funded_policy_cap_pct * 100}% cap"
+                            f"{line.seller_funded_discount} on MSRP {line.gross_sales} "
+                            f"({pct}%) exceeds {settings.seller_funded_policy_cap_pct * 100}% cap"
                         )
             except Exception as exc:  # noqa: BLE001
                 result.skip(f"order {tiktok_order_id}: {exc}")
@@ -166,7 +165,9 @@ def _build_line(row: pd.Series) -> OrderLine:
         post_tiktok = Decimal("0.00")
 
     split = split_seller_funded_discount(seller_disc, eligible_base=post_tiktok)
-    violation = violates_policy_cap(seller_disc, eligible_base=post_tiktok)
+    # Policy ceiling uses MSRP (gross), not post-TikTok — conventional
+    # discount-percentage language: "no SKU goes over 30% off retail."
+    violation = violates_policy_cap(seller_disc, eligible_base=gross)
 
     return OrderLine(
         sku=_resolve_sku(row),
