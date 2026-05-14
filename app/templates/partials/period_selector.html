@@ -1,0 +1,108 @@
+{# Period selector shared by the unified P&L and the Dashboard.
+
+   Caller contract:
+     - `view` is a PnLView (has period_kind, year, month, and the per-month
+        breakdown for YTD/year/range modes).
+     - `selector_action` is the form action URL (e.g. '/reports/pnl' or '/').
+
+   The selector exposes four modes: month, ytd, year, range. Irrelevant
+   controls are hidden (not just disabled) so the form layout stays tidy.
+#}
+{% set kind = view.period_kind.value %}
+{% set sy = view.year %}
+{% set sm = view.month or 1 %}
+
+{# For range mode, derive a default end (y, m) from the breakdown's last entry. #}
+{% if view.monthly_breakdown %}
+  {% set last_m = view.monthly_breakdown[-1].month %}
+  {% set ey = last_m.year %}
+  {% set em = last_m.month %}
+{% else %}
+  {% set ey = sy %}
+  {% set em = sm %}
+{% endif %}
+
+<form method="get" action="{{ selector_action }}"
+      class="mb-6 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
+  <div class="flex flex-wrap items-end gap-3 text-sm">
+    <div>
+      <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">View</label>
+      <select name="period" onchange="this.form.submit()"
+              class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+        <option value="month" {% if kind == "month" %}selected{% endif %}>Single month</option>
+        <option value="ytd"   {% if kind == "ytd"   %}selected{% endif %}>YTD through month</option>
+        <option value="year"  {% if kind == "year"  %}selected{% endif %}>Full year</option>
+        <option value="range" {% if kind == "range" %}selected{% endif %}>Custom range</option>
+      </select>
+    </div>
+
+    {# Month / YTD / Year: a single (year, month) pair. Month disabled for Year. #}
+    <div class="{% if kind == 'range' %}hidden{% endif %} flex flex-wrap items-end gap-3">
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Year</label>
+        <select name="year" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for y in range(2024, 2031) %}
+          <option value="{{ y }}" {% if y == sy %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="{% if kind == 'year' %}opacity-50 pointer-events-none{% endif %}">
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">
+          {% if kind == "ytd" %}Through month{% else %}Month{% endif %}
+        </label>
+        <select name="month" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                {% if kind == 'year' %}disabled{% endif %}>
+          {% for mm in range(1, 13) %}
+          <option value="{{ mm }}" {% if mm == sm %}selected{% endif %}>{{ mm | month_short }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {# Custom range: two (year, month) pairs. #}
+    <div class="{% if kind != 'range' %}hidden{% endif %} flex flex-wrap items-end gap-3">
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Start year</label>
+        <select name="start_year" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for y in range(2024, 2031) %}
+          <option value="{{ y }}" {% if y == sy %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Start month</label>
+        <select name="start_month" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for mm in range(1, 13) %}
+          <option value="{{ mm }}" {% if mm == sm %}selected{% endif %}>{{ mm | month_short }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">End year</label>
+        <select name="end_year" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for y in range(2024, 2031) %}
+          <option value="{{ y }}" {% if y == ey %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">End month</label>
+        <select name="end_month" onchange="this.form.submit()"
+                class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+          {% for mm in range(1, 13) %}
+          <option value="{{ mm }}" {% if mm == em %}selected{% endif %}>{{ mm | month_short }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <noscript>
+      <button type="submit" class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">Apply</button>
+    </noscript>
+  </div>
+</form>

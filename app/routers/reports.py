@@ -37,13 +37,18 @@ def pnl_view(
     period: PeriodKind = PeriodKind.MONTH,
     year: int | None = None,
     month: int | None = None,
+    start_year: int | None = None,
+    start_month: int | None = None,
+    end_year: int | None = None,
+    end_month: int | None = None,
     db: Session = Depends(get_db),
 ):
-    """Unified P&L: pick a single month, a year, or YTD through a month."""
-    today = date.today()
-    y = year or today.year
-    m = month or today.month
-    view = compute_pnl_view(db, period, y, m)
+    """Unified P&L: pick a single month, YTD, full year, or a custom range."""
+    view = compute_pnl_view(
+        db, period, year, month,
+        start_year=start_year, start_month=start_month,
+        end_year=end_year, end_month=end_month,
+    )
     return templates.TemplateResponse(
         request,
         "reports/pnl.html",

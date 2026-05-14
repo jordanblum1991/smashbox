@@ -1,14 +1,15 @@
 """Unified P&L view — dispatches to the existing monthly/YTD engines.
 
-Three period kinds:
+Four period kinds:
 
   - `month` : a single calendar month, e.g. May 2026
-  - `year`  : Jan..Dec of the given year (per-month columns + totals)
   - `ytd`   : Jan..selected_month of the given year (per-month columns + totals)
+  - `year`  : Jan..Dec of the given year (per-month columns + totals)
+  - `range` : an arbitrary [start_month, end_month] window in the same or
+              different years (per-month columns + totals)
 
-No P&L math lives in this module. It composes `compute_monthly_pnl` and
-`compute_ytd_pnl` so the line items, settlement coverage, and seller-funded
-split logic remain a single source of truth.
+No P&L math lives here. compute_monthly_pnl is the single source of truth and
+every mode is just "sum across the months in this window."
 """
 from dataclasses import dataclass
 from datetime import date
@@ -17,64 +18,111 @@ from enum import Enum
 from sqlalchemy.orm import Session
 
 from app.reports.monthly_pnl import MonthlyPnL, compute_monthly_pnl
-from app.reports.ytd_pnl import YtdPnL, compute_ytd_pnl
+from app.reports.ytd_pnl import _sum  # private but ours
 from app.templating import month_label
 
 
 class PeriodKind(str, Enum):
     MONTH = "month"
-    YEAR = "year"
     YTD = "ytd"
+    YEAR = "year"
+    RANGE = "range"
 
 
 @dataclass
 class PnLView:
-    title: str
+    title_suffix: str           # "May 2026" / "YTD through May 2026" / "2026" / "Mar 2026 – May 2026"
     period_kind: PeriodKind
     year: int
-    month: int | None             # set when period is MONTH or YTD
-    total: MonthlyPnL             # the aggregated P&L for the period
-    monthly_breakdown: list[MonthlyPnL] | None  # set for YEAR / YTD
+    month: int | None
+    total: MonthlyPnL
+    monthly_breakdown: list[MonthlyPnL] | None  # None for MONTH, set otherwise
+
+    @property
+    def title(self) -> str:
+        # P&L page uses 'P&L for ...' / 'YTD P&L through ...' phrasing; the
+        # dashboard route prepends 'Dashboard: <title_suffix>' instead.
+        if self.period_kind == PeriodKind.YTD:
+            return f"YTD P&L through {self.title_suffix.replace('YTD through ', '')}"
+        return f"P&L for {self.title_suffix}"
+
+
+def _months_in_range(sy: int, sm: int, ey: int, em: int) -> list[tuple[int, int]]:
+    """Inclusive list of (year, month) tuples from (sy,sm) up to (ey,em)."""
+    out: list[tuple[int, int]] = []
+    y, m = sy, sm
+    while (y, m) <= (ey, em):
+        out.append((y, m))
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+    return out
 
 
 def compute_pnl_view(
     db: Session,
     period: PeriodKind,
-    year: int,
+    year: int | None = None,
     month: int | None = None,
+    *,
+    start_year: int | None = None,
+    start_month: int | None = None,
+    end_year: int | None = None,
+    end_month: int | None = None,
 ) -> PnLView:
-    """Resolve the period selector into a PnLView."""
+    """Resolve the selector into a PnLView."""
+    today = date.today()
+    y = year or today.year
+    m = month or today.month
+
     if period == PeriodKind.MONTH:
-        m = month or date.today().month
-        pnl = compute_monthly_pnl(db, year, m)
+        pnl = compute_monthly_pnl(db, y, m)
         return PnLView(
-            title=f"P&L for {month_label(year, m)}",
+            title_suffix=month_label(y, m),
             period_kind=period,
-            year=year,
-            month=m,
+            year=y, month=m,
             total=pnl,
             monthly_breakdown=None,
         )
 
-    if period == PeriodKind.YEAR:
-        ytd = compute_ytd_pnl(db, year, through_month=12)
+    if period == PeriodKind.YTD:
+        months_list = [compute_monthly_pnl(db, y, mm) for mm in range(1, m + 1)]
         return PnLView(
-            title=f"P&L for {year}",
+            title_suffix=f"YTD through {month_label(y, m)}",
             period_kind=period,
-            year=year,
-            month=None,
-            total=ytd.total,
-            monthly_breakdown=ytd.months,
+            year=y, month=m,
+            total=_sum(months_list, y),
+            monthly_breakdown=months_list,
         )
 
-    # PeriodKind.YTD
-    m = month or date.today().month
-    ytd = compute_ytd_pnl(db, year, through_month=m)
+    if period == PeriodKind.YEAR:
+        months_list = [compute_monthly_pnl(db, y, mm) for mm in range(1, 13)]
+        return PnLView(
+            title_suffix=str(y),
+            period_kind=period,
+            year=y, month=None,
+            total=_sum(months_list, y),
+            monthly_breakdown=months_list,
+        )
+
+    # PeriodKind.RANGE
+    sy = start_year or y
+    sm = start_month or m
+    ey = end_year or y
+    em = end_month or m
+    if (ey, em) < (sy, sm):
+        sy, sm, ey, em = ey, em, sy, sm  # silent swap, less surprising than 500ing
+    months_pairs = _months_in_range(sy, sm, ey, em)
+    months_list = [compute_monthly_pnl(db, py, pm) for py, pm in months_pairs]
+    if (sy, sm) == (ey, em):
+        suffix = month_label(sy, sm)
+    else:
+        suffix = f"{month_label(sy, sm)} – {month_label(ey, em)}"
     return PnLView(
-        title=f"YTD P&L through {month_label(year, m)}",
+        title_suffix=suffix,
         period_kind=period,
-        year=year,
-        month=m,
-        total=ytd.total,
-        monthly_breakdown=ytd.months,
+        year=sy, month=sm,
+        total=_sum(months_list, sy),
+        monthly_breakdown=months_list,
     )

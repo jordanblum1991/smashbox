@@ -19,45 +19,8 @@
   </div>
 </div>
 
-<!-- Period selector -->
-<form method="get" action="/reports/pnl" class="mb-6 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
-  <div class="flex flex-wrap items-end gap-3 text-sm">
-    <div>
-      <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">View</label>
-      <select name="period" onchange="this.form.submit()"
-              class="rounded-md border border-slate-300 px-3 py-2 text-sm">
-        <option value="month" {% if view.period_kind.value == "month" %}selected{% endif %}>Single month</option>
-        <option value="ytd"   {% if view.period_kind.value == "ytd"   %}selected{% endif %}>YTD through month</option>
-        <option value="year"  {% if view.period_kind.value == "year"  %}selected{% endif %}>Full year</option>
-      </select>
-    </div>
-
-    <div>
-      <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Year</label>
-      <select name="year" onchange="this.form.submit()"
-              class="rounded-md border border-slate-300 px-3 py-2 text-sm">
-        {% for y in range(2024, 2031) %}
-        <option value="{{ y }}" {% if y == view.year %}selected{% endif %}>{{ y }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div class="{% if view.period_kind.value == 'year' %}opacity-50 pointer-events-none{% endif %}">
-      <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Month</label>
-      <select name="month" onchange="this.form.submit()"
-              class="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              {% if view.period_kind.value == 'year' %}disabled{% endif %}>
-        {% for mm in range(1, 13) %}
-        <option value="{{ mm }}" {% if mm == (view.month or 1) %}selected{% endif %}>{{ mm | month_short }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <noscript>
-      <button type="submit" class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">Apply</button>
-    </noscript>
-  </div>
-</form>
+{% set selector_action = "/reports/pnl" %}
+{% include "partials/period_selector.html" %}
 
 <!-- Settlement coverage banner (works for any period — applies to the aggregated total) -->
 {% if pnl.orders_count > 0 and pnl.orders_settled < pnl.orders_count %}

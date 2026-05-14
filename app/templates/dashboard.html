@@ -1,27 +1,49 @@
 {% extends "base.html" %}
-{% block title %}Dashboard · Smashbox{% endblock %}
+{% block title %}Dashboard: {{ view.title_suffix }} · Smashbox{% endblock %}
 
 {% block content %}
-<div class="mb-8 flex items-end justify-between">
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight">Dashboard</h1>
-    <p class="text-sm text-slate-500">Smashbox TikTok Shop · {{ today.strftime("%B %Y") }} (month-to-date)</p>
+    <h1 class="text-2xl font-semibold tracking-tight">Dashboard: {{ view.title_suffix }}</h1>
+    <p class="text-sm text-slate-500">Smashbox TikTok Shop · ties to the P&amp;L page for the same selection</p>
   </div>
-  <div class="flex gap-2">
+  <div class="flex gap-2 print:hidden">
     <a href="/uploads" class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">
       Import file
     </a>
-    <a href="/reports/pnl" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100">
+    {# Carry the same period params to the P&L page so 'Open P&L' opens the same view. #}
+    {% set kind = view.period_kind.value %}
+    {% if kind == "range" %}
+      {% set pnl_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=" ~ (view.month or 1) ~ "&end_year=" ~ (view.monthly_breakdown[-1].month.year if view.monthly_breakdown else view.year) ~ "&end_month=" ~ (view.monthly_breakdown[-1].month.month if view.monthly_breakdown else 1) %}
+    {% else %}
+      {% set pnl_qs = "?period=" ~ kind ~ "&year=" ~ view.year ~ ("&month=" ~ view.month if view.month else "") %}
+    {% endif %}
+    <a href="/reports/pnl{{ pnl_qs }}"
+       class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100">
       Open P&amp;L
     </a>
   </div>
 </div>
 
+{% set selector_action = "/" %}
+{% include "partials/period_selector.html" %}
+
+{# Settlement coverage banner — applies to the aggregated total. #}
+{% if pnl.orders_count > 0 and pnl.orders_settled < pnl.orders_count %}
+{% set pct = pnl.settlement_coverage_pct %}
+{% set sev = 'rose' if pct < 50 else 'amber' %}
+<div class="mb-4 rounded-lg border border-{{ sev }}-200 bg-{{ sev }}-50 px-4 py-3 text-sm text-{{ sev }}-900">
+  <strong>Settlement coverage: {{ "%.0f" % pct }}%</strong>
+  &nbsp;·&nbsp; {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders settled by TikTok.
+  Costs are understated and Net Profit is overstated for the {{ pnl.orders_count - pnl.orders_settled }} pending order(s).
+</div>
+{% endif %}
+
 <section class="grid grid-cols-2 gap-4 lg:grid-cols-5">
   {% set tiles = [
-    ("Net Customer Sales (MTD)", pnl.net_customer_sales | money, "slate-900", "/reports/pnl"),
-    ("Net profit (MTD)", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/pnl"),
-    ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/pnl"),
+    ("Net Customer Sales", pnl.net_customer_sales | money, "slate-900", "/reports/pnl" ~ pnl_qs),
+    ("Net profit", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/pnl" ~ pnl_qs),
+    ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/pnl" ~ pnl_qs),
     ("Unmapped SKUs", unmapped_count | string, ("rose-600" if unmapped_count > 0 else "emerald-600"), "/reports/unmapped-skus"),
     ("Orphan settlements", orphan_count | string, ("rose-600" if orphan_count > 0 else "emerald-600"), "/reports/settlement-only-orders"),
   ] %}
@@ -35,7 +57,7 @@
 
 <section class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
   <div class="rounded-lg border border-slate-200 bg-white p-6">
-    <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">Discount waterfall (MTD)</h2>
+    <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">Discount waterfall</h2>
     <dl class="space-y-2 text-sm">
       <div class="flex justify-between"><dt>TikTok-Funded</dt><dd class="font-medium">{{ pnl.platform_discount | money }}</dd></div>
       <div class="flex justify-between"><dt>Outlandish-Funded</dt><dd class="font-medium">{{ pnl.outlandish_discount | money }}</dd></div>
