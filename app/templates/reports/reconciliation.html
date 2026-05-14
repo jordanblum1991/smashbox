@@ -5,29 +5,55 @@
 <div class="mb-6 flex items-end justify-between">
   <div>
     <h1 class="text-2xl font-semibold tracking-tight">Reconciliation</h1>
-    <p class="text-sm text-slate-500">{{ month_label(year, month) }} · our totals vs TikTok exports</p>
+    <p class="text-sm text-slate-500">{{ month_label(report.year, report.month) }} · our P&amp;L vs TikTok settlement</p>
   </div>
   <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
 </div>
 
+<!-- File / data status -->
+{% set s = report.status %}
+<section class="mb-6 rounded-lg border border-slate-200 bg-white p-5">
+  <h2 class="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Data status</h2>
+  <dl class="grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+    <div class="flex justify-between"><dt class="text-slate-600">Selected reporting period</dt><dd class="font-medium">{{ month_label(report.year, report.month) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Orders file loaded</dt>
+      <dd class="font-medium {% if s.orders_loaded %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ "Yes" if s.orders_loaded else "No" }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Settlement file loaded</dt>
+      <dd class="font-medium {% if s.settlements_loaded %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ "Yes" if s.settlements_loaded else "No" }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Orders row count</dt><dd>{{ "{:,}".format(s.orders_count) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Settlement row count</dt><dd>{{ "{:,}".format(s.settlements_count) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Latest order placed</dt><dd>{{ s.latest_order_date.strftime("%Y-%m-%d") if s.latest_order_date else "—" }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Latest settlement (paid_date)</dt><dd>{{ s.latest_settlement_paid_date.strftime("%Y-%m-%d") if s.latest_settlement_paid_date else "—" }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Latest settlement (settled_date)</dt><dd>{{ s.latest_settlement_settled_date.strftime("%Y-%m-%d") if s.latest_settlement_settled_date else "—" }}</dd></div>
+  </dl>
+</section>
+
+<!-- Reconciliation table -->
 <div class="rounded-lg border border-slate-200 bg-white">
   <table class="min-w-full text-sm">
     <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
       <tr>
         <th class="px-4 py-2">Check</th>
-        <th class="px-4 py-2 text-right">Our number</th>
-        <th class="px-4 py-2 text-right">TikTok</th>
+        <th class="px-4 py-2 text-right">Orders / Workbook<br>(System Calculated)</th>
+        <th class="px-4 py-2 text-right">TikTok Settlement Total</th>
         <th class="px-4 py-2 text-right">Variance</th>
         <th class="px-4 py-2 text-center">Status</th>
+        <th class="px-4 py-2">Likely Cause</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-slate-100">
-      {% for l in lines %}
+      {% for l in report.lines %}
       <tr>
         <td class="px-4 py-2">{{ l.label }}</td>
-        <td class="px-4 py-2 text-right">{{ l.derived | money }}</td>
-        <td class="px-4 py-2 text-right">{{ l.tiktok | money }}</td>
-        <td class="px-4 py-2 text-right {% if not l.ok %}text-rose-700 font-semibold{% endif %}">{{ l.variance | money }}</td>
+        <td class="px-4 py-2 text-right">
+          {% if l.is_count %}{{ "%d" % l.system_calculated }}{% else %}{{ l.system_calculated | money }}{% endif %}
+        </td>
+        <td class="px-4 py-2 text-right">
+          {% if l.is_count %}{{ "%d" % l.tiktok_settlement }}{% else %}{{ l.tiktok_settlement | money }}{% endif %}
+        </td>
+        <td class="px-4 py-2 text-right {% if not l.ok %}text-rose-700 font-semibold{% endif %}">
+          {% if l.is_count %}{{ "%d" % l.variance }}{% else %}{{ l.variance | money }}{% endif %}
+        </td>
         <td class="px-4 py-2 text-center">
           {% if l.ok %}
           <span class="rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">OK</span>
@@ -35,14 +61,138 @@
           <span class="rounded bg-rose-50 px-2 py-0.5 text-xs text-rose-700">Variance</span>
           {% endif %}
         </td>
+        <td class="px-4 py-2 text-xs text-slate-600">{{ l.likely_cause or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
-<p class="mt-4 text-xs text-slate-500">
-  Non-zero variance on the seller-funded line is treated as an error — its tolerance is exactly $0.00.
-  See <code class="rounded bg-slate-100 px-1">app/rules/seller_funded_split.py</code>.
+<!-- Gross sales decomposition -->
+<section class="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+  <h2 class="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-500">Gross sales variance breakdown</h2>
+  <dl class="grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-3">
+    <div>
+      <dt class="text-slate-500">Paid orders this period</dt>
+      <dd class="text-lg font-medium">{{ report.period_orders_total | money }}
+        <span class="text-xs text-slate-400">({{ report.period_orders_count }} orders)</span></dd>
+    </div>
+    <div>
+      <dt class="text-emerald-700">Of which settled — ties to TikTok</dt>
+      <dd class="text-lg font-medium">{{ report.period_settled_orders_total | money }}
+        <span class="text-xs text-slate-400">({{ report.period_settled_orders_count }} orders)</span></dd>
+    </div>
+    <div>
+      <dt class="text-amber-700">Of which pending — timing</dt>
+      <dd class="text-lg font-medium">{{ report.period_unsettled_orders_total | money }}
+        <span class="text-xs text-slate-400">({{ report.period_unsettled_orders_count }} orders)</span></dd>
+    </div>
+  </dl>
+  <p class="mt-3 text-xs text-slate-500">
+    "Pending" orders haven't yet appeared in any settlement file. They show as variance on the table above
+    until TikTok publishes a settlement covering them — pure timing, not a data error.
+  </p>
+</section>
+
+<!-- Drill-downs -->
+{% macro orders_table(rows, max=50) %}
+<div class="overflow-x-auto">
+  <table class="min-w-full text-sm">
+    <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-4 py-2">TikTok Order ID</th>
+        <th class="px-4 py-2">Placed</th>
+        <th class="px-4 py-2 text-right">Our gross</th>
+        <th class="px-4 py-2 text-right">Settlement gross</th>
+        <th class="px-4 py-2 text-right">Diff</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for r in rows[:max] %}
+      <tr>
+        <td class="px-4 py-2 font-mono text-xs">{{ r.tiktok_order_id }}</td>
+        <td class="px-4 py-2 text-slate-600">{{ r.placed_at.strftime("%Y-%m-%d") }}</td>
+        <td class="px-4 py-2 text-right">{{ r.gross_sales | money }}</td>
+        <td class="px-4 py-2 text-right">
+          {% if r.settled %}{{ r.settlement_gross | money }}{% else %}<span class="text-amber-700">pending</span>{% endif %}
+        </td>
+        <td class="px-4 py-2 text-right">
+          {% if r.settled %}{{ (r.gross_sales - r.settlement_gross) | money }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if rows | length > max %}
+  <p class="px-4 py-2 text-xs text-slate-500">Showing first {{ max }} of {{ rows | length }}.</p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+<section class="mt-8 space-y-3">
+  <details class="rounded-lg border border-slate-200 bg-white print:hidden">
+    <summary class="cursor-pointer px-5 py-3 text-sm font-medium">
+      Paid orders included in System Calculated total
+      <span class="ml-2 text-slate-500">({{ report.paid_orders | length }})</span>
+    </summary>
+    {{ orders_table(report.paid_orders, max=100) }}
+  </details>
+
+  <details class="rounded-lg border border-amber-200 bg-amber-50/30 print:hidden">
+    <summary class="cursor-pointer px-5 py-3 text-sm font-medium text-amber-900">
+      Orders not yet settled (timing — pending TikTok payout)
+      <span class="ml-2 text-amber-700">({{ report.timing_orders | length }})</span>
+    </summary>
+    {{ orders_table(report.timing_orders, max=100) }}
+  </details>
+
+  <details class="rounded-lg border border-rose-200 bg-rose-50/30 print:hidden" {% if report.true_variance_orders %}open{% endif %}>
+    <summary class="cursor-pointer px-5 py-3 text-sm font-medium text-rose-900">
+      Settled orders with a TRUE variance (our gross ≠ TikTok gross)
+      <span class="ml-2 text-rose-700">({{ report.true_variance_orders | length }})</span>
+    </summary>
+    {% if report.true_variance_orders %}
+    {{ orders_table(report.true_variance_orders, max=100) }}
+    {% else %}
+    <p class="px-5 py-3 text-sm text-slate-500">No true reconciliation errors. The variance on the table above is timing only.</p>
+    {% endif %}
+  </details>
+
+  <details class="rounded-lg border border-slate-200 bg-white print:hidden">
+    <summary class="cursor-pointer px-5 py-3 text-sm font-medium">
+      Settlement rows with no matching order (this period)
+      <span class="ml-2 text-slate-500">({{ report.orphan_settlements | length }})</span>
+    </summary>
+    {% if report.orphan_settlements %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+          <tr>
+            <th class="px-4 py-2">TikTok Order ID</th>
+            <th class="px-4 py-2">Paid date</th>
+            <th class="px-4 py-2 text-right">Settlement gross</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for r in report.orphan_settlements %}
+          <tr>
+            <td class="px-4 py-2 font-mono text-xs">{{ r.tiktok_order_id }}</td>
+            <td class="px-4 py-2 text-slate-600">{{ r.paid_date.strftime("%Y-%m-%d") if r.paid_date else "—" }}</td>
+            <td class="px-4 py-2 text-right">{{ r.settlement_gross | money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="px-4 py-2 text-xs text-slate-500">Full list: <a class="underline" href="/reports/settlement-only-orders">/reports/settlement-only-orders</a></p>
+    {% else %}
+    <p class="px-5 py-3 text-sm text-slate-500">No orphan settlements for this period.</p>
+    {% endif %}
+  </details>
+</section>
+
+<p class="mt-6 text-xs text-slate-500">
+  Seller-funded split is the load-bearing invariant: Outlandish + Smashbox must equal TikTok's reported
+  seller-funded total exactly (tolerance $0.00). See <code class="rounded bg-slate-100 px-1">app/rules/seller_funded_split.py</code>.
 </p>
 {% endblock %}

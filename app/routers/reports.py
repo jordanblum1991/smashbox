@@ -125,9 +125,9 @@ def reconciliation_view(
     db: Session = Depends(get_db),
 ):
     y, m = _ym(year, month)
-    lines = reconcile_month(db, y, m)
+    report = reconcile_month(db, y, m)
     return templates.TemplateResponse(
         request,
         "reports/reconciliation.html",
-        {"lines": lines, "year": y, "month": m},
+        {"report": report},
     )
