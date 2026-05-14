@@ -11,7 +11,7 @@
     <a href="/uploads" class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">
       Import file
     </a>
-    <a href="/reports/monthly-pnl" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100">
+    <a href="/reports/pnl" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100">
       Open P&amp;L
     </a>
   </div>
@@ -19,9 +19,9 @@
 
 <section class="grid grid-cols-2 gap-4 lg:grid-cols-5">
   {% set tiles = [
-    ("Net Customer Sales (MTD)", pnl.net_customer_sales | money, "slate-900", "/reports/monthly-pnl"),
-    ("Net profit (MTD)", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/monthly-pnl"),
-    ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/monthly-pnl"),
+    ("Net Customer Sales (MTD)", pnl.net_customer_sales | money, "slate-900", "/reports/pnl"),
+    ("Net profit (MTD)", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/pnl"),
+    ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/pnl"),
     ("Unmapped SKUs", unmapped_count | string, ("rose-600" if unmapped_count > 0 else "emerald-600"), "/reports/unmapped-skus"),
     ("Orphan settlements", orphan_count | string, ("rose-600" if orphan_count > 0 else "emerald-600"), "/reports/settlement-only-orders"),
   ] %}

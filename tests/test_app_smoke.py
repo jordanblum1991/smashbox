@@ -15,6 +15,9 @@ def client() -> TestClient:
     [
         "/",
         "/uploads",
+        "/reports/pnl",
+        "/reports/pnl?period=year&year=2026",
+        "/reports/pnl?period=ytd&year=2026&month=4",
         "/reports/monthly-pnl",
         "/reports/ytd-pnl",
         "/reports/sku-profitability",

@@ -6,10 +6,12 @@ so any report page can be sent to PDF or paper for brand meetings.
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.reports.monthly_pnl import compute_monthly_pnl
+from app.reports.pnl import PeriodKind, compute_pnl_view
 from app.reports.reconciliation import reconcile_month
 from app.reports.sample_tracking import (
     monthly_sample_usage,
@@ -29,35 +31,40 @@ def _ym(year: int | None, month: int | None) -> tuple[int, int]:
     return year or today.year, month or today.month
 
 
-@router.get("/reports/monthly-pnl")
-def monthly_pnl_view(
+@router.get("/reports/pnl")
+def pnl_view(
     request: Request,
+    period: PeriodKind = PeriodKind.MONTH,
     year: int | None = None,
     month: int | None = None,
     db: Session = Depends(get_db),
 ):
-    y, m = _ym(year, month)
-    pnl = compute_monthly_pnl(db, y, m)
+    """Unified P&L: pick a single month, a year, or YTD through a month."""
+    today = date.today()
+    y = year or today.year
+    m = month or today.month
+    view = compute_pnl_view(db, period, y, m)
     return templates.TemplateResponse(
         request,
-        "reports/monthly_pnl.html",
-        {"pnl": pnl, "year": y, "month": m},
+        "reports/pnl.html",
+        {"view": view, "PeriodKind": PeriodKind},
     )
+
+
+# Old URLs redirect to the unified page so bookmarks keep working.
+@router.get("/reports/monthly-pnl")
+def monthly_pnl_legacy(year: int | None = None, month: int | None = None):
+    qs = f"period=month"
+    if year: qs += f"&year={year}"
+    if month: qs += f"&month={month}"
+    return RedirectResponse(url=f"/reports/pnl?{qs}", status_code=307)
 
 
 @router.get("/reports/ytd-pnl")
-def ytd_pnl_view(
-    request: Request,
-    year: int | None = None,
-    db: Session = Depends(get_db),
-):
-    y = year or date.today().year
-    ytd = compute_ytd_pnl(db, y)
-    return templates.TemplateResponse(
-        request,
-        "reports/ytd_pnl.html",
-        {"ytd": ytd, "year": y},
-    )
+def ytd_pnl_legacy(year: int | None = None):
+    qs = "period=year"
+    if year: qs += f"&year={year}"
+    return RedirectResponse(url=f"/reports/pnl?{qs}", status_code=307)
 
 
 @router.get("/reports/sku-profitability")
