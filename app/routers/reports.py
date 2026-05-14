@@ -14,14 +14,9 @@ from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
 from app.reports.reconciliation import reconcile_month
 from app.reports.sample_tracking import (
-    list_allowance_rules,
     monthly_sample_usage,
     samples_vs_sales_by_sku,
 )
-from fastapi import Form
-from app.config import settings as app_settings
-from app.models.sample_allowance import SampleAllowance
-from sqlalchemy import select as sa_select
 from app.reports.sku_profitability import compute_sku_profitability
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
@@ -107,54 +102,6 @@ def samples_view(
         "reports/sample_tracking.html",
         {"usage": usage, "by_sku": by_sku, "year": y, "month": m},
     )
-
-
-@router.get("/reports/sample-allowances")
-def sample_allowances_view(request: Request, db: Session = Depends(get_db), message: str | None = None):
-    today = date.today()
-    return templates.TemplateResponse(
-        request,
-        "reports/sample_allowances.html",
-        {
-            "rules": list_allowance_rules(db),
-            "default_year": today.year,
-            "default_month": today.month,
-            "env_default": app_settings.free_sample_monthly_allowance,
-            "message": message,
-        },
-    )
-
-
-@router.post("/reports/sample-allowances")
-def sample_allowances_upsert(
-    brand: str = Form(...),
-    year: int = Form(...),
-    month: int = Form(...),
-    allowance_units: int = Form(...),
-    notes: str | None = Form(None),
-    db: Session = Depends(get_db),
-):
-    existing = db.execute(
-        sa_select(SampleAllowance)
-        .where(SampleAllowance.brand == brand)
-        .where(SampleAllowance.year == year)
-        .where(SampleAllowance.month == month)
-    ).scalar_one_or_none()
-
-    verb = "Updated"
-    if existing is None:
-        db.add(SampleAllowance(
-            brand=brand.strip(), year=year, month=month,
-            allowance_units=allowance_units, notes=(notes or None),
-        ))
-        verb = "Added"
-    else:
-        existing.allowance_units = allowance_units
-        existing.notes = (notes or None)
-    db.commit()
-
-    msg = f"{verb} allowance rule for {brand} {year}-{month:02d}: {allowance_units} units."
-    return RedirectResponse(url=f"/reports/sample-allowances?message={msg}", status_code=303)
 
 
 @router.get("/reports/unmapped-skus")

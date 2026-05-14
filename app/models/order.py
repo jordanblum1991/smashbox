@@ -18,8 +18,8 @@ from app.db import Base
 
 class OrderType(str, enum.Enum):
     PAID = "paid"
-    SAMPLE = "sample"  # free creator/seeding sample (allowance)
-    PAID_SAMPLE = "paid_sample"  # oversampling — billed to us
+    SAMPLE = "sample"  # free creator/seeding sample (TikTok $0 order)
+    PAID_SAMPLE = "paid_sample"  # billed sample — set only when TikTok explicitly flags it
 
 
 class Order(Base):

@@ -1,5 +1,19 @@
 """Sample tracking.
 
+Smashbox has no monthly sample limit, so this report does NOT classify samples
+against an allowance, does NOT compute "over-allowance" amounts, and does NOT
+treat any unit as a "paid oversample" based on volume. Every shipped sample is
+just a shipped sample.
+
+What we report instead:
+  - Total samples shipped (count of units).
+  - Free vs. explicit-paid breakdown: TikTok's own classification — `SAMPLE`
+    when the order is a $0 free creator sample, `PAID_SAMPLE` only if TikTok's
+    settlement file explicitly says so (rare; informational only).
+  - Status breakdown: how many shipped/delivered/cancelled/etc.
+  - Samples sent vs units sold by SKU.
+  - Drill-down list of sample orders.
+
 Sources of shipped samples:
   1. Manually-entered rows in the `samples` table (samples NOT sent through
      TikTok Shop).
@@ -7,18 +21,8 @@ Sources of shipped samples:
      identified at import by gross_sales == $0).
   3. Orders with `order_type == PAID_SAMPLE` (explicit billed oversamples — rare;
      only set when TikTok's "Sample order type" column says so).
-
-Free-vs-paid classification:
-  free_used        = MIN(total_free_units_shipped, allowance)
-  auto_oversample  = MAX(0, total_free_units_shipped − allowance)
-  paid_oversamples = explicit_paid_units + auto_oversample
-  remaining        = MAX(0, allowance − total_free_units_shipped)
-
-The allowance comes from the `sample_allowances` table (brand, year, month).
-If no row exists for that period, we fall back to `settings.free_sample_monthly_allowance`
-and surface "(fallback default)" as the source so the user knows.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
@@ -28,7 +32,16 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
-from app.models.sample_allowance import SampleAllowance
+
+
+@dataclass
+class SampleOrderRow:
+    placed_at: datetime
+    tiktok_order_id: str
+    sku: str
+    quantity: int
+    status: str
+    is_paid: bool         # True if TikTok flagged the order as PAID_SAMPLE
 
 
 @dataclass
@@ -37,32 +50,14 @@ class MonthlySampleUsage:
     month: int
     brand: str
 
-    total_free_units_shipped: int    # units shipped as 'free' (Order.SAMPLE + Sample table free)
-    explicit_paid_units: int          # explicitly billed (Order.PAID_SAMPLE + Sample.is_paid_oversample)
-    allowance: int
-    allowance_source: str             # human-readable provenance
-    allowance_rule_id: int | None     # SampleAllowance.id if a rule matched
-
-    @property
-    def auto_oversample_units(self) -> int:
-        return max(0, self.total_free_units_shipped - self.allowance)
-
-    @property
-    def free_units_used(self) -> int:
-        return min(self.total_free_units_shipped, self.allowance)
-
-    @property
-    def paid_oversample_units(self) -> int:
-        """Total billed-as-paid: explicit + automatic over-allowance."""
-        return self.explicit_paid_units + self.auto_oversample_units
-
-    @property
-    def units_remaining(self) -> int:
-        return max(0, self.allowance - self.total_free_units_shipped)
+    free_units_shipped: int             # SAMPLE order_type + Sample table rows
+    explicit_paid_units_shipped: int    # PAID_SAMPLE order_type + paid Sample rows
+    status_counts: dict[str, int] = field(default_factory=dict)
+    sample_orders: list[SampleOrderRow] = field(default_factory=list)
 
     @property
     def total_units_shipped(self) -> int:
-        return self.total_free_units_shipped + self.explicit_paid_units
+        return self.free_units_shipped + self.explicit_paid_units_shipped
 
 
 @dataclass
@@ -84,45 +79,12 @@ def _month_window(year: int, month: int) -> tuple[datetime, datetime]:
     return start, end
 
 
-def _resolve_allowance(
-    db: Session, brand: str, year: int, month: int
-) -> tuple[int, str, int | None]:
-    """Look up the allowance for (brand, year, month).
-
-    Returns (units, source_description, rule_id_or_none).
-    """
-    rule = db.execute(
-        select(SampleAllowance)
-        .where(SampleAllowance.brand == brand)
-        .where(SampleAllowance.year == year)
-        .where(SampleAllowance.month == month)
-    ).scalar_one_or_none()
-
-    if rule is not None:
-        note_part = f" — “{rule.notes}”" if rule.notes else ""
-        return (
-            rule.allowance_units,
-            f"sample_allowances rule #{rule.id} ({rule.brand}, "
-            f"{year}-{month:02d}, {rule.allowance_units} units){note_part}",
-            rule.id,
-        )
-
-    return (
-        settings.free_sample_monthly_allowance,
-        f"fallback default (no rule in sample_allowances for "
-        f"{brand} {year}-{month:02d}; env FREE_SAMPLE_MONTHLY_ALLOWANCE="
-        f"{settings.free_sample_monthly_allowance})",
-        None,
-    )
-
-
 def monthly_sample_usage(
     db: Session, year: int, month: int, brand: str | None = None
 ) -> MonthlySampleUsage:
     brand = brand or settings.default_brand
     start, end = _month_window(year, month)
 
-    # 1. Manually-recorded samples
     free_units_table = db.execute(
         select(func.coalesce(func.sum(Sample.quantity), 0))
         .where(Sample.shipped_at >= start, Sample.shipped_at < end)
@@ -135,7 +97,6 @@ def monthly_sample_usage(
         .where(Sample.is_paid_oversample.is_(True))
     ).scalar() or 0
 
-    # 2. TikTok $0 free-sample orders
     free_units_orders = db.execute(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
@@ -143,7 +104,6 @@ def monthly_sample_usage(
         .where(Order.order_type == OrderType.SAMPLE)
     ).scalar() or 0
 
-    # 3. Explicit paid-sample orders
     paid_units_orders = db.execute(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
@@ -151,17 +111,45 @@ def monthly_sample_usage(
         .where(Order.order_type == OrderType.PAID_SAMPLE)
     ).scalar() or 0
 
-    allowance, source, rule_id = _resolve_allowance(db, brand, year, month)
+    # Status breakdown across sample-type orders in the window.
+    status_rows = db.execute(
+        select(Order.status, func.count(Order.id))
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        .group_by(Order.status)
+        .order_by(func.count(Order.id).desc())
+    ).all()
+    status_counts = {(row[0] or "unknown"): int(row[1]) for row in status_rows}
+
+    # Drill-down: one row per OrderLine of a sample order, latest first.
+    drill_rows = db.execute(
+        select(Order.placed_at, Order.tiktok_order_id, OrderLine.sku,
+               OrderLine.quantity, Order.status, Order.order_type)
+        .join(OrderLine, OrderLine.order_id == Order.id)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        .order_by(Order.placed_at.desc())
+    ).all()
+    sample_orders = [
+        SampleOrderRow(
+            placed_at=r[0],
+            tiktok_order_id=r[1],
+            sku=r[2],
+            quantity=int(r[3]),
+            status=r[4] or "",
+            is_paid=(r[5] == OrderType.PAID_SAMPLE),
+        )
+        for r in drill_rows
+    ]
 
     return MonthlySampleUsage(
         year=year,
         month=month,
         brand=brand,
-        total_free_units_shipped=int(free_units_table) + int(free_units_orders),
-        explicit_paid_units=int(paid_units_table) + int(paid_units_orders),
-        allowance=allowance,
-        allowance_source=source,
-        allowance_rule_id=rule_id,
+        free_units_shipped=int(free_units_table) + int(free_units_orders),
+        explicit_paid_units_shipped=int(paid_units_table) + int(paid_units_orders),
+        status_counts=status_counts,
+        sample_orders=sample_orders,
     )
 
 
@@ -203,13 +191,3 @@ def samples_vs_sales_by_sku(db: Session, start: datetime, end: datetime) -> list
     ]
     rows.sort(key=lambda r: (-r.samples_sent, r.sku))
     return rows
-
-
-def list_allowance_rules(db: Session) -> list[SampleAllowance]:
-    return list(
-        db.execute(
-            select(SampleAllowance).order_by(
-                SampleAllowance.brand, SampleAllowance.year, SampleAllowance.month
-            )
-        ).scalars()
-    )

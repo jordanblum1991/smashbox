@@ -1,7 +1,8 @@
 """Samples shipped to creators / for seeding.
 
-Free samples count against the monthly allowance; anything over the allowance
-becomes paid oversampling — see app/reports/sample_tracking.py.
+No allowance comparison: Smashbox has no monthly sample limit, so the
+`is_paid_oversample` flag is preserved only for rows that are explicitly billed
+(set manually or by future importers). See app/reports/sample_tracking.py.
 """
 from datetime import datetime
 

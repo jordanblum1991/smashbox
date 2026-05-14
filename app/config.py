@@ -22,9 +22,6 @@ class Settings(BaseSettings):
     # so the exact-sum invariant holds) but flagged as a policy violation.
     seller_funded_policy_cap_pct: Decimal = Decimal("0.30")
 
-    # Free monthly sample allowance (units). Over this counts as paid oversampling.
-    free_sample_monthly_allowance: int = 100
-
     upload_dir: Path = REPO_ROOT / "uploads"
     export_dir: Path = REPO_ROOT / "exports"
 
