@@ -23,6 +23,21 @@ pytest -k split                                # by keyword
 
 Tables auto-create on first boot via `Base.metadata.create_all`. Switch to Alembic migrations (`alembic upgrade head`) before moving to Postgres — `alembic/` is reserved but not initialized yet.
 
+## Restart uvicorn after editing Python — don't trust `--reload` alone
+
+On Windows, `uvicorn app.main:app --reload` reliably picks up **template** changes (Jinja files are re-parsed on each request) but **frequently misses Python module changes** — especially when a dataclass shape changes, a new attribute is added, or a function signature shifts. The failure mode is silent and confusing: the page renders, but with stale code paths (e.g. the template's new `r.sku_code` attribute resolves to `undefined`, so its Jinja fallback fires and every row shows "Missing SKU" even though the function actually returns a populated value).
+
+If you change anything in `app/`, kill the server and start it again. The cheapest pattern:
+
+```bash
+for pid in $(tasklist //FO CSV | grep -i python | cut -d',' -f2 | tr -d '"'); do
+  taskkill //F //PID $pid 2>&1 | head -1
+done
+py -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload &
+```
+
+Whenever a user reports "the page shows the new columns/title but the data looks wrong (Missing / undefined / stale)", **restart first, debug second** — 9 times out of 10 it's a stale reload.
+
 ## Tests never touch the dev DB
 
 `tests/conftest.py` sets `DATABASE_URL` to a temp SQLite file **before** any
