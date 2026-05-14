@@ -39,18 +39,22 @@
 </div>
 {% endif %}
 
-<section class="grid grid-cols-2 gap-4 lg:grid-cols-5">
+<section class="grid grid-cols-2 gap-4 lg:grid-cols-4">
   {% set tiles = [
-    ("Net Customer Sales", pnl.net_customer_sales | money, "slate-900", "/reports/pnl" ~ pnl_qs),
-    ("Net profit", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/pnl" ~ pnl_qs),
-    ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/pnl" ~ pnl_qs),
-    ("Unmapped SKUs", unmapped_count | string, ("rose-600" if unmapped_count > 0 else "emerald-600"), "/reports/unmapped-skus"),
-    ("Orphan settlements", orphan_count | string, ("rose-600" if orphan_count > 0 else "emerald-600"), "/reports/settlement-only-orders"),
+    ("Net Customer Sales", pnl.net_customer_sales | money, "slate-900", "/reports/pnl" ~ pnl_qs, "After all discounts and refunds"),
+    ("Net profit", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/pnl" ~ pnl_qs, "After COGS, fees, ads, shipping"),
+    ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/pnl" ~ pnl_qs, "Gross profit / Net Customer Sales"),
+    ("Avg Order Value", pnl.aov_after_discounts | money, "slate-900", "/reports/pnl" ~ pnl_qs, "Net Customer Sales / Total Orders"),
+    ("Total Orders", "{:,}".format(pnl.orders_count), "slate-900", "/reports/pnl" ~ pnl_qs, "Paid customer orders (excludes samples)"),
+    ("Total Units Sold", "{:,}".format(pnl.units_sold), "slate-900", "/reports/pnl" ~ pnl_qs, "Bundle counts as 1 item"),
+    ("Unmapped SKUs", unmapped_count | string, ("rose-600" if unmapped_count > 0 else "emerald-600"), "/reports/unmapped-skus", "TikTok SKU IDs not in master"),
+    ("Orphan settlements", orphan_count | string, ("rose-600" if orphan_count > 0 else "emerald-600"), "/reports/settlement-only-orders", "Settlement rows with no matching order"),
   ] %}
-  {% for label, value, color, href in tiles %}
+  {% for label, value, color, href, hint in tiles %}
   <a href="{{ href }}" class="block rounded-lg border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm">
     <div class="text-xs uppercase tracking-wider text-slate-500">{{ label }}</div>
     <div class="mt-2 text-2xl font-semibold text-{{ color }}">{{ value }}</div>
+    <div class="mt-1 text-xs text-slate-400">{{ hint }}</div>
   </a>
   {% endfor %}
 </section>

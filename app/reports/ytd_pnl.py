@@ -45,4 +45,5 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
         net_profit=s("net_profit"),
         orders_count=sum((m.orders_count for m in months), 0),
         orders_settled=sum((m.orders_settled for m in months), 0),
+        units_sold=sum((m.units_sold for m in months), 0),
     )

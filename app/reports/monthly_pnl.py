@@ -54,11 +54,25 @@ class MonthlyPnL:
     orders_count: int = 0
     orders_settled: int = 0
 
+    # Volume metrics for the operating-metrics tiles on the Dashboard.
+    # `units_sold` is SUM(OrderLine.quantity) for PAID orders only — bundles
+    # naturally count as 1 line (one OrderLine per bundle, qty unit). We do
+    # NOT explode bundles into components here.
+    units_sold: int = 0
+
     @property
     def settlement_coverage_pct(self) -> Decimal:
         if self.orders_count == 0:
             return Decimal("0")
         return (Decimal(self.orders_settled) / Decimal(self.orders_count)) * 100
+
+    @property
+    def aov_after_discounts(self) -> Decimal:
+        """Average order value AFTER both TikTok-funded and seller-funded
+        discounts (i.e. Net Customer Sales / orders_count)."""
+        if self.orders_count == 0:
+            return Decimal("0")
+        return self.net_customer_sales / Decimal(self.orders_count)
 
     # Convenience aggregate for reconciliation against TikTok's reported total.
     @property
@@ -99,6 +113,15 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
 
     cogs = _paid_cogs(db, start, end)
 
+    # Units sold (paid orders only). Bundles are one OrderLine each, so this
+    # naturally counts a bundle as a single item — not its components.
+    units_sold = db.execute(
+        select(func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.order_type == OrderType.PAID)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+    ).scalar() or 0
+
     gross_sales = Decimal(str(row.gross_sales))
     platform_disc = Decimal(str(row.platform_disc))
     outlandish = Decimal(str(row.outlandish))
@@ -133,6 +156,7 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         net_profit=net_profit,
         orders_count=int(row.orders_count or 0),
         orders_settled=int(row.orders_settled or 0),
+        units_sold=int(units_sold),
     )
 
 
