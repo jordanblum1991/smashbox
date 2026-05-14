@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Settlement-Only Orders · Smashbox{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">Settlement-only orders</h1>
+    <p class="text-sm text-slate-500">
+      Orders that appear in TikTok's settlement file but have no matching row in our orders database.
+      TikTok already paid (or fee'd) them, but we don't have the line-level data — SKUs, gross sales,
+      and the seller-funded discount split — needed to put them in the P&amp;L.
+    </p>
+  </div>
+  <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
+</div>
+
+{% if not rows %}
+<div class="rounded-lg border border-emerald-200 bg-emerald-50 p-6 text-center text-emerald-800">
+  <p class="text-lg font-medium">Every settled order has a matching order row.</p>
+  <p class="mt-1 text-sm">Your orders file fully covers the date range of your settlement file.</p>
+</div>
+{% else %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong>{{ rows | length }}</strong> settled order{{ '' if rows | length == 1 else 's' }} missing from your orders file.
+  Total impact:
+  {{ rows | sum(attribute='settlement_gross') | money }} of settled gross sales,
+  {{ rows | sum(attribute='settlement_fees') | money }} of TikTok fees — invisible in the P&amp;L until fixed.
+  <p class="mt-1 text-xs">
+    <strong>To fix:</strong> open TikTok Seller Center, export an orders file with a wider date range
+    that covers the dates below, then upload it. The matching settlement data will back-fill automatically.
+  </p>
+</div>
+
+<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+  <table class="min-w-full text-sm">
+    <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-4 py-2">TikTok Order ID</th>
+        <th class="px-4 py-2 text-right">Statements</th>
+        <th class="px-4 py-2 text-right">Settled gross</th>
+        <th class="px-4 py-2 text-right">TikTok fees</th>
+        <th class="px-4 py-2">Paid date</th>
+        <th class="px-4 py-2">Settled date</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for r in rows %}
+      <tr>
+        <td class="px-4 py-2 font-mono text-xs">{{ r.tiktok_order_id }}</td>
+        <td class="px-4 py-2 text-right">{{ r.statement_ids }}</td>
+        <td class="px-4 py-2 text-right">{{ r.settlement_gross | money }}</td>
+        <td class="px-4 py-2 text-right">{{ r.settlement_fees | money }}</td>
+        <td class="px-4 py-2 text-slate-600">{{ r.paid_date.strftime("%Y-%m-%d") if r.paid_date else "—" }}</td>
+        <td class="px-4 py-2 text-slate-600">{{ r.settled_date.strftime("%Y-%m-%d") if r.settled_date else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

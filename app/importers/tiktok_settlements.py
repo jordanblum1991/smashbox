@@ -120,6 +120,7 @@ class TikTokSettlementsImporter(BaseImporter):
         # The settlement file has one row per (order, line). Aggregate up to
         # (order_id, linked_statement_id) so the natural-key uniqueness holds
         # and the money columns aren't silently overwritten line-by-line.
+        orphan_ids: set[str] = set()
         for (order_id, statement_id), group in orders_df.groupby(
             [COL["order_id"], COL["linked_statement_id"]], dropna=False, sort=False
         ):
@@ -128,10 +129,22 @@ class TikTokSettlementsImporter(BaseImporter):
                 continue
             try:
                 s = _upsert_settlement(db, oid, group, batch)
-                _backfill_order(db, oid, s)
+                if not _backfill_order(db, oid, s):
+                    orphan_ids.add(oid)
                 result.rows_imported += 1
             except Exception as exc:  # noqa: BLE001
                 result.skip(f"settlement order {oid}: {exc}")
+
+        if orphan_ids:
+            sample = ", ".join(sorted(orphan_ids)[:3])
+            more = (
+                f" (+ {len(orphan_ids) - 3} more)" if len(orphan_ids) > 3 else ""
+            )
+            result.errors.append(
+                f"orphans: {len(orphan_ids)} settlement order{'' if len(orphan_ids) == 1 else 's'} "
+                f"with no matching row in the orders file — e.g. {sample}{more}. "
+                f"See /reports/settlement-only-orders."
+            )
 
         # Adjustments are optional — sheet may be empty.
         try:
@@ -286,13 +299,18 @@ def _adjustment_payload(adj_id: str, row: pd.Series, batch: ImportBatch) -> dict
     )
 
 
-def _backfill_order(db: Session, order_id: str, s: Settlement) -> None:
-    """Update the matching Order with settlement-derived totals."""
+def _backfill_order(db: Session, order_id: str, s: Settlement) -> bool:
+    """Update the matching Order with settlement-derived totals.
+
+    Returns True if a matching Order was found and updated. False if the
+    settlement references an order we don't have (caller logs these as
+    'orphan' settlements so the user knows to upload a wider orders file).
+    """
     order = db.execute(
         select(Order).where(Order.tiktok_order_id == order_id)
     ).scalar_one_or_none()
     if order is None:
-        return  # settlement file may include orders not yet in our orders file
+        return False
 
     # Authoritative sample flag from settlement — overrides gross_sales==0 heuristic.
     sot = (s.sample_order_type or "").strip().lower()
@@ -306,6 +324,7 @@ def _backfill_order(db: Session, order_id: str, s: Settlement) -> None:
     order.affiliate_commission = s.affiliate_commission
     order.shop_ads_cost = s.shop_ads_cost
     order.shipping_cost = s.shipping_cost
+    return True
 
 
 # ---------- helpers ---------------------------------------------------------

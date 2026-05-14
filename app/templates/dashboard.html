@@ -17,12 +17,13 @@
   </div>
 </div>
 
-<section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+<section class="grid grid-cols-2 gap-4 lg:grid-cols-5">
   {% set tiles = [
     ("Net Customer Sales (MTD)", pnl.net_customer_sales | money, "slate-900", "/reports/monthly-pnl"),
     ("Net profit (MTD)", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/monthly-pnl"),
     ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/monthly-pnl"),
     ("Unmapped SKUs", unmapped_count | string, ("rose-600" if unmapped_count > 0 else "emerald-600"), "/reports/unmapped-skus"),
+    ("Orphan settlements", orphan_count | string, ("rose-600" if orphan_count > 0 else "emerald-600"), "/reports/settlement-only-orders"),
   ] %}
   {% for label, value, color, href in tiles %}
   <a href="{{ href }}" class="block rounded-lg border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm">
