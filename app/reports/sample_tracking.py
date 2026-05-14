@@ -32,8 +32,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.models.bundle import Bundle
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
+from app.models.sku import Sku
 from app.templating import month_label
 
 
@@ -55,7 +57,10 @@ class SampleOrderRow:
 
 @dataclass
 class SampleVsSalesRow:
-    sku: str
+    tiktok_sku_id: str       # whatever OrderLine.sku held — usually a TikTok SKU ID
+    sku_code: str | None     # SBX-form from catalog; None if unmapped
+    name: str | None         # product name from catalog; None if unmapped
+    is_bundle: bool          # True when matched to a Bundle row, not a Sku
     samples_sent: int
     units_sold: int
 
@@ -64,6 +69,10 @@ class SampleVsSalesRow:
         if self.samples_sent == 0:
             return Decimal("0")
         return Decimal(self.units_sold) / Decimal(self.samples_sent)
+
+    @property
+    def is_mapped(self) -> bool:
+        return self.sku_code is not None or self.name is not None
 
 
 @dataclass
@@ -237,6 +246,10 @@ def samples_vs_sales_by_sku(db: Session, start: datetime, end: datetime) -> list
     GROUP BY OrderLine.sku ensures each (order, SKU) line contributes exactly
     once — no double counting even when an order has multiple line items or
     when the same SKU appears across many orders in the window.
+
+    Each output row is enriched with the catalog SKU code and product name
+    (Sku table first, Bundle table fallback). Unmapped rows return sku_code
+    and name as None so the template can render "Missing …" labels.
     """
     samples_table = dict(
         db.execute(
@@ -265,13 +278,50 @@ def samples_vs_sales_by_sku(db: Session, start: datetime, end: datetime) -> list
     )
 
     skus = sorted(set(samples_table) | set(samples_orders) | set(sales))
-    rows = [
-        SampleVsSalesRow(
-            sku=sku,
-            samples_sent=int(samples_table.get(sku, 0)) + int(samples_orders.get(sku, 0)),
-            units_sold=int(sales.get(sku, 0)),
+    if not skus:
+        return []
+
+    # One catalog fetch each (Sku, Bundle) — N+1 free.
+    sku_by_key: dict[str, Sku] = {}
+    for s in db.execute(
+        select(Sku).where(
+            (Sku.tiktok_sku_id.in_(skus))
+            | (Sku.sku.in_(skus))
+            | (Sku.tiktok_alt_sku.in_(skus))
         )
-        for sku in skus
-    ]
-    rows.sort(key=lambda r: (-r.samples_sent, r.sku))
+    ).scalars():
+        for key in (s.tiktok_sku_id, s.sku, s.tiktok_alt_sku):
+            if key:
+                sku_by_key[str(key)] = s
+
+    bundle_by_key: dict[str, Bundle] = {}
+    for b in db.execute(
+        select(Bundle).where(
+            (Bundle.tiktok_sku_id.in_(skus)) | (Bundle.bundle_sku.in_(skus))
+        )
+    ).scalars():
+        for key in (b.tiktok_sku_id, b.bundle_sku):
+            if key:
+                bundle_by_key[str(key)] = b
+
+    rows: list[SampleVsSalesRow] = []
+    for raw_key in skus:
+        sku = sku_by_key.get(raw_key)
+        bundle = bundle_by_key.get(raw_key)
+        if sku:
+            name, code, is_bundle = sku.name, sku.sku, False
+        elif bundle:
+            name, code, is_bundle = bundle.name, bundle.bundle_sku, True
+        else:
+            name, code, is_bundle = None, None, False
+
+        rows.append(SampleVsSalesRow(
+            tiktok_sku_id=raw_key,
+            sku_code=code,
+            name=name,
+            is_bundle=is_bundle,
+            samples_sent=int(samples_table.get(raw_key, 0)) + int(samples_orders.get(raw_key, 0)),
+            units_sold=int(sales.get(raw_key, 0)),
+        ))
+    rows.sort(key=lambda r: (-r.samples_sent, r.tiktok_sku_id))
     return rows

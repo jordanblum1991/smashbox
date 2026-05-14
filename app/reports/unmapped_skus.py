@@ -2,17 +2,18 @@
 
 Lists every distinct OrderLine.sku that does NOT appear in the catalog
 (neither in the SKU master nor the bundle mapping). Use this to figure out
-which TikTok SKU IDs need to be added to the Master SKU Sheet so COGS and
-product names flow through.
+which TikTok SKU IDs need to be added so COGS, product names, and the
+sample-tracking table fill in correctly.
 
-Each row shows: the identifier, total units, total gross sales, and the
-first/last time it appeared on a paid order.
+Scope: covers PAID, SAMPLE, and PAID_SAMPLE order lines — anything that ships
+to a customer counts as something we should be able to identify. The
+`purpose` column on each row breaks out where the units came from.
 """
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models.bundle import Bundle
@@ -22,25 +23,31 @@ from app.models.sku import Sku
 
 @dataclass
 class UnmappedRow:
-    identifier: str          # whatever OrderLine.sku stored (usually a TikTok SKU ID)
+    identifier: str
     units: int
     gross: Decimal
     line_count: int
     first_seen: datetime
     last_seen: datetime
+    paid_units: int      # units from PAID orders
+    sample_units: int    # units from SAMPLE / PAID_SAMPLE orders
 
 
-def find_unmapped_skus(db: Session) -> list[UnmappedRow]:
-    # Collect every catalog key.
-    catalog_keys: set[str] = set()
+def _catalog_keys(db: Session) -> set[str]:
+    keys: set[str] = set()
     for s in db.execute(select(Sku)).scalars():
         for k in (s.tiktok_sku_id, s.sku, s.tiktok_alt_sku):
             if k:
-                catalog_keys.add(str(k).strip())
+                keys.add(str(k).strip())
     for b in db.execute(select(Bundle)).scalars():
         for k in (b.tiktok_sku_id, b.bundle_sku):
             if k:
-                catalog_keys.add(str(k).strip())
+                keys.add(str(k).strip())
+    return keys
+
+
+def find_unmapped_skus(db: Session) -> list[UnmappedRow]:
+    catalog = _catalog_keys(db)
 
     stmt = (
         select(
@@ -50,9 +57,14 @@ def find_unmapped_skus(db: Session) -> list[UnmappedRow]:
             func.count(OrderLine.id).label("lines"),
             func.min(Order.placed_at).label("first"),
             func.max(Order.placed_at).label("last"),
+            func.sum(case((Order.order_type == OrderType.PAID, OrderLine.quantity), else_=0)).label("paid_units"),
+            func.sum(case(
+                (Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]), OrderLine.quantity),
+                else_=0,
+            )).label("sample_units"),
         )
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.order_type == OrderType.PAID)
+        .where(Order.order_type.in_([OrderType.PAID, OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         .group_by(OrderLine.sku)
         .order_by(func.sum(OrderLine.quantity).desc())
     )
@@ -60,7 +72,7 @@ def find_unmapped_skus(db: Session) -> list[UnmappedRow]:
     out: list[UnmappedRow] = []
     for r in db.execute(stmt):
         key = (r.sku or "").strip()
-        if not key or key in catalog_keys:
+        if not key or key in catalog:
             continue
         out.append(UnmappedRow(
             identifier=key,
@@ -69,5 +81,7 @@ def find_unmapped_skus(db: Session) -> list[UnmappedRow]:
             line_count=int(r.lines or 0),
             first_seen=r.first,
             last_seen=r.last,
+            paid_units=int(r.paid_units or 0),
+            sample_units=int(r.sample_units or 0),
         ))
     return out
