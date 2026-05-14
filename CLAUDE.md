@@ -23,6 +23,14 @@ pytest -k split                                # by keyword
 
 Tables auto-create on first boot via `Base.metadata.create_all`. Switch to Alembic migrations (`alembic upgrade head`) before moving to Postgres — `alembic/` is reserved but not initialized yet.
 
+## Tests never touch the dev DB
+
+`tests/conftest.py` sets `DATABASE_URL` to a temp SQLite file **before** any
+`from app.db import ...` runs. This is load-bearing — multiple tests call
+`Base.metadata.drop_all()` / `create_all()` to start clean, and a previous
+version of this file allowed those calls to nuke `data/smashbox.db`. Don't
+rearrange the conftest imports; the env-var-then-import order matters.
+
 ## Python 3.14 quirk
 
 Many libs only ship 3.14 wheels in their latest minor versions, so `requirements.txt` uses lower-bound (`>=`) pins, not equality. `pydantic-core` will try to build from Rust source if you pin an older version — don't.
