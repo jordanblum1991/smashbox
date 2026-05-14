@@ -119,6 +119,10 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
 def _paid_cogs(db: Session, start: datetime, end: datetime) -> Decimal:
     """Sum qty * unit_cogs_snapshot for paid orders. Falls back to SKU master
     COGS when the snapshot is zero (legacy rows imported before COGS was set)."""
+    # OrderLine.sku holds the TikTok SKU ID after resolution. Fallback joins
+    # against Sku.tiktok_sku_id for SKUs that exist in the master but somehow
+    # missed snapshotting. Bundles are not in this fallback — they always have
+    # a populated snapshot from the resolver.
     stmt = (
         select(
             func.coalesce(
@@ -134,7 +138,7 @@ def _paid_cogs(db: Session, start: datetime, end: datetime) -> Decimal:
         )
         .select_from(OrderLine)
         .join(Order, Order.id == OrderLine.order_id)
-        .join(Sku, Sku.sku == OrderLine.sku, isouter=True)
+        .join(Sku, Sku.tiktok_sku_id == OrderLine.sku, isouter=True)
         .where(Order.order_type == OrderType.PAID)
         .where(Order.placed_at >= start, Order.placed_at < end)
     )

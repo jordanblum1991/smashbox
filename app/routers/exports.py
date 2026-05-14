@@ -79,11 +79,11 @@ def export_sku_csv(
     rows = compute_sku_profitability(db, start, end)
 
     def gen():
-        yield "sku,name,units_sold,gross_sales,cogs,gross_profit,gross_margin\n"
+        yield "tiktok_sku_id,sku_code,name,is_bundle,units_sold,gross_sales,cogs,gross_profit,gross_margin\n"
         for r in rows:
             name = (r.name or "").replace(",", " ")
             yield (
-                f"{r.sku},{name},{r.units_sold},"
+                f"{r.tiktok_sku_id},{r.sku_code or ''},{name},{r.is_bundle},{r.units_sold},"
                 f"{r.gross_sales},{r.cogs},{r.gross_profit},{r.gross_margin}\n"
             )
 

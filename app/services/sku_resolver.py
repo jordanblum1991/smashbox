@@ -1,25 +1,25 @@
 """Resolve OrderLine.sku against the SKU master and bundle catalog.
 
-Why this exists
----------------
-The TikTok orders file may emit any of three identifiers for a single SKU
-(SBX-form, ALT C-form, or numeric TikTok SKU ID), and for bundles it emits the
-bundle's TikTok SKU ID. The resolver:
+Canonical identifier
+--------------------
+TikTok SKU ID is the canonical product identifier — it is the only key that
+TikTok always emits, and it uniquely identifies a SKU/bundle in TikTok's
+system. The orders importer already prefers the TikTok SKU ID when building
+OrderLine.sku; this resolver makes the canonicalization deterministic for any
+line that arrived with a different identifier (SBX-form, ALT C-form, etc.).
 
-  1. Rewrites OrderLine.sku to the canonical form whenever a match is found.
-  2. Writes OrderLine.unit_cogs_snapshot — either from Sku.unit_cogs (single
-     items) or from the sum of component COGS (bundles). The snapshot is
-     captured at resolution time so historical reports don't drift if the
-     master is later edited.
+On match:
+  - OrderLine.sku is rewritten to the TikTok SKU ID (when known).
+  - OrderLine.unit_cogs_snapshot is captured (single: Sku.unit_cogs; bundle:
+    sum of component qty × unit_cogs).
 
-Idempotent. Safe to run multiple times — and the orders importer / SKU master
-importer both trigger it at the end of their batch so the catalog stays in
-sync with as-imported data.
+The resolver runs after TIKTOK_ORDERS, SKU_MASTER, and BUNDLE_MAPPING imports
+so the catalog can land before or after the orders and still back-fill them.
+Idempotent.
 """
 from dataclasses import dataclass
-from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.bundle import Bundle
@@ -36,22 +36,21 @@ class ResolveStats:
 
 
 def resolve_all_order_lines(db: Session) -> ResolveStats:
-    """Walk every OrderLine and try to resolve its sku against catalog tables."""
     stats = ResolveStats()
 
-    # Cache the catalog once — there are at most a few hundred rows of each.
     skus = db.execute(select(Sku)).scalars().all()
     bundles = db.execute(select(Bundle)).scalars().all()
 
+    # Build a lookup keyed by ANY known identifier of a SKU.
     sku_by_key: dict[str, Sku] = {}
     for s in skus:
-        for key in (s.sku, s.tiktok_alt_sku, s.tiktok_sku_id):
+        for key in (s.tiktok_sku_id, s.sku, s.tiktok_alt_sku):
             if key:
                 sku_by_key[str(key).strip()] = s
 
     bundle_by_key: dict[str, Bundle] = {}
     for b in bundles:
-        for key in (b.bundle_sku, b.tiktok_sku_id):
+        for key in (b.tiktok_sku_id, b.bundle_sku):
             if key:
                 bundle_by_key[str(key).strip()] = b
 
@@ -62,19 +61,19 @@ def resolve_all_order_lines(db: Session) -> ResolveStats:
             stats.lines_unresolved += 1
             continue
 
-        # Single-SKU match first.
         sku = sku_by_key.get(raw)
         if sku:
-            line.sku = sku.sku  # canonicalize
+            # Canonicalize to TikTok SKU ID when the master row has one;
+            # otherwise leave OrderLine.sku as the matched key (so the join
+            # by Sku.sku still works for SKUs not yet on TikTok).
+            line.sku = sku.tiktok_sku_id or sku.sku
             line.unit_cogs_snapshot = sku.unit_cogs
             stats.lines_resolved_sku += 1
             continue
 
-        # Bundle match — sum component COGS for the unit COGS snapshot.
         bundle = bundle_by_key.get(raw)
         if bundle:
-            if bundle.bundle_sku:
-                line.sku = bundle.bundle_sku
+            line.sku = bundle.tiktok_sku_id or bundle.bundle_sku
             line.unit_cogs_snapshot = bundle.calculated_cogs
             stats.lines_resolved_bundle += 1
             continue

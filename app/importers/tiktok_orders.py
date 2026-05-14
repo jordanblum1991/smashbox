@@ -184,8 +184,14 @@ def _build_line(row: pd.Series) -> OrderLine:
 
 
 def _resolve_sku(row: pd.Series) -> str:
-    """Prefer Seller SKU; fall back to SKU ID; then to bundle SKUs joined."""
-    for key in ("sku_seller", "sku_id", "bundle_skus"):
+    """Return the strongest identifier available.
+
+    Prefer the TikTok SKU ID (numeric, always present in exports) — that is
+    the canonical product key the catalog tables (Sku.tiktok_sku_id,
+    Bundle.tiktok_sku_id) use. Fall back to Seller SKU then bundle SKUs only
+    when the SKU ID is genuinely missing.
+    """
+    for key in ("sku_id", "sku_seller", "bundle_skus"):
         col = HEADER_MAP[key]
         if col not in row:
             continue

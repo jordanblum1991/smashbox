@@ -41,4 +41,4 @@ def test_csv_export(client: TestClient) -> None:
     r = client.get("/export/sku-profitability.csv")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
-    assert "sku,name,units_sold" in r.text
+    assert "tiktok_sku_id,sku_code,name" in r.text
