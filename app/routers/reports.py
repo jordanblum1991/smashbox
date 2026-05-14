@@ -16,6 +16,7 @@ from app.reports.sample_tracking import (
     samples_vs_sales_by_sku,
 )
 from app.reports.sku_profitability import compute_sku_profitability
+from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
 from app.templating import templates
 
@@ -92,6 +93,16 @@ def samples_view(
         request,
         "reports/sample_tracking.html",
         {"usage": usage, "by_sku": by_sku, "year": y, "month": m},
+    )
+
+
+@router.get("/reports/unmapped-skus")
+def unmapped_skus_view(request: Request, db: Session = Depends(get_db)):
+    rows = find_unmapped_skus(db)
+    return templates.TemplateResponse(
+        request,
+        "reports/unmapped_skus.html",
+        {"rows": rows},
     )
 
 

@@ -19,16 +19,16 @@
 
 <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
   {% set tiles = [
-    ("Net Customer Sales (MTD)", pnl.net_customer_sales | money, "slate-900"),
-    ("Net profit (MTD)", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600"),
-    ("Gross margin", pnl.gross_margin | pct, "slate-900"),
-    ("Sample units remaining", samples.units_remaining ~ " / " ~ samples.allowance, "slate-900"),
+    ("Net Customer Sales (MTD)", pnl.net_customer_sales | money, "slate-900", "/reports/monthly-pnl"),
+    ("Net profit (MTD)", pnl.net_profit | money, "emerald-600" if pnl.net_profit >= 0 else "rose-600", "/reports/monthly-pnl"),
+    ("Gross margin", pnl.gross_margin | pct, "slate-900", "/reports/monthly-pnl"),
+    ("Unmapped SKUs", unmapped_count | string, ("rose-600" if unmapped_count > 0 else "emerald-600"), "/reports/unmapped-skus"),
   ] %}
-  {% for label, value, color in tiles %}
-  <div class="rounded-lg border border-slate-200 bg-white p-5">
+  {% for label, value, color, href in tiles %}
+  <a href="{{ href }}" class="block rounded-lg border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm">
     <div class="text-xs uppercase tracking-wider text-slate-500">{{ label }}</div>
     <div class="mt-2 text-2xl font-semibold text-{{ color }}">{{ value }}</div>
-  </div>
+  </a>
   {% endfor %}
 </section>
 
