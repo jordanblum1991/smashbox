@@ -129,9 +129,25 @@ Always `Decimal`, never `float`. `Numeric(14, 2)` in the ORM; quantize to `0.01`
 - SQLAlchemy 2.x with `Mapped[...]` annotations. `app/db.py` exports `engine`, `SessionLocal`, `Base`, `get_db`.
 - pandas for parsing imports; xlsxwriter for Excel export.
 
+## Catalog tables: Sku and Bundle
+
+The TikTok orders file can identify a SKU using any of THREE identifiers
+(SBX-form, ALT C-form, numeric TikTok SKU ID) and bundles by their TikTok SKU
+ID. `Sku` carries all three columns; `Bundle` carries two (`bundle_sku`,
+`tiktok_sku_id`). The resolver at `app/services/sku_resolver.py` matches a
+raw OrderLine.sku against any catalog key, rewrites the OrderLine.sku to the
+canonical SBX-form, and writes `unit_cogs_snapshot`:
+
+- single SKU → `Sku.unit_cogs`
+- bundle    → sum of component `quantity × unit_cogs` (Bundle.calculated_cogs)
+
+The resolver runs automatically after `TIKTOK_ORDERS`, `SKU_MASTER`, and
+`BUNDLE_MAPPING` imports, so loading the catalog later retroactively back-fills
+COGS on orders that came in first. It is idempotent — safe to re-run.
+
 ## Importers
 
-`app/importers/__init__.py` has the `IMPORTERS: dict[ImportFileKind, type[BaseImporter]]` registry. Only `TIKTOK_ORDERS` is wired up; the rest are TODO. Each importer:
+`app/importers/__init__.py` has the `IMPORTERS: dict[ImportFileKind, type[BaseImporter]]` registry. Four wired up today: `TIKTOK_ORDERS`, `TIKTOK_SETTLEMENTS`, `SKU_MASTER`, `BUNDLE_MAPPING`. `TIKTOK_PAYOUTS` and `SAMPLES` are still TODO. Each importer:
 
 - Subclasses `BaseImporter`, implements `run(path, db, batch) -> ImportResult`.
 - **Does not commit** — the router commits once the batch is fully processed so a parse failure rolls back the whole file.
