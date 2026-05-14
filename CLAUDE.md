@@ -133,7 +133,7 @@ Always `Decimal`, never `float`. `Numeric(14, 2)` in the ORM; quantize to `0.01`
 
 **Canonical product identifier is the TikTok SKU ID** (numeric string). It is the only key TikTok always emits, and it uniquely identifies a SKU/bundle. The orders importer prefers `SKU ID` (numeric, always present) over `Seller SKU` when building `OrderLine.sku`; the resolver canonicalizes any matched line to `Sku.tiktok_sku_id` (or `Bundle.tiktok_sku_id`).
 
-`Sku` carries three identifiers — `sku` (SBX-form, human-readable code), `tiktok_alt_sku` (C-form), and `tiktok_sku_id` (canonical). `Bundle` carries two — `bundle_sku` (synthesized SBX-form for display) and `tiktok_sku_id` (canonical).
+`Sku` carries three identifiers — `sku` (SBX-form, human-readable code, **not** unique), `tiktok_alt_sku` (C-form), and `tiktok_sku_id` (canonical, unique when set). TikTok issues a separate `tiktok_sku_id` per variation, so one SBX-form code can map to multiple Sku rows — one per variation. The master-sheet importer therefore upserts by `tiktok_sku_id`, falling back to `sku` only for products without a TikTok ID yet. `Bundle` carries two — `bundle_sku` (synthesized SBX-form for display) and `tiktok_sku_id` (canonical).
 
 The resolver at `app/services/sku_resolver.py` matches `OrderLine.sku` against any catalog key, then:
 - rewrites `OrderLine.sku` to the canonical TikTok SKU ID,

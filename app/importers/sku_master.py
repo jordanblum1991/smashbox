@@ -4,14 +4,20 @@ Real file layout (2026-05-13 capture):
   workbook  : Master-SKU-Sheet.xlsx
   sheet     : "Master SKU List"
   header row: row 0
-  ~497 rows on the sheet, but only the ones with a populated SKU column are
-  actual SKUs — the rest are blank scratch rows.
+  ~497 rows on the sheet, but only rows with a populated `TikTok Shop SKU`
+  are real SKUs.
 
-Behaviour:
-  - Upsert by `TikTok Shop SKU` (the canonical SBX-form).
-  - Skip rows with no `TikTok Shop SKU`.
-  - Update existing SKUs in place — never delete (history matters; an inactive
-    flag is preserved).
+Upsert key
+----------
+Primary upsert key is `TikTok SKU ID` (the canonical product identifier on
+TikTok). One TikTok Shop SKU (SBX-form) may appear on multiple rows, one per
+TikTok variation — using SBX-form as the upsert key would silently overwrite
+all but the last row. When `TikTok SKU ID` is blank (SKUs not yet listed on
+TikTok), we fall back to upserting by `TikTok Shop SKU` so we still capture
+COGS/MSRP for inactive items.
+
+Skips rows with no `TikTok Shop SKU`. Never deletes — history matters; an
+inactive flag is preserved.
 """
 from decimal import Decimal
 from pathlib import Path
@@ -65,12 +71,12 @@ class SkuMasterImporter(BaseImporter):
 
 
 def _upsert_sku(db: Session, canonical: str, row: pd.Series) -> None:
-    existing = db.execute(select(Sku).where(Sku.sku == canonical)).scalar_one_or_none()
+    tiktok_sku_id = _str(row.get(COL["tiktok_sku_id"]))
 
     payload = dict(
         sku=canonical,
         tiktok_alt_sku=_str(row.get(COL["tiktok_alt_sku"])),
-        tiktok_sku_id=_str(row.get(COL["tiktok_sku_id"])),
+        tiktok_sku_id=tiktok_sku_id,
         name=_str(row.get(COL["name"])) or canonical,
         brand=_str(row.get(COL["brand"])) or "unknown",
         category=_str(row.get(COL["category"])),
@@ -80,6 +86,24 @@ def _upsert_sku(db: Session, canonical: str, row: pd.Series) -> None:
         is_active=(_str(row.get(COL["active_status"])) or "").strip().lower()
         not in {"no", "inactive", "discontinued"},
     )
+
+    # Prefer to upsert by TikTok SKU ID — that's the canonical product
+    # identifier and what `sku` (SBX-form) maps to in one-to-many fashion.
+    existing = None
+    if tiktok_sku_id:
+        existing = db.execute(
+            select(Sku).where(Sku.tiktok_sku_id == tiktok_sku_id)
+        ).scalar_one_or_none()
+
+    # Fallback: SKUs not yet listed on TikTok have no tiktok_sku_id. Upsert by
+    # SBX-form so we still capture COGS/MSRP — but ONLY into rows that also
+    # have no tiktok_sku_id (otherwise we'd overwrite a sibling variation).
+    if existing is None and not tiktok_sku_id:
+        existing = db.execute(
+            select(Sku)
+            .where(Sku.sku == canonical)
+            .where(Sku.tiktok_sku_id.is_(None))
+        ).scalar_one_or_none()
 
     if existing is None:
         db.add(Sku(**payload))

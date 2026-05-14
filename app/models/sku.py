@@ -20,17 +20,28 @@ from app.db import Base
 
 
 class Sku(Base):
+    """One row per TikTok variant.
+
+    The unique key is `tiktok_sku_id` (when present) — TikTok issues a separate
+    ID per variation, so a single TikTok Shop SKU (`sku`, the SBX-form) can map
+    to multiple Sku rows, one per variation. `sku` is therefore NOT unique here;
+    it is the human-readable product-family code shared across variations.
+
+    Rows without a tiktok_sku_id (products not yet listed on TikTok) are still
+    permitted — they are keyed by sku for upsert purposes via the importer.
+    """
     __tablename__ = "skus"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    # Canonical key — preferred SBX-prefixed form.
-    sku: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    # Human-readable product code (SBX-form). Multiple rows can share this when
+    # a single product has multiple TikTok variations.
+    sku: Mapped[str] = mapped_column(String(128), index=True)
 
-    # Alternate keys TikTok may use in exports. Nullable because not every SKU
-    # has every form populated in the master sheet yet.
+    # Canonical product identifier on TikTok. Unique across the table when set;
+    # null only for SKUs not yet listed on TikTok.
     tiktok_alt_sku: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    tiktok_sku_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    tiktok_sku_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
 
     name: Mapped[str] = mapped_column(String(512))
     brand: Mapped[str] = mapped_column(String(64), index=True)
