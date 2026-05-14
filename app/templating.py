@@ -30,5 +30,22 @@ def pct(value) -> str:
     return f"{value * 100:.1f}%"
 
 
+def month_label(year: int, month: int) -> str:
+    """Human-readable month header used across every P&L report: 'April 2026'."""
+    import calendar  # stdlib; cheap to import per call
+    return f"{calendar.month_name[month]} {year}"
+
+
+def month_short(month_val) -> str:
+    """Short three-letter month name for compact YTD column headers: 'Apr'.
+    Accepts either a date/datetime or an integer 1–12."""
+    import calendar
+    if hasattr(month_val, "month"):
+        return calendar.month_abbr[month_val.month]
+    return calendar.month_abbr[int(month_val)]
+
+
 templates.env.filters["money"] = money
 templates.env.filters["pct"] = pct
+templates.env.globals["month_label"] = month_label
+templates.env.filters["month_short"] = month_short

@@ -28,13 +28,17 @@ def export_monthly_pnl_xlsx(
     y, m = year or today.year, month or today.month
     pnl = compute_monthly_pnl(db, y, m)
 
+    import calendar
+    month_name = calendar.month_name[m]            # "April"
+    month_abbr = calendar.month_abbr[m]            # "Apr"
+
     buf = BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
-    ws = wb.add_worksheet(f"{y}-{m:02d}")
+    ws = wb.add_worksheet(f"{month_abbr} {y}")     # tab: "Apr 2026"
     money = wb.add_format({"num_format": "$#,##0.00"})
     bold = wb.add_format({"bold": True})
 
-    ws.write("A1", f"Smashbox P&L — {y}-{m:02d}", bold)
+    ws.write("A1", f"Smashbox P&L — {month_name} {y}", bold)
     rows = [
         ("Gross Product Sales", pnl.gross_sales),
         ("Less: TikTok-Funded Discount", -pnl.platform_discount),

@@ -5,7 +5,7 @@
 <div class="mb-6 flex items-end justify-between">
   <div>
     <h1 class="text-2xl font-semibold tracking-tight">Sample tracking</h1>
-    <p class="text-sm text-slate-500">{{ "%04d-%02d" % (year, month) }}</p>
+    <p class="text-sm text-slate-500">{{ month_label(year, month) }}</p>
   </div>
   <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
 </div>

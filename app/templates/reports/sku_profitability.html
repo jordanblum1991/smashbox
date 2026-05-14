@@ -5,7 +5,7 @@
 <div class="mb-6 flex items-end justify-between">
   <div>
     <h1 class="text-2xl font-semibold tracking-tight">SKU profitability</h1>
-    <p class="text-sm text-slate-500">{{ "%04d-%02d" % (year, month) }} · grouped by TikTok SKU ID</p>
+    <p class="text-sm text-slate-500">{{ month_label(year, month) }} · grouped by TikTok SKU ID</p>
   </div>
   <div class="flex gap-2 print:hidden">
     <a href="/export/sku-profitability.csv?year={{ year }}&month={{ month }}"
