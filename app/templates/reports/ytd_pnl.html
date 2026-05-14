@@ -18,19 +18,21 @@
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% set lines = [
-        ("Gross sales", "gross_sales"),
+        ("Gross Product Sales", "gross_sales"),
+        ("TikTok-Funded Discount", "platform_discount"),
+        ("Outlandish-Funded", "outlandish_discount"),
+        ("Smashbox-Funded", "smashbox_discount"),
         ("Refunds", "refunds"),
-        ("Seller-funded total", "seller_funded_total"),
-        ("Net sales", "net_sales"),
+        ("Net Customer Sales", "net_customer_sales"),
         ("COGS", "cogs"),
-        ("Gross profit", "gross_profit"),
+        ("Gross Profit", "gross_profit"),
         ("TikTok fees", "tiktok_fees"),
         ("Affiliate commission", "affiliate_commission"),
         ("Shop ads", "shop_ads_cost"),
-        ("Net profit", "net_profit"),
+        ("Net Profit", "net_profit"),
       ] %}
       {% for label, attr in lines %}
-      <tr class="{% if attr in ['net_sales','gross_profit','net_profit'] %}font-semibold bg-slate-50/40{% endif %}">
+      <tr class="{% if attr in ['net_customer_sales','gross_profit','net_profit'] %}font-semibold bg-slate-50/40{% endif %}">
         <td class="px-4 py-2">{{ label }}</td>
         {% for m in ytd.months %}
         <td class="px-3 py-2 text-right">{{ m[attr] | money }}</td>

@@ -18,8 +18,7 @@ class YtdPnL:
 def compute_ytd_pnl(db: Session, year: int, through_month: int | None = None) -> YtdPnL:
     last = through_month or date.today().month
     months = [compute_monthly_pnl(db, year, m) for m in range(1, last + 1)]
-    total = _sum(months, year)
-    return YtdPnL(year=year, months=months, total=total)
+    return YtdPnL(year=year, months=months, total=_sum(months, year))
 
 
 def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
@@ -31,17 +30,17 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
     return MonthlyPnL(
         month=date(year, 1, 1),
         gross_sales=s("gross_sales"),
+        platform_discount=s("platform_discount"),
+        outlandish_discount=s("outlandish_discount"),
+        smashbox_discount=s("smashbox_discount"),
         refunds=s("refunds"),
-        net_sales=s("net_sales"),
+        net_customer_sales=s("net_customer_sales"),
+        cogs=s("cogs"),
+        gross_profit=s("gross_profit"),
         tiktok_fees=s("tiktok_fees"),
         affiliate_commission=s("affiliate_commission"),
         shop_ads_cost=s("shop_ads_cost"),
-        seller_funded_total=s("seller_funded_total"),
-        seller_funded_outlandish=s("seller_funded_outlandish"),
-        seller_funded_smashbox=s("seller_funded_smashbox"),
         shipping_revenue=s("shipping_revenue"),
         shipping_cost=s("shipping_cost"),
-        cogs=s("cogs"),
-        gross_profit=s("gross_profit"),
         net_profit=s("net_profit"),
     )

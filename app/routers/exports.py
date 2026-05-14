@@ -36,20 +36,20 @@ def export_monthly_pnl_xlsx(
 
     ws.write("A1", f"Smashbox P&L — {y}-{m:02d}", bold)
     rows = [
-        ("Gross sales", pnl.gross_sales),
-        ("Refunds", pnl.refunds),
-        ("Seller-funded discount (total)", pnl.seller_funded_total),
-        ("  Outlandish-funded", pnl.seller_funded_outlandish),
-        ("  Smashbox-funded", pnl.seller_funded_smashbox),
-        ("Net sales", pnl.net_sales),
-        ("COGS", pnl.cogs),
-        ("Gross profit", pnl.gross_profit),
-        ("TikTok fees", pnl.tiktok_fees),
-        ("Affiliate commission", pnl.affiliate_commission),
-        ("Shop ads cost", pnl.shop_ads_cost),
+        ("Gross Product Sales", pnl.gross_sales),
+        ("Less: TikTok-Funded Discount", -pnl.platform_discount),
+        ("Less: Outlandish-Funded Discount", -pnl.outlandish_discount),
+        ("Less: Smashbox-Funded Discount", -pnl.smashbox_discount),
+        ("Less: Refunds", -pnl.refunds),
+        ("Net Customer Sales", pnl.net_customer_sales),
+        ("COGS", -pnl.cogs),
+        ("Gross Profit", pnl.gross_profit),
+        ("TikTok fees", -pnl.tiktok_fees),
+        ("Affiliate commission", -pnl.affiliate_commission),
+        ("Shop ads cost", -pnl.shop_ads_cost),
         ("Shipping revenue", pnl.shipping_revenue),
-        ("Shipping cost", pnl.shipping_cost),
-        ("Net profit", pnl.net_profit),
+        ("Shipping cost", -pnl.shipping_cost),
+        ("Net Profit", pnl.net_profit),
     ]
     for i, (label, value) in enumerate(rows, start=3):
         ws.write(f"A{i}", label)

@@ -2,6 +2,9 @@
 
 `order_type` separates paid customer orders from free sample orders so the P&L
 engine and sample tracker pull from the same table without double-counting.
+
+Discount split lives on OrderLine (line-level math is the source of truth) and
+is rolled up to Order for fast P&L queries.
 """
 import enum
 from datetime import datetime
@@ -28,30 +31,30 @@ class Order(Base):
     tiktok_order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     placed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     order_type: Mapped[OrderType] = mapped_column(Enum(OrderType), default=OrderType.PAID, index=True)
-    status: Mapped[str] = mapped_column(String(32), index=True)  # e.g. completed, refunded
+    status: Mapped[str] = mapped_column(String(32), index=True)
     brand: Mapped[str] = mapped_column(String(64), index=True)
 
-    # Order-level money fields (line totals plus order-level adjustments).
+    # Roll-ups of line-level values (line is source of truth — see OrderLine).
     gross_sales: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    platform_discount_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     refunds: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     shipping_revenue: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     shipping_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
 
-    # Fees & marketing pulled in from settlement files when available.
+    # Fees & marketing back-filled from settlement file.
     tiktok_fees: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     affiliate_commission: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     shop_ads_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
 
-    # Seller-funded discount split — Outlandish + Smashbox MUST equal total.
-    # See app/rules/seller_funded_split.py.
+    # Seller-funded discount split (rolled up from OrderLine). The exact-sum
+    # invariant holds at every level: outlandish + smashbox == total.
     seller_funded_discount_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     seller_funded_outlandish: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     seller_funded_smashbox: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
 
-    # True when the TOTAL seller-funded discount exceeded
-    # settings.seller_funded_policy_cap_pct of gross_sales — should never happen
-    # under our policy. Smashbox still absorbs the excess to keep the split
-    # invariant intact; the flag exposes the violation for investigation.
+    # True if ANY line breached the seller-funded policy cap (default 30% of
+    # the line's post-TikTok price). Smashbox still absorbs the excess so the
+    # split invariant holds; the flag exposes the violation for investigation.
     discount_policy_violation: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     lines: Mapped[list["OrderLine"]] = relationship(
@@ -60,6 +63,11 @@ class Order(Base):
 
 
 class OrderLine(Base):
+    """Line-level money. THE SELLER-FUNDED DISCOUNT SPLIT IS COMPUTED HERE.
+
+    The base for the 10% Outlandish cap is `post_tiktok_price`
+    (gross_sales − platform_discount), NOT gross_sales.
+    """
     __tablename__ = "order_lines"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -68,9 +76,19 @@ class OrderLine(Base):
     sku: Mapped[str] = mapped_column(String(128), index=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+
+    # Gross / discount stack — all stored as POSITIVE magnitudes.
     gross_sales: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
-    # COGS snapshot at import time so historical reports don't shift when the SKU
-    # master is edited.
+    platform_discount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    post_tiktok_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    seller_funded_discount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    seller_funded_outlandish: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    seller_funded_smashbox: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+
+    discount_policy_violation: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # COGS snapshot at import time so historical reports don't shift when the
+    # SKU master is edited later.
     unit_cogs_snapshot: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=Decimal("0"))
 
     order: Mapped[Order] = relationship(back_populates="lines")

@@ -53,22 +53,44 @@ services/      (empty) Cross-cutting orchestration jobs
 
 Implementation: compute Outlandish, quantize to cents; assign the residual to Smashbox so the sum is exact by construction. Don't "fix" a failing test by relaxing the invariant — fix the split function.
 
-**Business rule (cap-then-residual, confirmed 2026-05-13):**
+**Business rule (cap-then-residual, line-level, confirmed 2026-05-13):**
 
 ```
-Outlandish = MIN(seller_funded_total, eligible_base × cap_pct)
-Smashbox   = seller_funded_total − Outlandish
+post_tiktok_price = gross_sales − platform_discount       (per line)
+Outlandish        = MIN(seller_funded_discount, post_tiktok_price × 10%)
+Smashbox          = seller_funded_discount − Outlandish
 ```
 
-- `seller_funded_total` is TikTok's `SKU Seller Discount` summed across the order (NOT `SKU Platform Discount` — that one is TikTok-funded and never split).
-- `eligible_base` is the order's gross price basis used for discount % calculations — i.e. `Order.gross_sales` (sum of `SKU Subtotal Before Discount`).
-- `cap_pct` defaults to `OUTLANDISH_CAP_PCT` (0.10). Fixed today; can be made per-period or per-SKU later.
+- The split is computed **at the OrderLine level** and rolled up to the Order. Line-level is the source of truth.
+- `seller_funded_discount` is TikTok's `SKU Seller Discount` (the per-line value). NOT `SKU Platform Discount` — that one is TikTok-funded and never split.
+- `post_tiktok_price` (the eligible base) is `SKU Subtotal Before Discount − SKU Platform Discount`. **NOT gross_sales** — the split is applied *after* TikTok-funded discounts reduce the customer price.
+- `cap_pct` defaults to `OUTLANDISH_CAP_PCT` (0.10). Fixed today; can be made per-period/per-SKU later.
 
-Canonical example: base $100, seller-funded total $25, cap 10% → cap = $10, Outlandish = min($25, $10) = $10, Smashbox = $25 − $10 = $15.
+Canonical worked example (the one pinned by the user, 2026-05-13):
 
-**Policy ceiling (should never trip):** total seller-funded discount per order must be `≤ 30%` of the eligible base (10% Outlandish + the next 20% Smashbox). Orders that breach it are still imported — Smashbox absorbs the excess so the exact-sum invariant holds — but they are flagged via `Order.discount_policy_violation`, surfaced in import errors, and counted on the reconciliation page. The cap lives at `SELLER_FUNDED_POLICY_CAP_PCT` in `.env`.
+```
+Gross Product Sales      = $100
+TikTok-Funded Discount   = $20    →  post-TikTok price = $80
+Total Seller-Funded Disc = $24
+Outlandish Max (10%)     = $8     →  Outlandish = MIN($24, $8) = $8
+Smashbox                  = $24 − $8 = $16
+Validation: $8 + $16 = $24 ✓
+```
 
-Use `violates_policy_cap(total, eligible_base, policy_cap_pct=None)` from `app/rules/seller_funded_split.py` — the importer calls this and sets the flag.
+**P&L presentation:** the discount waterfall is displayed line-by-line in the P&L so anyone reading it can see who funded what:
+
+```
+Gross Product Sales
+− TikTok-Funded Discount
+− Outlandish-Funded Discount
+− Smashbox-Funded Discount
+− Refunds
+= Net Customer Sales (a.k.a. Net Product Revenue)
+```
+
+**Policy ceiling (should never trip):** total seller-funded discount per line must be `≤ 30%` of the line's post-TikTok price. Lines that breach it are still imported — Smashbox absorbs the excess so the exact-sum invariant holds — but they are flagged via `OrderLine.discount_policy_violation`, the order's `discount_policy_violation` flag is set, the import logs a `policy:` warning, and reconciliation surfaces the count. Cap lives at `SELLER_FUNDED_POLICY_CAP_PCT` (0.30).
+
+Use `violates_policy_cap(total, eligible_base, policy_cap_pct=None)` from `app/rules/seller_funded_split.py` — the importer calls this per-line and sets the flag.
 
 ## Order taxonomy
 

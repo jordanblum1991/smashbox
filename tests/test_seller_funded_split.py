@@ -18,12 +18,28 @@ from app.rules.seller_funded_split import (
 )
 
 
-def test_canonical_example_25_on_100() -> None:
-    """The example pinned by the user: base $100, discount $25 -> $10 / $15."""
+def test_canonical_post_tiktok_example() -> None:
+    """User's canonical worked example, 2026-05-13.
+
+    Gross product sales      = $100
+    TikTok-funded discount   = $20    -> post-TikTok price = $80
+    Total seller-funded disc = $24
+    Outlandish max (10%)     = $8     -> Outlandish = MIN($24, $8) = $8
+    Smashbox                 = $24 - $8 = $16
+    """
+    post_tiktok = Decimal("100") - Decimal("20")
+    s = split_seller_funded_discount("24.00", eligible_base=post_tiktok, cap_pct="0.10")
+    assert s.outlandish == Decimal("8.00")
+    assert s.smashbox == Decimal("16.00")
+    assert s.total == Decimal("24.00")
+    assert s.outlandish + s.smashbox == Decimal("24.00")
+
+
+def test_split_25_on_100_no_tiktok_discount() -> None:
+    """When there's no TikTok-funded discount, the base equals gross."""
     s = split_seller_funded_discount("25.00", eligible_base="100.00", cap_pct="0.10")
     assert s.outlandish == Decimal("10.00")
     assert s.smashbox == Decimal("15.00")
-    assert s.total == Decimal("25.00")
 
 
 def test_discount_below_cap_goes_entirely_to_outlandish() -> None:
