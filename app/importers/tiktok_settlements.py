@@ -120,7 +120,7 @@ class TikTokSettlementsImporter(BaseImporter):
         # The settlement file has one row per (order, line). Aggregate up to
         # (order_id, linked_statement_id) so the natural-key uniqueness holds
         # and the money columns aren't silently overwritten line-by-line.
-        orphan_ids: set[str] = set()
+        affected_order_ids: set[str] = set()
         for (order_id, statement_id), group in orders_df.groupby(
             [COL["order_id"], COL["linked_statement_id"]], dropna=False, sort=False
         ):
@@ -128,12 +128,21 @@ class TikTokSettlementsImporter(BaseImporter):
             if not oid:
                 continue
             try:
-                s = _upsert_settlement(db, oid, group, batch)
-                if not _backfill_order(db, oid, s):
-                    orphan_ids.add(oid)
+                _upsert_settlement(db, oid, group, batch)
+                affected_order_ids.add(oid)
                 result.rows_imported += 1
             except Exception as exc:  # noqa: BLE001
                 result.skip(f"settlement order {oid}: {exc}")
+
+        # Back-fill Order.* columns AFTER all settlements have been upserted,
+        # not row-by-row. An order can appear in multiple statements (original
+        # sale + refund), and the per-statement back-fill was last-write-wins
+        # — non-deterministic and lossy. Sum across all settlements instead.
+        db.flush()
+        orphan_ids: set[str] = set()
+        for oid in affected_order_ids:
+            if not _backfill_order(db, oid):
+                orphan_ids.add(oid)
 
         if orphan_ids:
             sample = ", ".join(sorted(orphan_ids)[:3])
@@ -308,12 +317,24 @@ def _adjustment_payload(adj_id: str, row: pd.Series, batch: ImportBatch) -> dict
     )
 
 
-def _backfill_order(db: Session, order_id: str, s: Settlement) -> bool:
-    """Update the matching Order with settlement-derived totals.
+def _backfill_order(db: Session, order_id: str) -> bool:
+    """Recompute Order.* fee/refund columns from ALL settlements for this order.
 
-    Returns True if a matching Order was found and updated. False if the
-    settlement references an order we don't have (caller logs these as
-    'orphan' settlements so the user knows to upload a wider orders file).
+    Returns True if a matching Order was found and updated. False if no Order
+    matches (caller logs these as orphan settlements so the user knows the
+    orders file doesn't cover this settlement period).
+
+    Why sum instead of overwrite:
+      An order can legitimately appear in multiple settlements — the original
+      sale lands in one statement, a refund lands in another. Each settlement
+      row carries its own fee/refund contribution. Earlier behaviour overwrote
+      Order.* with the last settlement processed, which was non-deterministic
+      and could zero out a real refund. Sum-across-settlements is the right
+      semantics for aggregate Order columns.
+
+    Sample-type promotion uses the latest settlement (by paid_date) because
+    "free sample" / "paid sample" is a classification, not an aggregate — the
+    most recent flag wins.
     """
     order = db.execute(
         select(Order).where(Order.tiktok_order_id == order_id)
@@ -321,26 +342,43 @@ def _backfill_order(db: Session, order_id: str, s: Settlement) -> bool:
     if order is None:
         return False
 
-    # Authoritative sample flag from settlement — overrides gross_sales==0 heuristic.
-    sot = (s.sample_order_type or "").strip().lower()
+    settlements = db.execute(
+        select(Settlement).where(Settlement.tiktok_order_id == order_id)
+    ).scalars().all()
+    if not settlements:
+        return False
+
+    def _sum(field: str) -> Decimal:
+        return sum(
+            (Decimal(str(getattr(s, field) or 0)) for s in settlements),
+            Decimal("0"),
+        )
+
+    order.refunds = _sum("gross_sales_refund")
+    order.tiktok_fees = _sum("tiktok_fees")
+    order.tiktok_referral_fee = _sum("tiktok_referral_fee")
+    order.tiktok_transaction_fee = _sum("tiktok_transaction_fee")
+    order.tiktok_refund_admin_fee = _sum("tiktok_refund_admin_fee")
+    order.tiktok_sales_tax_on_referral = _sum("tiktok_sales_tax_on_referral")
+    order.tiktok_smart_promo_fee = _sum("tiktok_smart_promo_fee")
+    order.tiktok_campaign_fees = _sum("tiktok_campaign_fees")
+    order.tiktok_partner_commission = _sum("tiktok_partner_commission")
+    order.tiktok_managed_service = _sum("tiktok_managed_service")
+    order.affiliate_commission = _sum("affiliate_commission")
+    order.shop_ads_cost = _sum("shop_ads_cost")
+    order.shipping_cost = _sum("shipping_cost")
+
+    # Sample flag uses the latest settlement — classification, not aggregate.
+    latest = max(
+        settlements,
+        key=lambda s: s.paid_date or s.settled_date or datetime.min,
+    )
+    sot = (latest.sample_order_type or "").strip().lower()
     if "free sample" in sot:
         order.order_type = OrderType.SAMPLE
     elif "paid sample" in sot or "oversample" in sot:
         order.order_type = OrderType.PAID_SAMPLE
 
-    order.refunds = s.gross_sales_refund
-    order.tiktok_fees = s.tiktok_fees
-    order.tiktok_referral_fee = s.tiktok_referral_fee
-    order.tiktok_transaction_fee = s.tiktok_transaction_fee
-    order.tiktok_refund_admin_fee = s.tiktok_refund_admin_fee
-    order.tiktok_sales_tax_on_referral = s.tiktok_sales_tax_on_referral
-    order.tiktok_smart_promo_fee = s.tiktok_smart_promo_fee
-    order.tiktok_campaign_fees = s.tiktok_campaign_fees
-    order.tiktok_partner_commission = s.tiktok_partner_commission
-    order.tiktok_managed_service = s.tiktok_managed_service
-    order.affiliate_commission = s.affiliate_commission
-    order.shop_ads_cost = s.shop_ads_cost
-    order.shipping_cost = s.shipping_cost
     return True
 
 

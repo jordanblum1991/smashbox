@@ -11,15 +11,16 @@
         ("/reports/pnl", "P&L"),
         ("/reports/samples", "Samples"),
       ] %}
-      {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0} %}
+      {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
       {# count = None → no global check available (e.g. Recon is period-scoped),
          render no status dot. Otherwise 0 → green, >0 → red pill. #}
       {% set health_links = [
         ("/reports/unmapped-skus", "Unmapped SKUs", dh.unmapped),
         ("/reports/settlement-only-orders", "Orphan Orders", dh.orphans),
+        ("/reports/policy-violations", "Policy Violations", dh.policy_violations),
         ("/reports/reconciliation", "Recon", None),
       ] %}
-      {% set health_total = dh.unmapped + dh.orphans %}
+      {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
       {% for href, label in primary_links %}
         <a href="{{ href }}"
            class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">

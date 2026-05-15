@@ -1,0 +1,3 @@
+shipped_at,sku,quantity,creator_handle,is_paid_oversample,note
+2026-05-01,SBX-EXAMPLE-001,1,@creatorhandle,false,Free sample for review
+2026-05-03,1729873456789012345,2,Jane Doe,true,Paid oversample shipment

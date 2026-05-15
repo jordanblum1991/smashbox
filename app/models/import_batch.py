@@ -4,12 +4,17 @@ Every imported row (Order, Settlement, Payout, Sample) carries an `import_batch_
 so a bad import can be rolled back by deleting one batch.
 """
 import enum
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Enum, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+
+
+def _utc_now_naive() -> datetime:
+    """tz-stripped UTC `now` — DateTime columns here are naive by convention."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class ImportFileKind(str, enum.Enum):
@@ -38,7 +43,7 @@ class ImportBatch(Base):
     )
     original_filename: Mapped[str] = mapped_column(String(512))
     stored_path: Mapped[str] = mapped_column(String(1024))
-    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     rows_imported: Mapped[int] = mapped_column(Integer, default=0)
     rows_skipped: Mapped[int] = mapped_column(Integer, default=0)

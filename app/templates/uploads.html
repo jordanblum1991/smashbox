@@ -3,7 +3,12 @@
 
 {% block content %}
 <h1 class="mb-1 text-2xl font-semibold tracking-tight">Imports</h1>
-<p class="mb-6 text-sm text-slate-500">Upload TikTok Shop exports and SKU/bundle/sample reference files.</p>
+<p class="mb-2 text-sm text-slate-500">Upload TikTok Shop exports and SKU/bundle/sample reference files.</p>
+<p class="mb-6 text-sm text-slate-500">
+  Off-platform samples use a fixed CSV layout —
+  <a class="font-medium text-slate-700 underline hover:text-slate-900"
+     href="/static/templates/samples_template.csv" download>download the template</a>.
+</p>
 
 <form action="/uploads" method="post" enctype="multipart/form-data"
       class="mb-8 rounded-lg border border-slate-200 bg-white p-6">
@@ -39,10 +44,18 @@
         <th class="px-4 py-2 text-right">Imported</th>
         <th class="px-4 py-2 text-right">Skipped</th>
         <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2 text-right">Actions</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% for b in batches %}
+      {% set audit_only = b.kind.value in ("sku_master", "bundle_mapping") %}
+      {% set kind_label = b.kind.value.replace("_", " ") %}
+      {% if audit_only %}
+        {% set confirm_msg = "This is a catalog upload. Deleting only removes this audit entry — the " ~ kind_label ~ " rows in the database are NOT rolled back (they have no batch tracking). Continue?" %}
+      {% else %}
+        {% set confirm_msg = "Delete this " ~ kind_label ~ " batch and its " ~ b.rows_imported ~ " row(s)? This cannot be undone." %}
+      {% endif %}
       <tr>
         <td class="px-4 py-2 text-slate-600">{{ b.uploaded_at.strftime("%Y-%m-%d %H:%M") }}</td>
         <td class="px-4 py-2">{{ b.kind.value }}</td>
@@ -57,9 +70,18 @@
             {{ b.status.value }}
           </span>
         </td>
+        <td class="px-4 py-2 text-right">
+          <form action="/uploads/{{ b.id }}/delete" method="post" class="inline"
+                onsubmit="return confirm('{{ confirm_msg }}');">
+            <button type="submit"
+                    class="rounded px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">
+              Delete
+            </button>
+          </form>
+        </td>
       </tr>
       {% else %}
-      <tr><td class="px-4 py-6 text-center text-slate-400" colspan="6">No imports yet.</td></tr>
+      <tr><td class="px-4 py-6 text-center text-slate-400" colspan="7">No imports yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

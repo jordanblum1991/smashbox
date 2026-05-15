@@ -1,15 +1,20 @@
 """Upload endpoint — accepts a file + kind, dispatches to the right importer."""
 import shutil
-from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
 from app.importers import IMPORTERS
-from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.import_batch import (
+    ImportBatch,
+    ImportBatchStatus,
+    ImportFileKind,
+    _utc_now_naive,
+)
+from app.services.batch_deletion import delete_batch
 from app.services.sku_resolver import resolve_all_order_lines
 from app.templating import templates
 
@@ -46,7 +51,7 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     # Save the file first so we can re-run the importer later without re-uploading.
-    stored_name = f"{datetime.utcnow():%Y%m%d_%H%M%S}_{file.filename}"
+    stored_name = f"{_utc_now_naive():%Y%m%d_%H%M%S}_{file.filename}"
     stored_path = settings.upload_dir / stored_name
     with stored_path.open("wb") as out:
         shutil.copyfileobj(file.file, out)
@@ -73,7 +78,7 @@ async def upload_file(
         batch.rows_skipped = result.rows_skipped
         batch.error_message = "\n".join(result.errors[:50]) or None
         batch.status = ImportBatchStatus.COMPLETED
-        batch.completed_at = datetime.utcnow()
+        batch.completed_at = _utc_now_naive()
 
         if kind in RESOLVE_AFTER:
             stats = resolve_all_order_lines(db)
@@ -93,5 +98,28 @@ async def upload_file(
         batch.error_message = str(exc)
         db.add(batch)
         db.commit()
+
+    return RedirectResponse("/uploads", status_code=303)
+
+
+@router.post("/uploads/{batch_id}/delete")
+def delete_batch_route(batch_id: int, db: Session = Depends(get_db)):
+    """Roll back a single import batch.
+
+    Behaviour depends on the batch's kind — see `app/services/batch_deletion.py`.
+    Catalog batches (SKU_MASTER, BUNDLE_MAPPING) are audit-entry deletes only;
+    the catalog rows themselves persist because Sku/Bundle have no
+    import_batch_id column.
+    """
+    batch = db.get(ImportBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    try:
+        delete_batch(db, batch)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return RedirectResponse("/uploads", status_code=303)

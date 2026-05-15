@@ -99,3 +99,77 @@ def test_sample_classification_consistent(imported_db):
         rows = db.query(Order.gross_sales).filter(Order.order_type == OrderType.SAMPLE).all()
         nonzero = [r[0] for r in rows if Decimal(str(r[0])) != Decimal("0")]
         assert not nonzero, f"sample orders with non-zero gross_sales: {nonzero[:5]}"
+
+
+def test_backfill_sums_across_multiple_settlements():
+    """Regression: an order in two statements (sale + refund) used to be subject
+    to last-write-wins back-fill, which non-deterministically dropped one
+    settlement's contribution. Verify that all settlements now sum into Order.*.
+    """
+    from datetime import datetime
+    from decimal import Decimal
+
+    from app.db import Base, engine
+    from app.importers.tiktok_settlements import _backfill_order
+    from app.models import ImportBatch, ImportBatchStatus, Settlement
+
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    with SessionLocal() as db:
+        ob = ImportBatch(
+            kind=ImportFileKind.TIKTOK_ORDERS,
+            status=ImportBatchStatus.COMPLETED,
+            original_filename="o", stored_path="o",
+        )
+        db.add(ob)
+        db.flush()
+        order = Order(
+            import_batch_id=ob.id,
+            tiktok_order_id="O-MULTI",
+            placed_at=datetime(2026, 5, 1),
+            order_type=OrderType.PAID,
+            status="Completed",
+            brand="smashbox",
+        )
+        db.add(order)
+
+        sb = ImportBatch(
+            kind=ImportFileKind.TIKTOK_SETTLEMENTS,
+            status=ImportBatchStatus.COMPLETED,
+            original_filename="s", stored_path="s",
+        )
+        db.add(sb)
+        db.flush()
+
+        # Original sale settlement
+        db.add(Settlement(
+            import_batch_id=sb.id,
+            tiktok_order_id="O-MULTI",
+            linked_statement_id="S-SALE",
+            paid_date=datetime(2026, 5, 5),
+            gross_sales_refund=Decimal("0"),
+            tiktok_fees=Decimal("10.00"),
+            shipping_cost=Decimal("3.00"),
+        ))
+        # Refund settlement landing in a later statement
+        db.add(Settlement(
+            import_batch_id=sb.id,
+            tiktok_order_id="O-MULTI",
+            linked_statement_id="S-REFUND",
+            paid_date=datetime(2026, 5, 12),
+            gross_sales_refund=Decimal("25.00"),
+            tiktok_fees=Decimal("2.00"),
+            shipping_cost=Decimal("0"),
+        ))
+        db.commit()
+
+        assert _backfill_order(db, "O-MULTI") is True
+        db.commit()
+
+        order = db.query(Order).filter(Order.tiktok_order_id == "O-MULTI").one()
+
+    # Both settlements contribute — fees sum, refund preserved.
+    assert Decimal(str(order.tiktok_fees)) == Decimal("12.00")
+    assert Decimal(str(order.refunds)) == Decimal("25.00")
+    assert Decimal(str(order.shipping_cost)) == Decimal("3.00")

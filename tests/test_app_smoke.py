@@ -24,6 +24,7 @@ def client() -> TestClient:
         "/reports/unmapped-skus",
         "/reports/settlement-only-orders",
         "/reports/samples",
+        "/reports/policy-violations",
         "/reports/reconciliation",
     ],
 )

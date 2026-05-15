@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Tests that depend on real TikTok export files in uploads/ skip gracefully
+      # when those files aren't checked in (see tests/test_settlement_importer.py,
+      # tests/test_payouts_importer.py). The bulk of the suite runs without them.
+      - name: Run pytest
+        run: pytest -q

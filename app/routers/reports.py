@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
+from app.reports.policy_violations import compute_policy_violations
 from app.reports.reconciliation import reconcile_month
 from app.reports.sample_tracking import (
     SamplePeriodKind,
@@ -133,6 +134,31 @@ def settlement_only_orders_view(request: Request, db: Session = Depends(get_db))
         request,
         "reports/settlement_only_orders.html",
         {"rows": rows},
+    )
+
+
+@router.get("/reports/policy-violations")
+def policy_violations_view(
+    request: Request,
+    period: PeriodKind = PeriodKind.MONTH,
+    year: int | None = None,
+    month: int | None = None,
+    start_year: int | None = None,
+    start_month: int | None = None,
+    end_year: int | None = None,
+    end_month: int | None = None,
+    db: Session = Depends(get_db),
+):
+    view = compute_policy_violations(
+        db, period,
+        year=year, month=month,
+        start_year=start_year, start_month=start_month,
+        end_year=end_year, end_month=end_month,
+    )
+    return templates.TemplateResponse(
+        request,
+        "reports/policy_violations.html",
+        {"view": view, "PeriodKind": PeriodKind},
     )
 
 

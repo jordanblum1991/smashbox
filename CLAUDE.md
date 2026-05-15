@@ -185,8 +185,6 @@ The resolver runs automatically after `TIKTOK_ORDERS`, `SKU_MASTER`, and `BUNDLE
 
 ## What's stubbed
 
-- Settlement, payout, SKU master, bundle mapping, and samples importers — interface ready, parsing not implemented.
-- Bundle explosion in `reports/sku_profitability.py` — reports physical SKUs sold directly only; bundles need a follow-up pass.
 - Alembic migrations directory.
 - Auth — none. Internal app on a private network; add only if exposed.
 

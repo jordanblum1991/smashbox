@@ -19,18 +19,20 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 @app.middleware("http")
 async def attach_data_health(request: Request, call_next):
-    """Compute the two Data Health counts once per request so nav.html can show
+    """Compute the Data Health counts once per request so nav.html can show
     a red-flag badge on the Data Health dropdown. Failures are swallowed —
     rendering the nav must never depend on the diagnostic queries succeeding."""
-    request.state.data_health = {"unmapped": 0, "orphans": 0}
+    request.state.data_health = {"unmapped": 0, "orphans": 0, "policy_violations": 0}
     if not request.url.path.startswith("/static"):
         try:
+            from app.reports.policy_violations import count_policy_violations
             from app.reports.settlement_only_orders import count_settlement_only_orders
             from app.reports.unmapped_skus import count_unmapped_skus
             with SessionLocal() as db:
                 request.state.data_health = {
                     "unmapped": count_unmapped_skus(db),
                     "orphans": count_settlement_only_orders(db),
+                    "policy_violations": count_policy_violations(db),
                 }
         except Exception:
             pass

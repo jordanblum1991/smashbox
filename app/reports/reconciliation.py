@@ -88,6 +88,30 @@ class OrphanSettlementRow:
     settlement_gross: Decimal
 
 
+@dataclass
+class PayoutRow:
+    """One row of the per-payout cash reconciliation drill-down.
+
+    `expected` is the sum of Settlement.net_order_margin across all settlements
+    whose `linked_payout_id` matches this payout. `actual` is what TikTok
+    actually transferred to the bank (`Payout.net_amount`). They should tie;
+    the variance flags timing differences, missing settlement files, or
+    adjustment-driven gaps.
+    """
+    payout_id: str
+    paid_at: datetime
+    expected: Decimal
+    actual: Decimal
+
+    @property
+    def variance(self) -> Decimal:
+        return self.expected - self.actual
+
+    @property
+    def ok(self) -> bool:
+        return abs(self.variance) <= Decimal("0.01")
+
+
 # ---- Full report shape -----------------------------------------------------
 
 @dataclass
@@ -110,6 +134,7 @@ class ReconciliationReport:
     timing_orders: list[OrderRow] = field(default_factory=list)        # in period, not yet settled
     true_variance_orders: list[OrderRow] = field(default_factory=list) # settled, but our gross != TikTok gross
     orphan_settlements: list[OrphanSettlementRow] = field(default_factory=list)
+    payouts: list[PayoutRow] = field(default_factory=list)             # per-payout cash reconciliation
 
     @property
     def timing_amount(self) -> Decimal:
@@ -217,11 +242,43 @@ def reconcile_month(db: Session, year: int, month: int) -> ReconciliationReport:
         .where(Order.discount_policy_violation.is_(True))
     ).scalar() or 0
 
-    # ---- Payouts (informational) -------------------------------------------
-    tiktok_payout_net = db.execute(
-        select(func.coalesce(func.sum(Payout.net_amount), 0))
+    # ---- Payouts (real cash reconciliation) ---------------------------------
+    # For payouts that landed in this period, compare:
+    #   System Calculated = sum of Settlement.net_order_margin across settlements
+    #                       whose linked_payout_id matches a payout in the period
+    #   TikTok Settlement = sum of Payout.net_amount in the period (actual cash)
+    period_payouts = db.execute(
+        select(Payout)
         .where(Payout.paid_at >= start, Payout.paid_at < end)
-    ).scalar() or 0
+        .order_by(Payout.paid_at)
+    ).scalars().all()
+
+    period_payout_ids = {p.payout_id for p in period_payouts}
+    if period_payout_ids:
+        expected_by_payout = dict(
+            db.execute(
+                select(
+                    Settlement.linked_payout_id,
+                    func.coalesce(func.sum(Settlement.net_order_margin), 0),
+                )
+                .where(Settlement.linked_payout_id.in_(period_payout_ids))
+                .group_by(Settlement.linked_payout_id)
+            ).all()
+        )
+    else:
+        expected_by_payout = {}
+
+    payout_rows = [
+        PayoutRow(
+            payout_id=p.payout_id,
+            paid_at=p.paid_at,
+            expected=Decimal(str(expected_by_payout.get(p.payout_id, 0))),
+            actual=Decimal(str(p.net_amount)),
+        )
+        for p in period_payouts
+    ]
+    payouts_expected_total = sum((r.expected for r in payout_rows), Decimal("0"))
+    payouts_actual_total = sum((r.actual for r in payout_rows), Decimal("0"))
 
     # ---- Orphan settlements (settlements with no matching order) -----------
     # Scoped to the same period via Settlement.paid_date so the user sees only
@@ -288,14 +345,18 @@ def reconcile_month(db: Session, year: int, month: int) -> ReconciliationReport:
     )
     policy_line.likely_cause = (
         f"{int(policy_violations)} order(s) exceed the 30% policy cap. "
-        "Inspect those orders to see whether the discount was intentional."
+        "Drill in at /reports/policy-violations."
     ) if policy_violations else None
     lines.append(policy_line)
 
     payout_line = ReconciliationLine(
-        label="Payouts (informational — net cash TikTok paid this month)",
-        system_calculated=Decimal("0"),
-        tiktok_settlement=Decimal(str(tiktok_payout_net)),
+        label="Payouts — expected (sum of settlement net) vs delivered (bank)",
+        system_calculated=payouts_expected_total,
+        tiktok_settlement=payouts_actual_total,
+    )
+    payout_line.likely_cause = _diagnose_payouts(
+        payout_count=len(payout_rows),
+        variance=payouts_expected_total - payouts_actual_total,
     )
     lines.append(payout_line)
 
@@ -314,6 +375,7 @@ def reconcile_month(db: Session, year: int, month: int) -> ReconciliationReport:
         timing_orders=timing_orders,
         true_variance_orders=true_variance_orders,
         orphan_settlements=orphan_settlements,
+        payouts=payout_rows,
     )
 
 
@@ -369,3 +431,21 @@ def _diagnose_gross(
             "doesn't cover the settlement window."
         )
     return None  # all clean
+
+
+def _diagnose_payouts(*, payout_count: int, variance: Decimal) -> str | None:
+    if payout_count == 0:
+        return (
+            "No payouts loaded for this period — upload a payouts-income file "
+            "to enable cash reconciliation."
+        )
+    if abs(variance) <= Decimal("0.01"):
+        return None
+    # Positive variance → settlements say TikTok owes more than they paid.
+    # Negative variance → TikTok paid more than our settlements account for.
+    sign = "more than" if variance > 0 else "less than"
+    return (
+        f"Settlements say TikTok should have paid {sign} the actual transfers. "
+        "Likely causes: missing settlement file for some payouts, statement-level "
+        "adjustments not reflected in net_order_margin, or a reserve being held."
+    )
