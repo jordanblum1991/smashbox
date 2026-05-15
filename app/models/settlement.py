@@ -49,7 +49,17 @@ class Settlement(Base):
     gross_sales_refund: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     seller_discount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     seller_discount_refund: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    # Rolled-up TikTok fees (sum of the 8 sub-buckets below).
     tiktok_fees: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_referral_fee: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_transaction_fee: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_refund_admin_fee: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_sales_tax_on_referral: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_smart_promo_fee: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_campaign_fees: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_partner_commission: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    tiktok_managed_service: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+
     affiliate_commission: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     shop_ads_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     shipping_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))

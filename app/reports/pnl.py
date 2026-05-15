@@ -12,12 +12,12 @@ No P&L math lives here. compute_monthly_pnl is the single source of truth and
 every mode is just "sum across the months in this window."
 """
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 
 from sqlalchemy.orm import Session
 
-from app.reports.monthly_pnl import MonthlyPnL, compute_monthly_pnl
+from app.reports.monthly_pnl import MonthlyPnL, _add_month, compute_monthly_pnl
 from app.reports.ytd_pnl import _sum  # private but ours
 from app.templating import month_label
 
@@ -126,3 +126,17 @@ def compute_pnl_view(
         total=_sum(months_list, sy),
         monthly_breakdown=months_list,
     )
+
+
+def window_for(view: PnLView) -> tuple[datetime, datetime]:
+    """Return the [start, end) datetime window matching the view's period —
+    so anything that queries Order.placed_at uses the same range the P&L did."""
+    if view.period_kind == PeriodKind.MONTH:
+        start = datetime(view.year, view.month, 1)
+        return start, _add_month(start)
+    months = view.monthly_breakdown or []
+    first = months[0].month
+    last = months[-1].month
+    start = datetime(first.year, first.month, 1)
+    end = _add_month(datetime(last.year, last.month, 1))
+    return start, end

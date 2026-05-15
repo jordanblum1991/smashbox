@@ -39,7 +39,15 @@ class MonthlyPnL:
     # Cost lines
     cogs: Decimal
     gross_profit: Decimal
-    tiktok_fees: Decimal
+    tiktok_fees: Decimal                       # rolled-up sum of the 8 below
+    tiktok_referral_fee: Decimal
+    tiktok_transaction_fee: Decimal
+    tiktok_refund_admin_fee: Decimal
+    tiktok_sales_tax_on_referral: Decimal
+    tiktok_smart_promo_fee: Decimal
+    tiktok_campaign_fees: Decimal
+    tiktok_partner_commission: Decimal
+    tiktok_managed_service: Decimal
     affiliate_commission: Decimal
     shop_ads_cost: Decimal
     shipping_revenue: Decimal
@@ -98,6 +106,14 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
             func.coalesce(func.sum(Order.seller_funded_smashbox), 0).label("smashbox"),
             func.coalesce(func.sum(Order.refunds), 0).label("refunds"),
             func.coalesce(func.sum(Order.tiktok_fees), 0).label("tiktok_fees"),
+            func.coalesce(func.sum(Order.tiktok_referral_fee), 0).label("tiktok_referral_fee"),
+            func.coalesce(func.sum(Order.tiktok_transaction_fee), 0).label("tiktok_transaction_fee"),
+            func.coalesce(func.sum(Order.tiktok_refund_admin_fee), 0).label("tiktok_refund_admin_fee"),
+            func.coalesce(func.sum(Order.tiktok_sales_tax_on_referral), 0).label("tiktok_sales_tax_on_referral"),
+            func.coalesce(func.sum(Order.tiktok_smart_promo_fee), 0).label("tiktok_smart_promo_fee"),
+            func.coalesce(func.sum(Order.tiktok_campaign_fees), 0).label("tiktok_campaign_fees"),
+            func.coalesce(func.sum(Order.tiktok_partner_commission), 0).label("tiktok_partner_commission"),
+            func.coalesce(func.sum(Order.tiktok_managed_service), 0).label("tiktok_managed_service"),
             func.coalesce(func.sum(Order.affiliate_commission), 0).label("affiliate_commission"),
             func.coalesce(func.sum(Order.shop_ads_cost), 0).label("shop_ads_cost"),
             func.coalesce(func.sum(Order.shipping_revenue), 0).label("ship_rev"),
@@ -149,6 +165,14 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         cogs=cogs,
         gross_profit=gross_profit,
         tiktok_fees=tiktok_fees,
+        tiktok_referral_fee=Decimal(str(row.tiktok_referral_fee)),
+        tiktok_transaction_fee=Decimal(str(row.tiktok_transaction_fee)),
+        tiktok_refund_admin_fee=Decimal(str(row.tiktok_refund_admin_fee)),
+        tiktok_sales_tax_on_referral=Decimal(str(row.tiktok_sales_tax_on_referral)),
+        tiktok_smart_promo_fee=Decimal(str(row.tiktok_smart_promo_fee)),
+        tiktok_campaign_fees=Decimal(str(row.tiktok_campaign_fees)),
+        tiktok_partner_commission=Decimal(str(row.tiktok_partner_commission)),
+        tiktok_managed_service=Decimal(str(row.tiktok_managed_service)),
         affiliate_commission=affiliate,
         shop_ads_cost=shop_ads,
         shipping_revenue=ship_rev,

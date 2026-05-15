@@ -76,6 +76,36 @@ class SampleVsSalesRow:
 
 
 @dataclass
+class ShippedSamplesBySkuRow:
+    """One row in the Dashboard 'Samples Sent by SKU' table — actually-shipped only."""
+    tiktok_sku_id: str
+    sku_code: str | None
+    name: str | None
+    is_bundle: bool
+    samples_sent: int                  # units (sum of quantity)
+    sample_orders_shipped: int         # distinct shipped sample order count
+    units_sold: int                    # paid units sold (same window)
+
+    @property
+    def sold_per_sample(self) -> Decimal:
+        if self.samples_sent == 0:
+            return Decimal("0")
+        return Decimal(self.units_sold) / Decimal(self.samples_sent)
+
+    @property
+    def is_unmapped(self) -> bool:
+        return self.sku_code is None and self.name is None
+
+
+# TikTok sample statuses that represent an actual shipment.
+# Excluded explicitly: "To ship" (accepted but not yet scanned by carrier),
+# and any pending/canceled/withdrawn/unfulfilled/failed value if/when TikTok
+# starts emitting them. Manual `Sample` rows always count — each row is a
+# recorded ship event.
+SHIPPED_SAMPLE_STATUSES = ("Shipped", "Completed")
+
+
+@dataclass
 class SampleView:
     brand: str
     period_kind: SamplePeriodKind
@@ -238,6 +268,127 @@ def compute_sample_view(
         sample_orders=sample_orders,
         by_sku=by_sku,
     )
+
+
+def samples_by_sku_shipped(
+    db: Session, start: datetime, end: datetime
+) -> list[ShippedSamplesBySkuRow]:
+    """Per-SKU rollup of ACTUALLY SHIPPED samples in [start, end), with paid units
+    sold over the same window for ratio analysis.
+
+    Order rows count only when Order.status ∈ SHIPPED_SAMPLE_STATUSES — pending,
+    canceled, withdrawn, unfulfilled, failed, and 'To ship' rows are excluded.
+    Manual Sample-table rows always count (each row is a recorded ship event).
+    Only SKUs with at least one shipped sample appear — pure-sales SKUs aren't
+    listed (this section is about samples).
+    """
+    samples_table_units = dict(
+        db.execute(
+            select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
+            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+            .group_by(Sample.sku)
+        ).all()
+    )
+    samples_table_orders = dict(
+        db.execute(
+            select(Sample.sku, func.count(Sample.id))
+            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+            .group_by(Sample.sku)
+        ).all()
+    )
+    samples_orders_units = dict(
+        db.execute(
+            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+            .join(Order, Order.id == OrderLine.order_id)
+            .where(Order.placed_at >= start, Order.placed_at < end)
+            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+            .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
+            .group_by(OrderLine.sku)
+        ).all()
+    )
+    samples_orders_count = dict(
+        db.execute(
+            select(OrderLine.sku, func.count(func.distinct(Order.id)))
+            .join(Order, Order.id == OrderLine.order_id)
+            .where(Order.placed_at >= start, Order.placed_at < end)
+            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+            .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
+            .group_by(OrderLine.sku)
+        ).all()
+    )
+    sales = dict(
+        db.execute(
+            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+            .join(Order, Order.id == OrderLine.order_id)
+            .where(Order.order_type == OrderType.PAID)
+            .where(Order.placed_at >= start, Order.placed_at < end)
+            .group_by(OrderLine.sku)
+        ).all()
+    )
+
+    skus = sorted(set(samples_table_units) | set(samples_orders_units))
+    if not skus:
+        return []
+
+    sku_by_key: dict[str, Sku] = {}
+    for s in db.execute(
+        select(Sku).where(
+            (Sku.tiktok_sku_id.in_(skus))
+            | (Sku.sku.in_(skus))
+            | (Sku.tiktok_alt_sku.in_(skus))
+        )
+    ).scalars():
+        for key in (s.tiktok_sku_id, s.sku, s.tiktok_alt_sku):
+            if key:
+                sku_by_key[str(key)] = s
+
+    bundle_by_key: dict[str, Bundle] = {}
+    for b in db.execute(
+        select(Bundle).where(
+            (Bundle.tiktok_sku_id.in_(skus)) | (Bundle.bundle_sku.in_(skus))
+        )
+    ).scalars():
+        for key in (b.tiktok_sku_id, b.bundle_sku):
+            if key:
+                bundle_by_key[str(key)] = b
+
+    rows: list[ShippedSamplesBySkuRow] = []
+    for raw_key in skus:
+        sku = sku_by_key.get(raw_key)
+        bundle = bundle_by_key.get(raw_key)
+        if sku:
+            name, code, is_bundle = sku.name, sku.sku, False
+        elif bundle:
+            name, code, is_bundle = bundle.name, bundle.bundle_sku, True
+        else:
+            name, code, is_bundle = None, None, False
+        rows.append(ShippedSamplesBySkuRow(
+            tiktok_sku_id=raw_key,
+            sku_code=code,
+            name=name,
+            is_bundle=is_bundle,
+            samples_sent=int(samples_table_units.get(raw_key, 0)) + int(samples_orders_units.get(raw_key, 0)),
+            sample_orders_shipped=int(samples_table_orders.get(raw_key, 0)) + int(samples_orders_count.get(raw_key, 0)),
+            units_sold=int(sales.get(raw_key, 0)),
+        ))
+    rows.sort(key=lambda r: (-r.samples_sent, r.tiktok_sku_id))
+    return rows
+
+
+def count_samples_shipped(db: Session, start: datetime, end: datetime) -> int:
+    """Total units shipped as samples in [start, end). Same definition the Sample
+    Tracking page uses (free + explicit-paid), but a single integer for tiles."""
+    from_sample_table = db.execute(
+        select(func.coalesce(func.sum(Sample.quantity), 0))
+        .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+    ).scalar() or 0
+    from_orders = db.execute(
+        select(func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+    ).scalar() or 0
+    return int(from_sample_table) + int(from_orders)
 
 
 def samples_vs_sales_by_sku(db: Session, start: datetime, end: datetime) -> list[SampleVsSalesRow]:

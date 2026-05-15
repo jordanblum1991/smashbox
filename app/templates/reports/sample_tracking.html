@@ -136,6 +136,11 @@
     </span>
     {% endfor %}
   </div>
+  <dl class="mt-4 grid gap-x-6 gap-y-1 text-xs text-slate-500 sm:grid-cols-3">
+    <div><dt class="inline font-medium text-slate-700">To ship:</dt> order accepted, not yet scanned by the carrier.</div>
+    <div><dt class="inline font-medium text-slate-700">Shipped:</dt> package handed to the carrier and in transit.</div>
+    <div><dt class="inline font-medium text-slate-700">Completed:</dt> delivered — TikTok considers the order closed.</div>
+  </dl>
 </section>
 {% endif %}
 

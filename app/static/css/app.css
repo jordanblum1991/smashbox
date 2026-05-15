@@ -1,6 +1,25 @@
 /* Smashbox custom styles + print rules.
    Tailwind via CDN handles everything else. */
 
+/* Default tabular numerals everywhere — money tables read more naturally. */
+body { font-feature-settings: "tnum" 1, "cv11" 1; }
+
+/* Tame the native select chrome: lighter border, consistent focus, no double caret on FF. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2364748b'><path fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 011.08 1.04l-4.25 4.4a.75.75 0 01-1.08 0l-4.25-4.4a.75.75 0 01.02-1.06z' clip-rule='evenodd'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1rem;
+  padding-right: 2rem;
+}
+select:focus {
+  outline: none;
+  border-color: rgb(15 23 42);     /* slate-900 */
+  box-shadow: 0 0 0 3px rgb(15 23 42 / 0.08);
+}
+
 @media print {
   html, body { background: white; }
   a[href]:after { content: ""; }

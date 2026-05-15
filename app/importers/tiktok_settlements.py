@@ -180,18 +180,19 @@ def _settlement_payload(order_id: str, group: pd.DataFrame, batch: ImportBatch) 
     def s_dec(col: str) -> "Decimal":
         return sum((_dec(r.get(col)) for _, r in group.iterrows()), Decimal("0"))
 
+    # Eight broken-out buckets — tax-paired columns are combined to keep the
+    # UI digestible. The total of these equals the legacy `fees` rolled-up sum.
+    referral_fee_b = s_pos("referral_fee")
+    transaction_fee_b = s_pos("transaction_fee")
+    refund_admin_fee_b = s_pos("refund_admin_fee")
+    sales_tax_b = s_pos("sales_tax_on_referral")
+    smart_promo_b = s_pos("smart_promo_fee") + s_pos("smart_promo_fee_tax")
+    campaign_b = s_pos("campaign_resource_fee") + s_pos("campaign_service_fee")
+    partner_b = s_pos("tiktok_shop_partner_commission")
+    managed_b = s_pos("managed_service_per_order") + s_pos("managed_service_sales_tax")
     fees = (
-        s_pos("referral_fee")
-        + s_pos("transaction_fee")
-        + s_pos("refund_admin_fee")
-        + s_pos("sales_tax_on_referral")
-        + s_pos("smart_promo_fee")
-        + s_pos("smart_promo_fee_tax")
-        + s_pos("campaign_resource_fee")
-        + s_pos("campaign_service_fee")
-        + s_pos("tiktok_shop_partner_commission")
-        + s_pos("managed_service_per_order")
-        + s_pos("managed_service_sales_tax")
+        referral_fee_b + transaction_fee_b + refund_admin_fee_b + sales_tax_b
+        + smart_promo_b + campaign_b + partner_b + managed_b
     )
     affiliate = (
         s_pos("affiliate_commission")
@@ -226,6 +227,14 @@ def _settlement_payload(order_id: str, group: pd.DataFrame, batch: ImportBatch) 
         seller_discount=s_pos("seller_discount"),
         seller_discount_refund=s_pos("seller_discount_refund"),
         tiktok_fees=fees,
+        tiktok_referral_fee=referral_fee_b,
+        tiktok_transaction_fee=transaction_fee_b,
+        tiktok_refund_admin_fee=refund_admin_fee_b,
+        tiktok_sales_tax_on_referral=sales_tax_b,
+        tiktok_smart_promo_fee=smart_promo_b,
+        tiktok_campaign_fees=campaign_b,
+        tiktok_partner_commission=partner_b,
+        tiktok_managed_service=managed_b,
         affiliate_commission=affiliate,
         shop_ads_cost=shop_ads,
         shipping_cost=shipping,
@@ -321,6 +330,14 @@ def _backfill_order(db: Session, order_id: str, s: Settlement) -> bool:
 
     order.refunds = s.gross_sales_refund
     order.tiktok_fees = s.tiktok_fees
+    order.tiktok_referral_fee = s.tiktok_referral_fee
+    order.tiktok_transaction_fee = s.tiktok_transaction_fee
+    order.tiktok_refund_admin_fee = s.tiktok_refund_admin_fee
+    order.tiktok_sales_tax_on_referral = s.tiktok_sales_tax_on_referral
+    order.tiktok_smart_promo_fee = s.tiktok_smart_promo_fee
+    order.tiktok_campaign_fees = s.tiktok_campaign_fees
+    order.tiktok_partner_commission = s.tiktok_partner_commission
+    order.tiktok_managed_service = s.tiktok_managed_service
     order.affiliate_commission = s.affiliate_commission
     order.shop_ads_cost = s.shop_ads_cost
     order.shipping_cost = s.shipping_cost

@@ -25,22 +25,20 @@
 <!-- Settlement coverage banner (works for any period — applies to the aggregated total) -->
 {% if pnl.orders_count > 0 and pnl.orders_settled < pnl.orders_count %}
 {% set pct = pnl.settlement_coverage_pct %}
-{% set sev = 'rose' if pct < 50 else 'amber' %}
-<div class="mb-4 rounded-lg border border-{{ sev }}-200 bg-{{ sev }}-50 px-4 py-3 text-sm text-{{ sev }}-900">
-  <div class="flex items-center justify-between">
-    <div>
-      <strong>Settlement coverage: {{ "%.0f" % pct }}%</strong>
-      &nbsp;·&nbsp; {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders settled by TikTok.
-    </div>
-    <div class="text-xs">
-      {{ pnl.orders_count - pnl.orders_settled }} pending
-    </div>
+{% set severe = pct < 50 %}
+{% set pending = pnl.orders_count - pnl.orders_settled %}
+<div class="mb-6 flex items-start gap-2.5 rounded-lg border {{ 'border-rose-200 bg-rose-50' if severe else 'border-amber-200 bg-amber-50' }} px-3 py-2 text-xs leading-snug">
+  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ 'text-rose-500' if severe else 'text-amber-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+  </svg>
+  <div class="min-w-0 flex-1 {{ 'text-rose-900' if severe else 'text-amber-900' }}">
+    <span class="font-semibold">Settlement coverage: {{ "%.0f" % pct }}%</span>
+    <span class="{{ 'text-rose-800' if severe else 'text-amber-800' }}">
+      · TikTok has settled <strong>{{ pnl.orders_settled }}</strong> of <strong>{{ pnl.orders_count }}</strong> paid orders for this period.
+      {% if pending > 0 %}These <strong>{{ pending }}</strong> order{{ '' if pending == 1 else 's' }} {{ 'is' if pending == 1 else 'are' }} still pending settlement.{% endif %}
+      Sales and discounts are included, but fees, affiliate commissions, ad costs, and shipping costs have not yet been reported — expenses may be understated and Net Profit overstated until an updated settlement file is uploaded.
+    </span>
   </div>
-  <p class="mt-1 text-xs">
-    Pending orders contribute to Gross Sales and the discount lines, but TikTok hasn't yet reported their fees,
-    affiliate commission, shop ads, or shipping cost. Those lines are <strong>understated</strong> and Net Profit is
-    <strong>overstated</strong> until you upload an updated settlement file that covers this period.
-  </p>
 </div>
 {% endif %}
 
@@ -69,6 +67,14 @@
       {{ row("Gross Profit", pnl.gross_profit, bold=true, accent="pos" if pnl.gross_profit >= 0 else "neg") }}
 
       {{ row("TikTok fees", -pnl.tiktok_fees) }}
+      {{ row("Referral fee", -pnl.tiktok_referral_fee, indent=true) }}
+      {{ row("Transaction fee", -pnl.tiktok_transaction_fee, indent=true) }}
+      {{ row("Refund admin fee", -pnl.tiktok_refund_admin_fee, indent=true) }}
+      {{ row("Sales tax on referral", -pnl.tiktok_sales_tax_on_referral, indent=true) }}
+      {{ row("Smart promo fee (incl. tax)", -pnl.tiktok_smart_promo_fee, indent=true) }}
+      {{ row("Campaign fees (resource + service)", -pnl.tiktok_campaign_fees, indent=true) }}
+      {{ row("Shop partner commission", -pnl.tiktok_partner_commission, indent=true) }}
+      {{ row("Managed service (incl. tax)", -pnl.tiktok_managed_service, indent=true) }}
       {{ row("Affiliate commission", -pnl.affiliate_commission) }}
       {{ row("Shop ads", -pnl.shop_ads_cost) }}
       {{ row("Shipping revenue", pnl.shipping_revenue) }}
@@ -102,27 +108,35 @@
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% set lines = [
-        ("Gross Product Sales", "gross_sales"),
-        ("TikTok-Funded Discount", "platform_discount"),
-        ("Outlandish-Funded", "outlandish_discount"),
-        ("Smashbox-Funded", "smashbox_discount"),
-        ("Refunds", "refunds"),
-        ("Net Customer Sales", "net_customer_sales"),
-        ("COGS", "cogs"),
-        ("Gross Profit", "gross_profit"),
-        ("TikTok fees", "tiktok_fees"),
-        ("Affiliate commission", "affiliate_commission"),
-        ("Shop ads", "shop_ads_cost"),
-        ("Shipping cost", "shipping_cost"),
-        ("Net Profit", "net_profit"),
+        ("Gross Product Sales", "gross_sales", false),
+        ("TikTok-Funded Discount", "platform_discount", false),
+        ("Outlandish-Funded", "outlandish_discount", false),
+        ("Smashbox-Funded", "smashbox_discount", false),
+        ("Refunds", "refunds", false),
+        ("Net Customer Sales", "net_customer_sales", false),
+        ("COGS", "cogs", false),
+        ("Gross Profit", "gross_profit", false),
+        ("TikTok fees", "tiktok_fees", false),
+        ("Referral fee", "tiktok_referral_fee", true),
+        ("Transaction fee", "tiktok_transaction_fee", true),
+        ("Refund admin fee", "tiktok_refund_admin_fee", true),
+        ("Sales tax on referral", "tiktok_sales_tax_on_referral", true),
+        ("Smart promo fee (incl. tax)", "tiktok_smart_promo_fee", true),
+        ("Campaign fees (resource + service)", "tiktok_campaign_fees", true),
+        ("Shop partner commission", "tiktok_partner_commission", true),
+        ("Managed service (incl. tax)", "tiktok_managed_service", true),
+        ("Affiliate commission", "affiliate_commission", false),
+        ("Shop ads", "shop_ads_cost", false),
+        ("Shipping cost", "shipping_cost", false),
+        ("Net Profit", "net_profit", false),
       ] %}
-      {% for label, attr in lines %}
+      {% for label, attr, indent in lines %}
       <tr class="{% if attr in ['net_customer_sales','gross_profit','net_profit'] %}font-semibold bg-slate-50/40{% endif %}">
-        <td class="px-4 py-2">{{ label }}</td>
+        <td class="px-4 py-2 {% if indent %}pl-10 text-slate-600{% endif %}">{{ label }}</td>
         {% for m in view.monthly_breakdown %}
-        <td class="px-3 py-2 text-right">{{ m[attr] | money }}</td>
+        <td class="px-3 py-2 text-right {% if indent %}text-slate-600{% endif %}">{{ m[attr] | money }}</td>
         {% endfor %}
-        <td class="px-4 py-2 text-right">{{ view.total[attr] | money }}</td>
+        <td class="px-4 py-2 text-right {% if indent %}text-slate-600{% endif %}">{{ view.total[attr] | money }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -133,6 +147,41 @@
   The {{ total_label }} column is the sum of the monthly columns — verifiable line-by-line.
 </p>
 {% endif %}
+
+{# -------- Discount waterfall summary (all periods) -------- #}
+<section class="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm print:hidden">
+  <header class="mb-4 flex items-center justify-between">
+    <h2 class="text-base font-semibold text-slate-900">Discount waterfall</h2>
+    <span class="text-xs text-slate-400">{{ view.title_suffix }}</span>
+  </header>
+  <dl class="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+    <div class="flex items-center justify-between">
+      <dt class="flex items-center gap-2 text-slate-600">
+        <span class="h-2 w-2 rounded-full bg-sky-500"></span> TikTok-Funded
+      </dt>
+      <dd class="font-medium tabular-nums text-slate-900">{{ pnl.platform_discount | money }}</dd>
+    </div>
+    <div class="flex items-center justify-between">
+      <dt class="flex items-center gap-2 text-slate-600">
+        <span class="h-2 w-2 rounded-full bg-indigo-500"></span> Outlandish-Funded
+      </dt>
+      <dd class="font-medium tabular-nums text-slate-900">{{ pnl.outlandish_discount | money }}</dd>
+    </div>
+    <div class="flex items-center justify-between">
+      <dt class="flex items-center gap-2 text-slate-600">
+        <span class="h-2 w-2 rounded-full bg-slate-700"></span> Smashbox-Funded
+      </dt>
+      <dd class="font-medium tabular-nums text-slate-900">{{ pnl.smashbox_discount | money }}</dd>
+    </div>
+    <div class="flex items-center justify-between border-t border-slate-200 pt-3 sm:border-0 sm:pt-0">
+      <dt class="font-medium text-slate-700">Seller-Funded Total</dt>
+      <dd class="font-semibold tabular-nums text-slate-900">{{ pnl.seller_funded_total | money }}</dd>
+    </div>
+  </dl>
+  <p class="mt-4 text-xs leading-relaxed text-slate-400">
+    Outlandish + Smashbox always sums exactly to TikTok's reported seller-funded total.
+  </p>
+</section>
 
 <details class="mt-6 rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-600 print:hidden">
   <summary class="cursor-pointer font-medium text-slate-700">How are the discount lines calculated?</summary>

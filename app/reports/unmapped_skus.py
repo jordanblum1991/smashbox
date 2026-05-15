@@ -85,3 +85,19 @@ def find_unmapped_skus(db: Session) -> list[UnmappedRow]:
             sample_units=int(r.sample_units or 0),
         ))
     return out
+
+
+def count_unmapped_skus(db: Session) -> int:
+    """Cheap count for the nav-bar Data Health badge."""
+    catalog = _catalog_keys(db)
+    if not catalog:
+        # No catalog yet ⇒ everything is technically unmapped, but flagging that
+        # before any SKU master is loaded would be misleading. Stay quiet.
+        return 0
+    keys = db.execute(
+        select(OrderLine.sku)
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.order_type.in_([OrderType.PAID, OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        .group_by(OrderLine.sku)
+    ).scalars()
+    return sum(1 for k in keys if k and k.strip() and k.strip() not in catalog)
