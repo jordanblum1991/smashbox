@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
+from app.auth import BasicAuthMiddleware
 from app.db import Base, SessionLocal, engine
 from app.models import register_models  # noqa: F401  (side-effect: registers tables)
 from app.routers import dashboard, exports, reports, uploads
@@ -40,6 +41,10 @@ def _ensure_columns() -> None:
 _ensure_columns()
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+# Auth must be registered BEFORE the data-health middleware so unauth requests
+# short-circuit without doing DB work.
+app.add_middleware(BasicAuthMiddleware)
 
 
 @app.middleware("http")

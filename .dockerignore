@@ -1,0 +1,33 @@
+# Don't ship local dev artifacts, secrets, or bulky data into the image.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data — lives on the Fly volume in production
+data/
+uploads/
+exports/
+
+# Env / secrets — set via `fly secrets` instead
+.env
+.env.*
+
+# Git / IDE / OS noise
+.git/
+.github/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docs & test artifacts not needed at runtime
+tests/
+*.md
+!CLAUDE.md
+README.md

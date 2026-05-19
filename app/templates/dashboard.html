@@ -21,22 +21,33 @@
   {% set samples_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=" ~ (view.month or 1) ~ "&end_year=" ~ (last_m.year if last_m else view.year) ~ "&end_month=" ~ (last_m.month if last_m else 1) %}
 {% endif %}
 
-{# ---- Page header --------------------------------------------------------- #}
+{# ---- Derived signals used by banners + KPI accent colors ---------------- #}
+{% set has_orders = pnl.orders_count > 0 %}
+{% set coverage_pct = pnl.settlement_coverage_pct %}
+{% set coverage_full = (pnl.orders_count == 0) or (pnl.orders_settled >= pnl.orders_count) %}
+{% set coverage_severe = has_orders and coverage_pct < 50 %}
+{% set has_ads = pnl.net_ad_spend > 0 %}
+{% set roas_strong = has_ads and pnl.roas >= 3 %}
+{% set roas_ok = has_ads and pnl.roas >= 1 and pnl.roas < 3 %}
+
+{# ===========================================================================
+   PAGE HEADER
+   =========================================================================== #}
 <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
-    <p class="mb-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Smashbox TikTok Shop</p>
+    <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600">Smashbox TikTok Shop</p>
     <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
-      Dashboard <span class="text-slate-300">·</span> <span class="text-sky-700">{{ view.title_suffix }}</span>
+      Dashboard <span class="font-normal text-slate-300">·</span>
+      <span class="text-sky-700">{{ view.title_suffix }}</span>
     </h1>
-    <p class="mt-1 text-sm text-slate-500">
-      Ties to the
-      <a href="/reports/pnl{{ pnl_qs }}" class="underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500">P&amp;L page</a>
-      for the same selection
+    <p class="mt-1.5 text-sm text-slate-500">
+      All figures tie to the
+      <a href="/reports/pnl{{ pnl_qs }}" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">P&amp;L for this period</a>.
     </p>
   </div>
   <div class="flex items-center gap-2 print:hidden">
     <a href="/reports/pnl{{ pnl_qs }}"
-       class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+       class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
       Open P&amp;L
       <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
@@ -45,29 +56,17 @@
   </div>
 </header>
 
-{# Data freshness — shows when each file kind was last imported. Stale rows
-   (>7 days) get an amber dot; missing kinds get a muted slate dot and an "—". #}
-<section aria-label="Data freshness" class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 print:hidden">
-  <span class="font-semibold uppercase tracking-wider text-slate-400">Last imported</span>
-  {% for f in freshness %}
-  <a href="/uploads" title="{% if f.last_imported_at %}{{ f.last_imported_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never imported{% endif %}"
-     class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50">
-    <span class="inline-block h-1.5 w-1.5 rounded-full
-      {% if f.staleness == 'fresh' %}bg-emerald-500
-      {% elif f.staleness == 'stale' %}bg-amber-500
-      {% else %}bg-slate-300{% endif %}"></span>
-    <span class="text-slate-600">{{ f.label }}</span>
-    <span class="{% if f.staleness == 'missing' %}text-slate-400{% else %}text-slate-700{% endif %} font-medium">{{ f.relative }}</span>
-  </a>
-  {% endfor %}
-</section>
-
+{# ===========================================================================
+   PERIOD SELECTOR
+   =========================================================================== #}
 {% set selector_action = "/" %}
 {% include "partials/period_selector.html" %}
 
-{# ---- Failed-import alert (only when there's a recent failure) ----------- #}
+{# ===========================================================================
+   ALERTS — failed import + settlement coverage
+   =========================================================================== #}
 {% if last_failed %}
-<div class="mb-4 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+<div class="mb-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
   <svg class="mt-0.5 h-5 w-5 shrink-0 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
   </svg>
@@ -84,93 +83,170 @@
 </div>
 {% endif %}
 
-{# ---- Settlement coverage banner ------------------------------------------ #}
-{% if pnl.orders_count > 0 and pnl.orders_settled < pnl.orders_count %}
-{% set pct = pnl.settlement_coverage_pct %}
-{% set severe = pct < 50 %}
+{% if has_orders and not coverage_full %}
 {% set pending = pnl.orders_count - pnl.orders_settled %}
-<div class="mb-6 flex items-start gap-2.5 rounded-lg border {{ 'border-rose-200 bg-rose-50' if severe else 'border-amber-200 bg-amber-50' }} px-3 py-2 text-xs leading-snug">
-  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ 'text-rose-500' if severe else 'text-amber-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<div class="mb-6 flex items-start gap-2.5 rounded-xl border {{ 'border-rose-200 bg-rose-50' if coverage_severe else 'border-amber-200 bg-amber-50' }} px-4 py-3 text-xs leading-snug">
+  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ 'text-rose-500' if coverage_severe else 'text-amber-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
   </svg>
-  <div class="min-w-0 flex-1 {{ 'text-rose-900' if severe else 'text-amber-900' }}">
-    <span class="font-semibold">Settlement coverage: {{ "%.0f" % pct }}%</span>
-    <span class="{{ 'text-rose-800' if severe else 'text-amber-800' }}">
-      · TikTok has settled <strong>{{ pnl.orders_settled }}</strong> of <strong>{{ pnl.orders_count }}</strong> paid orders for this period.
-      {% if pending > 0 %}These <strong>{{ pending }}</strong> order{{ '' if pending == 1 else 's' }} {{ 'is' if pending == 1 else 'are' }} still pending settlement.{% endif %}
-      Sales and discounts are included, but fees, affiliate commissions, ad costs, and shipping costs have not yet been reported — expenses may be understated and Net Profit overstated until an updated settlement file is uploaded.
-    </span>
+  <div class="min-w-0 flex-1 {{ 'text-rose-900' if coverage_severe else 'text-amber-900' }}">
+    <span class="font-semibold">Settlement coverage: {{ "%.0f" % coverage_pct }}%</span> —
+    {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders have been settled.
+    {{ pending }} order{{ '' if pending == 1 else 's' }} still pending, so some fees, commissions, ad costs, and shipping costs may not be fully reflected yet.
   </div>
 </div>
 {% endif %}
 
-{# ---- KPI cards ------------------------------------------------------------ #}
-{# Two rows by purpose: financial KPIs first (with Net Profit accented),
-   operating metrics second. Cards use a single colored bar at top only when
-   the metric is directional (Net Profit). #}
-<section aria-label="Financial KPIs" class="grid grid-cols-2 gap-4 lg:grid-cols-5">
-  {% set roas_accent = none %}
-  {% if pnl.net_ad_spend > 0 %}
-    {% set roas_accent = 'emerald' if pnl.roas >= 3 else ('amber' if pnl.roas >= 1 else 'rose') %}
-  {% endif %}
-  {% set financial_tiles = [
-    ("Net Customer Sales", pnl.net_customer_sales | money, none, "/reports/pnl" ~ pnl_qs, "After all discounts and refunds"),
-    ("Net Profit", pnl.net_profit | money, ('emerald' if pnl.net_profit >= 0 else 'rose'), "/reports/pnl" ~ pnl_qs, "After COGS, fees, ads, shipping"),
-    ("Gross Margin", pnl.gross_margin | pct, none, "/reports/pnl" ~ pnl_qs, "Gross profit / Net Customer Sales"),
-    ("Avg Order Value", pnl.aov_after_discounts | money, none, "/reports/pnl" ~ pnl_qs, "Net Customer Sales / Total Orders"),
-    ("ROAS", ("%.2fx" % pnl.roas) if pnl.net_ad_spend > 0 else "—", roas_accent, "/reports/ad-spend", "Net Sales per $1 net ad spend"),
-  ] %}
-  {% for label, value, accent, href, hint in financial_tiles %}
-  <a href="{{ href }}"
-     class="group relative block overflow-hidden rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
-    {% if accent %}
-    <span class="absolute inset-x-0 top-0 h-0.5 bg-{{ accent }}-500"></span>
-    {% endif %}
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums {{ 'text-' ~ accent ~ '-700' if accent else 'text-slate-900' }}">
-      {{ value }}
+{# ===========================================================================
+   KPI GRID — hero Net Profit card + supporting financial + operating metrics
+   =========================================================================== #}
+{% set net_tone = 'emerald' if pnl.net_profit >= 0 else 'rose' %}
+{% set net_grad = {
+  'emerald': 'from-emerald-50 via-white to-white',
+  'rose':    'from-rose-50 via-white to-white',
+}[net_tone] %}
+{% set net_bar = 'bg-emerald-500' if pnl.net_profit >= 0 else 'bg-rose-500' %}
+
+<section aria-label="Headline metrics" class="mb-4 grid grid-cols-12 gap-4">
+  {# Hero: Net Profit — spans 4/12 on lg so each supporting card gets 2/12. #}
+  <a href="/reports/pnl{{ pnl_qs }}"
+     class="relative col-span-12 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br {{ net_grad }} p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-6 lg:col-span-4">
+    <span class="absolute inset-x-0 top-0 h-1 {{ net_bar }}"></span>
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Net Profit</div>
+        <div class="mt-2 flex items-baseline gap-3">
+          <span class="text-4xl font-semibold tracking-tight tabular-nums text-{{ net_tone }}-700">{{ pnl.net_profit | money }}</span>
+          <span class="rounded-full bg-{{ net_tone }}-100 px-2 py-0.5 text-xs font-semibold text-{{ net_tone }}-700">{{ pnl.net_margin | pct }} margin</span>
+        </div>
+        <p class="mt-2 max-w-md text-xs leading-relaxed text-slate-500">
+          Net Customer Sales of <span class="font-medium text-slate-700">{{ pnl.net_customer_sales | money }}</span>
+          after COGS of <span class="font-medium text-slate-700">{{ pnl.cogs | money }}</span>,
+          TikTok fees, ads (net of credits), affiliate, and shipping.
+        </p>
+      </div>
+      <div class="hidden shrink-0 rounded-xl bg-white/70 p-3 ring-1 ring-slate-200 md:block">
+        <svg class="h-6 w-6 text-{{ net_tone }}-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          {% if pnl.net_profit >= 0 %}
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 17l6-6 4 4 8-8M17 7h4v4"/>
+          {% else %}
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 7l6 6 4-4 8 8M17 17h4v-4"/>
+          {% endif %}
+        </svg>
+      </div>
     </div>
-    <div class="mt-1 text-xs text-slate-400">{{ hint }}</div>
   </a>
-  {% endfor %}
+
+  {# Supporting financial metrics #}
+  {% macro metric_card(label, value, hint, href, tone='slate', accent_bar=false) %}
+    {% set value_color = {
+      'emerald': 'text-emerald-700',
+      'rose':    'text-rose-700',
+      'amber':   'text-amber-700',
+      'sky':     'text-sky-700',
+      'indigo':  'text-indigo-700',
+      'slate':   'text-slate-900',
+    }[tone] %}
+    <a href="{{ href }}"
+       class="relative col-span-6 overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-{{ 7 if accent_bar else '' }}">
+      {% if accent_bar %}<span class="absolute inset-x-0 top-0 h-0.5 bg-{{ tone }}-400"></span>{% endif %}
+      <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
+      <div class="mt-2 text-2xl font-semibold tabular-nums {{ value_color }}">{{ value }}</div>
+      <div class="mt-1.5 text-xs text-slate-400">{{ hint }}</div>
+    </a>
+  {% endmacro %}
+
+  {# We want the supporting cards to fill the remaining 7 columns on large.
+     Use 4 cards × ~lg:col-span-2 (with one taking 1 extra). Manually set spans. #}
+  <a href="/reports/pnl{{ pnl_qs }}"
+     class="col-span-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Net Customer Sales</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ pnl.net_customer_sales | money }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">After all discounts &amp; refunds</div>
+  </a>
+
+  <a href="/reports/pnl{{ pnl_qs }}"
+     class="col-span-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gross Margin</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ pnl.gross_margin | pct }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">Gross Profit ÷ Net Sales</div>
+  </a>
+
+  {# ROAS — color-coded #}
+  {% set roas_tone = 'slate' %}
+  {% if has_ads %}
+    {% if roas_strong %}{% set roas_tone = 'emerald' %}
+    {% elif roas_ok %}{% set roas_tone = 'amber' %}
+    {% else %}{% set roas_tone = 'rose' %}{% endif %}
+  {% endif %}
+  {% set roas_color = {
+    'emerald':'text-emerald-700', 'rose':'text-rose-700',
+    'amber':'text-amber-700', 'slate':'text-slate-900',
+  }[roas_tone] %}
+  <a href="/reports/ad-spend"
+     class="relative col-span-6 overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
+    {% if roas_tone != 'slate' %}<span class="absolute inset-x-0 top-0 h-0.5 bg-{{ roas_tone }}-400"></span>{% endif %}
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">ROAS</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums {{ roas_color }}">{% if has_ads %}{{ "%.2fx" % pnl.roas }}{% else %}—{% endif %}</div>
+    <div class="mt-1.5 text-xs text-slate-400">Sales per $1 net ad spend</div>
+  </a>
+
+  <a href="/reports/ad-spend"
+     class="col-span-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Ad Spend</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ pnl.net_ad_spend | money }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">Net of credits</div>
+  </a>
 </section>
 
-<section aria-label="Operating metrics" class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-  {% set operating_tiles = [
-    ("Total Orders", "{:,}".format(pnl.orders_count), "/reports/pnl" ~ pnl_qs, "Paid customer orders (excludes samples)"),
-    ("Total Units Sold", "{:,}".format(pnl.units_sold), "/reports/pnl" ~ pnl_qs, "Bundles count as 1 item"),
-    ("Total Samples Shipped", "{:,}".format(samples_shipped), "/reports/samples" ~ samples_qs, "Free + explicit-paid sample units"),
-    ("TikTok Ad Spend", pnl.net_ad_spend | money, "/reports/ad-spend", "Net of credits · Shop Ads + GMV Max"),
+<section aria-label="Operating metrics" class="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+  {% set ops = [
+    ("Total Orders", "{:,}".format(pnl.orders_count), "Paid orders only", "/reports/pnl" ~ pnl_qs),
+    ("Total Units Sold", "{:,}".format(pnl.units_sold), "Bundles count as 1 unit", "/reports/pnl" ~ pnl_qs),
+    ("Samples Shipped", "{:,}".format(samples_shipped), "Free + paid sample units", "/reports/samples" ~ samples_qs),
+    ("Avg Order Value", pnl.aov_after_discounts | money, "Net Sales ÷ Orders", "/reports/pnl" ~ pnl_qs),
   ] %}
-  {% for label, value, href, hint in operating_tiles %}
+  {% for label, value, hint, href in ops %}
   <a href="{{ href }}"
-     class="block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
+     class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
     <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ value }}</div>
-    <div class="mt-1 text-xs text-slate-400">{{ hint }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">{{ hint }}</div>
   </a>
   {% endfor %}
 </section>
 
-{# ---- Collapsible section macro ------------------------------------------- #}
-{% macro section_header(title, meta="") %}
-<summary class="-m-6 flex cursor-pointer items-center justify-between rounded-xl p-6 transition hover:bg-slate-50">
-  <div class="flex items-center gap-3">
-    <span class="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-400 transition-colors group-open:border-slate-900 group-open:bg-slate-900 group-open:text-white">
-      <svg class="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+{# ===========================================================================
+   POLISHED MODULES — Top SKUs + Samples by SKU
+   =========================================================================== #}
+{% macro module_summary(title, subtitle, icon_path) %}
+<summary class="-m-6 flex cursor-pointer items-center justify-between rounded-2xl p-6 transition hover:bg-slate-50/60">
+  <div class="flex items-center gap-3.5">
+    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100 transition group-open:bg-indigo-600 group-open:text-white">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}"/>
       </svg>
     </span>
-    <h2 class="text-base font-semibold text-slate-900">{{ title }}</h2>
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">{{ title }}</h2>
+      <p class="mt-0.5 text-xs text-slate-500">{{ subtitle }}</p>
+    </div>
   </div>
-  {% if meta %}<span class="text-xs text-slate-500">{{ meta }}</span>{% endif %}
+  <span class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition group-open:border-slate-900 group-open:bg-slate-900 group-open:text-white">
+    <svg class="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+    </svg>
+  </span>
 </summary>
 {% endmacro %}
 
 {# ---- Top 10 Best Selling SKUs -------------------------------------------- #}
-<section class="mt-8">
-  <details class="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-    {{ section_header("Top 10 Best Selling SKUs", "Ranked by units sold · " ~ view.title_suffix) }}
+<section class="mt-2">
+  <details class="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    {{ module_summary(
+        "Top 10 Best Selling SKUs",
+        "Ranked by units sold · " ~ view.title_suffix,
+        "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z") }}
 
     <div class="mt-6">
       {% if top_skus %}
@@ -196,12 +272,12 @@
                   <a href="/reports/unmapped-skus" class="text-rose-700 underline underline-offset-2">Unmapped</a>
                 {% else %}
                   {{ r.sku_code or "—" }}
-                  {% if r.is_bundle %}<span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">Bundle</span>{% endif %}
+                  {% if r.is_bundle %}<span class="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Bundle</span>{% endif %}
                 {% endif %}
               </td>
               <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ r.name or "—" }}</td>
               <td class="px-3 py-3 font-mono text-[11px] text-slate-500">{{ r.tiktok_sku_id }}</td>
-              <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.units_sold) }}</td>
+              <td class="px-3 py-3 text-right tabular-nums font-medium text-slate-900">{{ "{:,}".format(r.units_sold) }}</td>
               <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ r.net_customer_sales | money }}</td>
               <td class="px-6 py-3 text-right tabular-nums text-slate-900">{{ r.aov | money }}</td>
             </tr>
@@ -215,7 +291,7 @@
         Unmapped rows are also counted in the <a href="/reports/unmapped-skus" class="text-slate-600 underline underline-offset-2 hover:text-slate-900">Unmapped SKUs</a> report.
       </p>
       {% else %}
-      <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
+      <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
         <p class="text-sm font-medium text-slate-700">No paid orders in this period</p>
         <p class="mt-1 text-xs text-slate-500">Change the period above or <a href="/uploads" class="underline underline-offset-2">import a file</a>.</p>
       </div>
@@ -225,9 +301,12 @@
 </section>
 
 {# ---- Samples Sent by SKU ------------------------------------------------- #}
-<section class="mt-6">
-  <details class="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-    {{ section_header("Samples Sent by SKU", "Samples shipped · " ~ view.title_suffix) }}
+<section class="mt-4">
+  <details class="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    {{ module_summary(
+        "Samples Sent by SKU",
+        "Samples shipped · " ~ view.title_suffix,
+        "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12") }}
 
     <div class="mt-6">
       {% if samples_by_sku %}
@@ -246,20 +325,20 @@
           </thead>
           <tbody class="divide-y divide-slate-100">
             {% for r in samples_by_sku %}
-            <tr class="transition hover:bg-slate-50/60 {% if r.is_unmapped %}bg-rose-50/40{% elif r.units_sold == 0 %}bg-amber-50/60{% endif %}">
+            <tr class="transition hover:bg-slate-50/60 {% if r.is_unmapped %}bg-rose-50/40{% elif r.units_sold == 0 %}bg-amber-50/40{% endif %}">
               <td class="px-6 py-3 font-medium text-slate-900">
                 {% if r.is_unmapped %}
                   <a href="/reports/unmapped-skus" class="text-rose-700 underline underline-offset-2">Unmapped</a>
                 {% else %}
                   {{ r.sku_code or "—" }}
-                  {% if r.is_bundle %}<span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">Bundle</span>{% endif %}
+                  {% if r.is_bundle %}<span class="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Bundle</span>{% endif %}
                 {% endif %}
               </td>
               <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ r.name or "—" }}</td>
               <td class="px-3 py-3 font-mono text-[11px] text-slate-500">{{ r.tiktok_sku_id }}</td>
               <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.samples_sent) }}</td>
               <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.sample_orders_shipped) }}</td>
-              <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.units_sold) }}</td>
+              <td class="px-3 py-3 text-right tabular-nums {% if r.units_sold == 0 %}text-amber-700{% else %}text-slate-900{% endif %}">{{ "{:,}".format(r.units_sold) }}</td>
               <td class="px-6 py-3 text-right tabular-nums text-slate-900">{{ "%.2f" % r.sold_per_sample }}</td>
             </tr>
             {% endfor %}
@@ -285,19 +364,19 @@
           Shipped means TikTok status <span class="font-medium text-slate-600">Shipped</span> or
           <span class="font-medium text-slate-600">Completed</span> — pending, canceled, withdrawn, unfulfilled,
           failed, and <em>To ship</em> are excluded. No sample allowance applied.
-          <span class="ml-2 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Amber rows</span> = zero units sold.
+          <span class="ml-2 inline-block rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 ring-1 ring-amber-200">Amber rows</span> = zero units sold.
         </p>
         <div class="flex items-center gap-3">
           <a href="/export/samples-by-sku.csv{{ samples_qs }}"
-             class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">
+             class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-slate-700 transition hover:bg-slate-50">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
             Download CSV
           </a>
           <a href="/reports/samples{{ samples_qs }}"
-             class="inline-flex items-center gap-1 text-slate-600 underline underline-offset-2 hover:text-slate-900">
-            Open Samples page for this period
+             class="inline-flex items-center gap-1 font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">
+            Open Samples page
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
             </svg>
@@ -305,13 +384,36 @@
         </div>
       </div>
       {% else %}
-      <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
+      <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
         <p class="text-sm font-medium text-slate-700">No samples shipped in this period</p>
         <p class="mt-1 text-xs text-slate-500">All shipped sample orders (status <em>Shipped</em> or <em>Completed</em>) in this window will appear here.</p>
       </div>
       {% endif %}
     </div>
   </details>
+</section>
+
+{# ===========================================================================
+   DATA FRESHNESS — moved to bottom as utility info
+   =========================================================================== #}
+<section aria-label="Data freshness" class="mt-8 rounded-2xl border border-slate-200 bg-white p-5 print:hidden">
+  <div class="mb-3 flex items-center justify-between">
+    <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Last Imported</h3>
+    <a href="/uploads" class="text-xs font-medium text-slate-600 hover:text-slate-900">Manage imports →</a>
+  </div>
+  <div class="flex flex-wrap gap-2 text-xs">
+    {% for f in freshness %}
+    <a href="/uploads" title="{% if f.last_imported_at %}{{ f.last_imported_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never imported{% endif %}"
+       class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-200 hover:bg-slate-100">
+      <span class="inline-block h-1.5 w-1.5 rounded-full
+        {% if f.staleness == 'fresh' %}bg-emerald-500
+        {% elif f.staleness == 'stale' %}bg-amber-500
+        {% else %}bg-slate-300{% endif %}"></span>
+      <span class="text-slate-600">{{ f.label }}</span>
+      <span class="{% if f.staleness == 'missing' %}text-slate-400{% else %}text-slate-700{% endif %} font-medium">{{ f.relative }}</span>
+    </a>
+    {% endfor %}
+  </div>
 </section>
 
 <script>
