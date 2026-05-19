@@ -55,6 +55,78 @@
   </p>
 </section>
 
+<!-- Monthly sales reconciliation across the year -->
+{% if monthly_recon %}
+<section class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="mb-3 flex items-baseline justify-between">
+    <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Monthly sales reconciliation · {{ report.year }}</h2>
+    <span class="text-xs text-slate-400">{{ monthly_recon | length }} month{{ '' if monthly_recon | length == 1 else 's' }} with activity</span>
+  </div>
+
+  {% set yr_tiktok = monthly_recon | sum(attribute='tiktok_equivalent_sales') %}
+  {% set yr_refunds = monthly_recon | sum(attribute='refunds') %}
+  {% set yr_net = monthly_recon | sum(attribute='net_customer_sales') %}
+
+  <table class="w-full text-sm">
+    <thead class="border-b border-slate-200 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-2 py-2">Month</th>
+        <th class="px-2 py-2 text-right">TikTok "Sales"
+          <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">pre-refund</div>
+        </th>
+        <th class="px-2 py-2 text-right">Refunds</th>
+        <th class="px-2 py-2 text-right">Net Customer Sales
+          <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">our P&amp;L</div>
+        </th>
+        <th class="px-2 py-2 text-right">Orders</th>
+        <th class="px-2 py-2 text-center print:hidden">View</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for r in monthly_recon %}
+      {% set is_selected = (r.year == report.year and r.month == report.month) %}
+      <tr class="{% if is_selected %}bg-sky-50/50{% else %}hover:bg-slate-50/60{% endif %}">
+        <td class="px-2 py-2 font-medium {% if is_selected %}text-sky-900{% else %}text-slate-900{% endif %}">
+          {{ month_label(r.year, r.month) }}
+          {% if is_selected %}<span class="ml-1 rounded-full bg-sky-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-900">selected</span>{% endif %}
+        </td>
+        <td class="px-2 py-2 text-right tabular-nums text-slate-900">{{ r.tiktok_equivalent_sales | money }}</td>
+        <td class="px-2 py-2 text-right tabular-nums {% if r.refunds > 0 %}text-rose-700{% else %}text-slate-400{% endif %}">
+          {% if r.refunds > 0 %}({{ r.refunds | money | replace('-', '') }}){% else %}{{ r.refunds | money }}{% endif %}
+        </td>
+        <td class="px-2 py-2 text-right tabular-nums font-medium text-slate-900">{{ r.net_customer_sales | money }}</td>
+        <td class="px-2 py-2 text-right tabular-nums text-slate-500">{{ "{:,}".format(r.orders_count) }}</td>
+        <td class="px-2 py-2 text-center print:hidden">
+          {% if not is_selected %}
+          <a href="?year={{ r.year }}&month={{ r.month }}"
+             class="inline-block rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100">Open</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
+      <tr>
+        <td class="px-2 py-3">Year total ({{ report.year }})</td>
+        <td class="px-2 py-3 text-right tabular-nums">{{ yr_tiktok | money }}</td>
+        <td class="px-2 py-3 text-right tabular-nums {% if yr_refunds > 0 %}text-rose-700{% endif %}">
+          {% if yr_refunds > 0 %}({{ yr_refunds | money | replace('-', '') }}){% else %}{{ yr_refunds | money }}{% endif %}
+        </td>
+        <td class="px-2 py-3 text-right tabular-nums">{{ yr_net | money }}</td>
+        <td class="px-2 py-3 text-right tabular-nums text-slate-500">{{ "{:,}".format(monthly_recon | sum(attribute='orders_count')) }}</td>
+        <td class="px-2 py-3 print:hidden"></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <p class="mt-3 text-xs leading-relaxed text-slate-500">
+    Each row reconciles to the TikTok Seller Center <em>Sales</em> tile for that month.
+    Variances between TikTok and our P&amp;L should equal the Refunds column — anything else
+    indicates an out-of-sync settlement, an orphan order, or a data-entry issue worth investigating in the detail tables below.
+  </p>
+</section>
+{% endif %}
+
 <!-- File / data status -->
 {% set s = report.status %}
 <section class="mb-6 rounded-lg border border-slate-200 bg-white p-5">

@@ -134,6 +134,45 @@ class SalesReconciliation:
 
 
 @dataclass
+class MonthlySalesReconciliation:
+    """One row of the by-month sales-reconciliation table on the Reconciliation
+    page. Same three columns as SalesReconciliation, tagged with year/month so
+    the template can highlight the currently-selected month."""
+    year: int
+    month: int
+    tiktok_equivalent_sales: Decimal
+    refunds: Decimal
+    net_customer_sales: Decimal
+    orders_count: int
+
+    @property
+    def gap(self) -> Decimal:
+        return self.tiktok_equivalent_sales - self.net_customer_sales
+
+
+def yearly_sales_reconciliation(
+    db: Session, year: int
+) -> list[MonthlySalesReconciliation]:
+    """Sales reconciliation for every month of `year` that has activity.
+    Months with zero orders AND zero refunds are skipped so the table stays
+    tight when only part of the year has data."""
+    out: list[MonthlySalesReconciliation] = []
+    for m in range(1, 13):
+        pnl = compute_monthly_pnl(db, year, m)
+        if pnl.orders_count == 0 and pnl.refunds == 0:
+            continue
+        out.append(MonthlySalesReconciliation(
+            year=year,
+            month=m,
+            tiktok_equivalent_sales=pnl.sales_pre_refund,
+            refunds=pnl.refunds,
+            net_customer_sales=pnl.net_customer_sales,
+            orders_count=pnl.orders_count,
+        ))
+    return out
+
+
+@dataclass
 class ReconciliationReport:
     year: int
     month: int
