@@ -15,6 +15,7 @@ from app.models.import_batch import ImportBatch, ImportBatchStatus
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.sample_tracking import count_samples_shipped, samples_by_sku_shipped
 from app.reports.sku_profitability import compute_top_skus
+from app.services.data_freshness import compute_freshness
 from app.templating import templates
 
 router = APIRouter(tags=["dashboard"])
@@ -53,6 +54,7 @@ def home(
     top_skus = compute_top_skus(db, start, end, limit=10)
     samples_shipped = count_samples_shipped(db, start, end)
     samples_by_sku = samples_by_sku_shipped(db, start, end)
+    freshness = compute_freshness(db)
 
     return templates.TemplateResponse(
         request,
@@ -65,5 +67,6 @@ def home(
             "today": date.today(),
             "top_skus": top_skus,
             "samples_by_sku": samples_by_sku,
+            "freshness": freshness,
         },
     )

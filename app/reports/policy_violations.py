@@ -38,6 +38,7 @@ from app.templating import month_label
 
 @dataclass
 class PolicyViolationRow:
+    order_line_id: int
     tiktok_order_id: str
     placed_at: datetime
     status: str
@@ -49,6 +50,8 @@ class PolicyViolationRow:
     gross_sales: Decimal             # MSRP base
     seller_funded_discount: Decimal
     cap_amount: Decimal              # gross × policy_cap_pct
+    acknowledged: bool = False
+    acknowledged_at: datetime | None = None
 
     @property
     def excess(self) -> Decimal:
@@ -88,6 +91,14 @@ class PolicyViolationView:
     @property
     def affected_orders(self) -> int:
         return len({r.tiktok_order_id for r in self.rows})
+
+    @property
+    def active_rows(self) -> list["PolicyViolationRow"]:
+        return [r for r in self.rows if not r.acknowledged]
+
+    @property
+    def acknowledged_rows(self) -> list["PolicyViolationRow"]:
+        return [r for r in self.rows if r.acknowledged]
 
 
 # ---- Period resolver (mirrors PeriodKind from pnl.py) ---------------------
@@ -155,6 +166,7 @@ def compute_policy_violations(
 
     rows_raw = db.execute(
         select(
+            OrderLine.id,
             Order.tiktok_order_id,
             Order.placed_at,
             Order.status,
@@ -162,6 +174,8 @@ def compute_policy_violations(
             OrderLine.quantity,
             OrderLine.gross_sales,
             OrderLine.seller_funded_discount,
+            OrderLine.policy_violation_acknowledged,
+            OrderLine.policy_violation_acknowledged_at,
         )
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.placed_at >= start, Order.placed_at < end)
@@ -171,7 +185,7 @@ def compute_policy_violations(
     ).all()
 
     # Catalog enrichment (single round trip).
-    keys = {r[3] for r in rows_raw if r[3]}
+    keys = {r[4] for r in rows_raw if r[4]}
     sku_by_key: dict[str, Sku] = {}
     bundle_by_key: dict[str, Bundle] = {}
     if keys:
@@ -193,7 +207,7 @@ def compute_policy_violations(
                     bundle_by_key.setdefault(str(k), b)
 
     rows: list[PolicyViolationRow] = []
-    for oid, placed, status, sku_key, qty, gross, seller_funded in rows_raw:
+    for line_id, oid, placed, status, sku_key, qty, gross, seller_funded, ack, ack_at in rows_raw:
         g = Decimal(str(gross or 0))
         sf = Decimal(str(seller_funded or 0))
         sku = sku_by_key.get(sku_key)
@@ -206,6 +220,7 @@ def compute_policy_violations(
             name, code, is_bundle = None, None, False
 
         rows.append(PolicyViolationRow(
+            order_line_id=int(line_id),
             tiktok_order_id=oid,
             placed_at=placed,
             status=status or "",
@@ -217,6 +232,8 @@ def compute_policy_violations(
             gross_sales=g,
             seller_funded_discount=sf,
             cap_amount=(g * cap_pct).quantize(Decimal("0.01")),
+            acknowledged=bool(ack),
+            acknowledged_at=ack_at,
         ))
 
     today = date.today()
@@ -233,10 +250,35 @@ def compute_policy_violations(
 
 
 def count_policy_violations(db: Session) -> int:
-    """All-time count of flagged LINES — used for the Data Health badge."""
+    """All-time count of flagged LINES that have NOT been acknowledged —
+    used for the Data Health badge. Acknowledged lines still show on the
+    report for audit but don't count toward 'needs attention.'"""
     return int(
         db.execute(
             select(func.count(OrderLine.id))
             .where(OrderLine.discount_policy_violation.is_(True))
+            .where(OrderLine.policy_violation_acknowledged.is_(False))
         ).scalar() or 0
     )
+
+
+def months_with_unacknowledged_violations(db: Session) -> list[tuple[int, int]]:
+    """All-time list of (year, month) tuples that contain at least one
+    unacknowledged policy-violation line, ordered chronologically.
+
+    Used on the Policy Violations page to nudge the user toward periods
+    that still need review — independent of whatever period the selector
+    is currently showing."""
+    rows = db.execute(
+        select(
+            func.extract("year", Order.placed_at).label("y"),
+            func.extract("month", Order.placed_at).label("m"),
+        )
+        .join(OrderLine, OrderLine.order_id == Order.id)
+        .where(Order.order_type == OrderType.PAID)
+        .where(OrderLine.discount_policy_violation.is_(True))
+        .where(OrderLine.policy_violation_acknowledged.is_(False))
+        .group_by("y", "m")
+        .order_by("y", "m")
+    ).all()
+    return [(int(r.y), int(r.m)) for r in rows]

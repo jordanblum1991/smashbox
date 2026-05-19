@@ -97,6 +97,12 @@ class OrderLine(Base):
     seller_funded_smashbox: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
 
     discount_policy_violation: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Finance can acknowledge a flagged line so it stops counting toward the
+    # Data Health badge — used when an authorized stack (e.g. customer coupon
+    # on top of a seller promo) pushed the line over the policy cap on purpose.
+    # The flag itself is preserved for audit; the count is just suppressed.
+    policy_violation_acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    policy_violation_acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # COGS snapshot at import time so historical reports don't shift when the
     # SKU master is edited later.

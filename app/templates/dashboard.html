@@ -25,7 +25,9 @@
 <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
     <p class="mb-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Smashbox TikTok Shop</p>
-    <h1 class="text-3xl font-semibold tracking-tight text-slate-900">Dashboard</h1>
+    <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
+      Dashboard <span class="text-slate-300">·</span> <span class="text-sky-700">{{ view.title_suffix }}</span>
+    </h1>
     <p class="mt-1 text-sm text-slate-500">
       Ties to the
       <a href="/reports/pnl{{ pnl_qs }}" class="underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500">P&amp;L page</a>
@@ -42,6 +44,23 @@
     </a>
   </div>
 </header>
+
+{# Data freshness — shows when each file kind was last imported. Stale rows
+   (>7 days) get an amber dot; missing kinds get a muted slate dot and an "—". #}
+<section aria-label="Data freshness" class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 print:hidden">
+  <span class="font-semibold uppercase tracking-wider text-slate-400">Last imported</span>
+  {% for f in freshness %}
+  <a href="/uploads" title="{% if f.last_imported_at %}{{ f.last_imported_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never imported{% endif %}"
+     class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50">
+    <span class="inline-block h-1.5 w-1.5 rounded-full
+      {% if f.staleness == 'fresh' %}bg-emerald-500
+      {% elif f.staleness == 'stale' %}bg-amber-500
+      {% else %}bg-slate-300{% endif %}"></span>
+    <span class="text-slate-600">{{ f.label }}</span>
+    <span class="{% if f.staleness == 'missing' %}text-slate-400{% else %}text-slate-700{% endif %} font-medium">{{ f.relative }}</span>
+  </a>
+  {% endfor %}
+</section>
 
 {% set selector_action = "/" %}
 {% include "partials/period_selector.html" %}
@@ -89,12 +108,17 @@
 {# Two rows by purpose: financial KPIs first (with Net Profit accented),
    operating metrics second. Cards use a single colored bar at top only when
    the metric is directional (Net Profit). #}
-<section aria-label="Financial KPIs" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+<section aria-label="Financial KPIs" class="grid grid-cols-2 gap-4 lg:grid-cols-5">
+  {% set roas_accent = none %}
+  {% if pnl.total_ad_spend > 0 %}
+    {% set roas_accent = 'emerald' if pnl.roas >= 3 else ('amber' if pnl.roas >= 1 else 'rose') %}
+  {% endif %}
   {% set financial_tiles = [
     ("Net Customer Sales", pnl.net_customer_sales | money, none, "/reports/pnl" ~ pnl_qs, "After all discounts and refunds"),
     ("Net Profit", pnl.net_profit | money, ('emerald' if pnl.net_profit >= 0 else 'rose'), "/reports/pnl" ~ pnl_qs, "After COGS, fees, ads, shipping"),
     ("Gross Margin", pnl.gross_margin | pct, none, "/reports/pnl" ~ pnl_qs, "Gross profit / Net Customer Sales"),
     ("Avg Order Value", pnl.aov_after_discounts | money, none, "/reports/pnl" ~ pnl_qs, "Net Customer Sales / Total Orders"),
+    ("ROAS", ("%.2fx" % pnl.roas) if pnl.total_ad_spend > 0 else "—", roas_accent, "/reports/ad-spend", "Net Sales per $1 ad spend"),
   ] %}
   {% for label, value, accent, href, hint in financial_tiles %}
   <a href="{{ href }}"
@@ -116,6 +140,7 @@
     ("Total Orders", "{:,}".format(pnl.orders_count), "/reports/pnl" ~ pnl_qs, "Paid customer orders (excludes samples)"),
     ("Total Units Sold", "{:,}".format(pnl.units_sold), "/reports/pnl" ~ pnl_qs, "Bundles count as 1 item"),
     ("Total Samples Shipped", "{:,}".format(samples_shipped), "/reports/samples" ~ samples_qs, "Free + explicit-paid sample units"),
+    ("TikTok Ad Spend", pnl.total_ad_spend | money, "/reports/ad-spend", "Shop Ads + GMV Max combined"),
   ] %}
   {% for label, value, href, hint in operating_tiles %}
   <a href="{{ href }}"
@@ -207,21 +232,21 @@
     <div class="mt-6">
       {% if samples_by_sku %}
       <div class="overflow-x-auto -mx-6">
-        <table class="min-w-full text-sm">
+        <table id="samples-table" class="min-w-full text-sm">
           <thead class="border-y border-slate-200 bg-slate-50/60 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             <tr>
-              <th class="px-6 py-2.5">SKU</th>
-              <th class="px-3 py-2.5">Product Name</th>
-              <th class="px-3 py-2.5">TikTok SKU ID</th>
-              <th class="px-3 py-2.5 text-right">Samples Sent</th>
-              <th class="px-3 py-2.5 text-right">Sample Orders Shipped</th>
-              <th class="px-3 py-2.5 text-right">Units Sold</th>
-              <th class="px-6 py-2.5 text-right">Sold / Sample</th>
+              <th class="cursor-pointer select-none px-6 py-2.5">SKU<span class="sort-arrow ml-1 text-[10px]"></span></th>
+              <th class="cursor-pointer select-none px-3 py-2.5">Product Name<span class="sort-arrow ml-1 text-[10px]"></span></th>
+              <th class="cursor-pointer select-none px-3 py-2.5">TikTok SKU ID<span class="sort-arrow ml-1 text-[10px]"></span></th>
+              <th class="cursor-pointer select-none px-3 py-2.5 text-right">Samples Sent<span class="sort-arrow ml-1 text-[10px]"></span></th>
+              <th class="cursor-pointer select-none px-3 py-2.5 text-right">Sample Orders Shipped<span class="sort-arrow ml-1 text-[10px]"></span></th>
+              <th class="cursor-pointer select-none px-3 py-2.5 text-right">Units Sold<span class="sort-arrow ml-1 text-[10px]"></span></th>
+              <th class="cursor-pointer select-none px-6 py-2.5 text-right">Sold / Sample<span class="sort-arrow ml-1 text-[10px]"></span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
             {% for r in samples_by_sku %}
-            <tr class="transition hover:bg-slate-50/60 {% if r.is_unmapped %}bg-rose-50/40{% endif %}">
+            <tr class="transition hover:bg-slate-50/60 {% if r.is_unmapped %}bg-rose-50/40{% elif r.units_sold == 0 %}bg-amber-50/60{% endif %}">
               <td class="px-6 py-3 font-medium text-slate-900">
                 {% if r.is_unmapped %}
                   <a href="/reports/unmapped-skus" class="text-rose-700 underline underline-offset-2">Unmapped</a>
@@ -260,14 +285,24 @@
           Shipped means TikTok status <span class="font-medium text-slate-600">Shipped</span> or
           <span class="font-medium text-slate-600">Completed</span> — pending, canceled, withdrawn, unfulfilled,
           failed, and <em>To ship</em> are excluded. No sample allowance applied.
+          <span class="ml-2 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Amber rows</span> = zero units sold.
         </p>
-        <a href="/reports/samples{{ samples_qs }}"
-           class="inline-flex items-center gap-1 text-slate-600 underline underline-offset-2 hover:text-slate-900">
-          Open Samples page for this period
-          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-          </svg>
-        </a>
+        <div class="flex items-center gap-3">
+          <a href="/export/samples-by-sku.csv{{ samples_qs }}"
+             class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            Download CSV
+          </a>
+          <a href="/reports/samples{{ samples_qs }}"
+             class="inline-flex items-center gap-1 text-slate-600 underline underline-offset-2 hover:text-slate-900">
+            Open Samples page for this period
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
+            </svg>
+          </a>
+        </div>
       </div>
       {% else %}
       <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
@@ -278,5 +313,32 @@
     </div>
   </details>
 </section>
+
+<script>
+(function () {
+  const tbl = document.getElementById('samples-table');
+  if (!tbl) return;
+  let col = -1, asc = true;
+  const ths = Array.from(tbl.querySelectorAll('thead th'));
+  const arrows = ths.map(th => th.querySelector('.sort-arrow'));
+  ths.forEach((th, i) => {
+    th.addEventListener('click', () => {
+      asc = (col === i) ? !asc : true;
+      col = i;
+      const tbody = tbl.querySelector('tbody');
+      Array.from(tbody.rows)
+        .sort((a, b) => {
+          const av = a.cells[i]?.textContent.trim().replace(/,/g, '') ?? '';
+          const bv = b.cells[i]?.textContent.trim().replace(/,/g, '') ?? '';
+          const an = parseFloat(av), bn = parseFloat(bv);
+          const cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : av.localeCompare(bv);
+          return asc ? cmp : -cmp;
+        })
+        .forEach(r => tbody.appendChild(r));
+      arrows.forEach((a, j) => { if (a) a.textContent = j === i ? (asc ? ' ▲' : ' ▼') : ''; });
+    });
+  });
+})();
+</script>
 
 {% endblock %}

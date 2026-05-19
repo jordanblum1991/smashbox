@@ -14,6 +14,31 @@ app = FastAPI(title="Smashbox", docs_url="/api/docs", redoc_url=None)
 # Auto-create tables for v1. Switch to Alembic migrations before going to Postgres.
 Base.metadata.create_all(bind=engine)
 
+
+def _ensure_columns() -> None:
+    """Minimal additive 'migrations' for SQLite — only used while we're still
+    on Base.metadata.create_all. When a model gains a column, list it here so
+    existing DBs pick it up on the next boot without dropping data."""
+    from sqlalchemy import inspect, text
+    needed = {
+        "order_lines": [
+            ("policy_violation_acknowledged", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("policy_violation_acknowledged_at", "DATETIME"),
+        ],
+    }
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, cols in needed.items():
+            if not insp.has_table(table):
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in cols:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
+_ensure_columns()
+
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 

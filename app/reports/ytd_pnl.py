@@ -48,6 +48,7 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
         tiktok_managed_service=s("tiktok_managed_service"),
         affiliate_commission=s("affiliate_commission"),
         shop_ads_cost=s("shop_ads_cost"),
+        gmv_max_ad_spend=s("gmv_max_ad_spend"),
         shipping_revenue=s("shipping_revenue"),
         shipping_cost=s("shipping_cost"),
         net_profit=s("net_profit"),

@@ -5,14 +5,20 @@ so any report page can be sent to PDF or paper for brand meetings.
 """
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.import_batch import _utc_now_naive
+from app.models.order import OrderLine
+from app.reports.ad_spend import compute_ad_spend_summary
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
-from app.reports.policy_violations import compute_policy_violations
+from app.reports.policy_violations import (
+    compute_policy_violations,
+    months_with_unacknowledged_violations,
+)
 from app.reports.reconciliation import reconcile_month
 from app.reports.sample_tracking import (
     SamplePeriodKind,
@@ -155,10 +161,50 @@ def policy_violations_view(
         start_year=start_year, start_month=start_month,
         end_year=end_year, end_month=end_month,
     )
+    pending_months = months_with_unacknowledged_violations(db)
     return templates.TemplateResponse(
         request,
         "reports/policy_violations.html",
-        {"view": view, "PeriodKind": PeriodKind},
+        {
+            "view": view,
+            "PeriodKind": PeriodKind,
+            "pending_months": pending_months,
+        },
+    )
+
+
+@router.post("/reports/policy-violations/{order_line_id}/acknowledge")
+def policy_violation_acknowledge(
+    order_line_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Toggle the acknowledged flag on a flagged OrderLine. Acknowledged lines
+    stay on the report (for audit) but stop counting toward the Data Health
+    badge — see app/reports/policy_violations.count_policy_violations.
+
+    Redirects back to wherever the form was submitted from so query-string
+    state (period selector) survives the round trip."""
+    line = db.get(OrderLine, order_line_id)
+    if line is None or not line.discount_policy_violation:
+        raise HTTPException(status_code=404, detail="flagged order line not found")
+    line.policy_violation_acknowledged = not line.policy_violation_acknowledged
+    line.policy_violation_acknowledged_at = (
+        _utc_now_naive() if line.policy_violation_acknowledged else None
+    )
+    db.commit()
+    redirect_to = request.headers.get("referer") or "/reports/policy-violations"
+    return RedirectResponse(redirect_to, status_code=303)
+
+
+@router.get("/reports/ad-spend")
+def ad_spend_view(request: Request, db: Session = Depends(get_db)):
+    """Monthly TikTok ad spend with cash / credit / ad-credit breakdown."""
+    summary = compute_ad_spend_summary(db)
+    return templates.TemplateResponse(
+        request,
+        "reports/ad_spend.html",
+        {"summary": summary},
     )
 
 

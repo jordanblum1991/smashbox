@@ -15,9 +15,10 @@
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
     <label class="sm:col-span-1">
       <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">File kind</span>
+      {% set kind_labels = {"tiktok_ads": "TikTok Ads (GMV Max)"} %}
       <select name="kind" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
         {% for k in kinds %}
-        <option value="{{ k.value }}">{{ k.value.replace("_", " ").title() }}</option>
+        <option value="{{ k.value }}">{{ kind_labels.get(k.value) or k.value.replace("_", " ").title() }}</option>
         {% endfor %}
       </select>
     </label>

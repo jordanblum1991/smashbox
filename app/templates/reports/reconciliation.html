@@ -4,8 +4,10 @@
 {% block content %}
 <div class="mb-6 flex items-end justify-between">
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight">Reconciliation</h1>
-    <p class="text-sm text-slate-500">{{ month_label(report.year, report.month) }} · our P&amp;L vs TikTok settlement</p>
+    <h1 class="text-2xl font-semibold tracking-tight">
+      Reconciliation <span class="text-slate-300">·</span> <span class="text-sky-700">{{ month_label(report.year, report.month) }}</span>
+    </h1>
+    <p class="text-sm text-slate-500">Our P&amp;L vs TikTok settlement</p>
   </div>
   <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
 </div>

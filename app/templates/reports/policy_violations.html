@@ -4,7 +4,9 @@
 {% block content %}
 <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight">Policy violations</h1>
+    <h1 class="text-2xl font-semibold tracking-tight">
+      Policy violations <span class="text-slate-300">·</span> <span class="text-sky-700">{{ view.title_suffix }}</span>
+    </h1>
     <p class="text-sm text-slate-500">
       Seller-funded discount &gt; {{ (view.policy_cap_pct * 100) | round(0, 'floor') | int }}% of MSRP
       · {{ view.start.strftime("%Y-%m-%d") }} → {{ view.end.strftime("%Y-%m-%d") }} (end exclusive)
@@ -14,26 +16,54 @@
           class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
 </div>
 
+{# Cross-period heads-up: which months still have unacknowledged violations
+   anywhere in the dataset (independent of the selector below). #}
+{% if pending_months %}
+<div class="mb-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-900 print:hidden">
+  <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+  </svg>
+  <div class="min-w-0 flex-1">
+    <span class="font-semibold">Unacknowledged violations in:</span>
+    {% for y, m in pending_months %}
+      <a href="/reports/policy-violations?period=month&year={{ y }}&month={{ m }}"
+         class="ml-1 inline-block rounded bg-white px-2 py-0.5 font-medium text-amber-900 underline-offset-2 hover:underline">
+        {{ month_label(y, m) }}
+      </a>{% if not loop.last %},{% endif %}
+    {% endfor %}
+    <span class="ml-2 text-amber-800">— click a month to jump to it, then Acknowledge each line that's intentional.</span>
+  </div>
+</div>
+{% endif %}
+
 {# Period selector shared with P&L / dashboard #}
 {% include "partials/period_selector.html" with context %}
 
 <!-- Headline tiles -->
-<section class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+<section class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-4">
   <div class="rounded-lg border border-slate-200 bg-white p-4">
-    <div class="text-xs font-medium uppercase tracking-wider text-slate-500">Flagged lines</div>
-    <div class="mt-1 text-2xl font-semibold tracking-tight {% if view.rows %}text-rose-700{% else %}text-emerald-700{% endif %}">
-      {{ view.rows | length }}
+    <div class="text-xs font-medium uppercase tracking-wider text-slate-500">Active</div>
+    <div class="mt-1 text-2xl font-semibold tracking-tight {% if view.active_rows %}text-rose-700{% else %}text-emerald-700{% endif %}">
+      {{ view.active_rows | length }}
     </div>
-    <div class="mt-1 text-xs text-slate-500">across {{ view.affected_orders }} order{{ '' if view.affected_orders == 1 else 's' }}</div>
+    <div class="mt-1 text-xs text-slate-500">unacknowledged · counts in Data Health</div>
+  </div>
+  <div class="rounded-lg border border-slate-200 bg-white p-4">
+    <div class="text-xs font-medium uppercase tracking-wider text-slate-500">Acknowledged</div>
+    <div class="mt-1 text-2xl font-semibold tracking-tight text-slate-700">
+      {{ view.acknowledged_rows | length }}
+    </div>
+    <div class="mt-1 text-xs text-slate-500">audit-only · excluded from badge</div>
   </div>
   <div class="rounded-lg border border-slate-200 bg-white p-4">
     <div class="text-xs font-medium uppercase tracking-wider text-slate-500">Total seller-funded on flagged lines</div>
     <div class="mt-1 text-2xl font-semibold tracking-tight">{{ view.total_seller_funded | money }}</div>
+    <div class="mt-1 text-xs text-slate-500">across {{ view.affected_orders }} order{{ '' if view.affected_orders == 1 else 's' }}</div>
   </div>
   <div class="rounded-lg border border-slate-200 bg-white p-4">
     <div class="text-xs font-medium uppercase tracking-wider text-slate-500">$ over policy cap</div>
     <div class="mt-1 text-2xl font-semibold tracking-tight text-rose-700">{{ view.total_excess | money }}</div>
-    <div class="mt-1 text-xs text-slate-500">Smashbox absorbs this — sum invariant still holds</div>
+    <div class="mt-1 text-xs text-slate-500">Smashbox absorbs this — sum invariant holds</div>
   </div>
 </section>
 
@@ -51,20 +81,27 @@
         <th class="px-4 py-2 text-right">% of MSRP</th>
         <th class="px-4 py-2 text-right">Cap ({{ (view.policy_cap_pct * 100) | round(0, 'floor') | int }}%)</th>
         <th class="px-4 py-2 text-right">Excess</th>
+        <th class="px-4 py-2 text-right print:hidden">Action</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% for r in view.rows %}
-      <tr>
-        <td class="px-4 py-2 text-slate-600">{{ r.placed_at.strftime("%Y-%m-%d") }}</td>
-        <td class="px-4 py-2 font-mono text-[11px] text-slate-700">{{ r.tiktok_order_id }}</td>
+      <tr class="{% if r.acknowledged %}bg-slate-50/40 text-slate-500{% endif %}">
+        <td class="px-4 py-2 {% if not r.acknowledged %}text-slate-600{% endif %}">{{ r.placed_at.strftime("%Y-%m-%d") }}</td>
+        <td class="px-4 py-2 font-mono text-[11px] {% if not r.acknowledged %}text-slate-700{% endif %}">{{ r.tiktok_order_id }}</td>
         <td class="px-4 py-2">
-          <div class="font-medium text-slate-900">
+          <div class="font-medium {% if r.acknowledged %}text-slate-600{% else %}text-slate-900{% endif %}">
             {{ r.name or "—" }}
             {% if r.is_bundle %}
               <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700">Bundle</span>
             {% elif not r.name %}
               <span class="ml-1 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-rose-700">Unmapped</span>
+            {% endif %}
+            {% if r.acknowledged %}
+              <span class="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-700"
+                    title="Acknowledged{% if r.acknowledged_at %} on {{ r.acknowledged_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}">
+                Acknowledged
+              </span>
             {% endif %}
           </div>
           <div class="text-[11px] text-slate-500">
@@ -74,13 +111,28 @@
         <td class="px-4 py-2 text-right">{{ r.quantity }}</td>
         <td class="px-4 py-2 text-right">{{ r.gross_sales | money }}</td>
         <td class="px-4 py-2 text-right">{{ r.seller_funded_discount | money }}</td>
-        <td class="px-4 py-2 text-right text-rose-700">{{ r.pct_of_msrp | pct }}</td>
+        <td class="px-4 py-2 text-right {% if not r.acknowledged %}text-rose-700{% endif %}">{{ r.pct_of_msrp | pct }}</td>
         <td class="px-4 py-2 text-right text-slate-500">{{ r.cap_amount | money }}</td>
-        <td class="px-4 py-2 text-right font-semibold text-rose-700">{{ r.excess | money }}</td>
+        <td class="px-4 py-2 text-right font-semibold {% if not r.acknowledged %}text-rose-700{% endif %}">{{ r.excess | money }}</td>
+        <td class="px-4 py-2 text-right print:hidden">
+          <form action="/reports/policy-violations/{{ r.order_line_id }}/acknowledge" method="post" class="inline">
+            {% if r.acknowledged %}
+              <button type="submit"
+                      class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                Un-acknowledge
+              </button>
+            {% else %}
+              <button type="submit"
+                      class="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700">
+                Acknowledge
+              </button>
+            {% endif %}
+          </form>
+        </td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="9" class="px-4 py-10 text-center text-sm text-slate-400">
+        <td colspan="10" class="px-4 py-10 text-center text-sm text-slate-400">
           No policy violations in this period.
         </td>
       </tr>
@@ -91,7 +143,10 @@
 
 <p class="mt-3 text-xs text-slate-500 print:hidden">
   Lines are flagged at import time by <code class="rounded bg-slate-100 px-1">app/rules/seller_funded_split.violates_policy_cap()</code>.
-  The base used for the policy check is line MSRP (gross_sales), which is intentionally DIFFERENT from
+  The base used for the policy check is line MSRP (gross_sales) — intentionally DIFFERENT from
   the post-TikTok price used by the Outlandish/Smashbox split. See CLAUDE.md for the rationale.
+  Click <strong>Acknowledge</strong> when a breach is intentional (e.g. an authorized customer coupon
+  stacked on top of a seller promo) — the row stays visible for audit but stops counting toward the
+  Data Health badge.
 </p>
 {% endblock %}

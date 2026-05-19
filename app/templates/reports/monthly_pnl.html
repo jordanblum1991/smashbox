@@ -5,7 +5,7 @@
 <div class="mb-6 flex items-end justify-between">
   <div>
     <h1 class="text-2xl font-semibold tracking-tight">Monthly P&amp;L</h1>
-    <p class="text-sm text-slate-500">Smashbox TikTok Shop · {{ month_label(year, month) }}</p>
+    <p class="text-sm text-slate-500">Smashbox TikTok Shop · <span class="font-medium text-sky-700">{{ month_label(year, month) }}</span></p>
   </div>
   <div class="flex gap-2 print:hidden">
     <a href="/export/monthly-pnl.xlsx?year={{ year }}&month={{ month }}"
@@ -67,7 +67,8 @@
       <!-- Operating costs -->
       {{ row("TikTok fees", -pnl.tiktok_fees) }}
       {{ row("Affiliate commission", -pnl.affiliate_commission) }}
-      {{ row("Shop ads", -pnl.shop_ads_cost) }}
+      {{ row("Affiliate Shop Ad Commission", -pnl.shop_ads_cost) }}
+      {{ row("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend) }}
       {{ row("Shipping revenue", pnl.shipping_revenue) }}
       {{ row("Shipping cost", -pnl.shipping_cost) }}
 

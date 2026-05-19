@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.reports.monthly_pnl import compute_monthly_pnl
+from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
+from app.reports.sample_tracking import samples_by_sku_shipped
 from app.reports.sku_profitability import compute_sku_profitability
 
 router = APIRouter(prefix="/export", tags=["exports"])
@@ -58,7 +60,8 @@ def export_monthly_pnl_xlsx(
         ("    Shop partner commission", -pnl.tiktok_partner_commission),
         ("    Managed service (incl. tax)", -pnl.tiktok_managed_service),
         ("Affiliate commission", -pnl.affiliate_commission),
-        ("Shop ads cost", -pnl.shop_ads_cost),
+        ("Affiliate Shop Ad Commission", -pnl.shop_ads_cost),
+        ("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend),
         ("Shipping revenue", pnl.shipping_revenue),
         ("Shipping cost", -pnl.shipping_cost),
         ("Net Profit", pnl.net_profit),
@@ -103,4 +106,46 @@ def export_sku_csv(
         gen(),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="smashbox_sku_{y}-{m:02d}.csv"'},
+    )
+
+
+@router.get("/samples-by-sku.csv")
+def export_samples_by_sku_csv(
+    period: PeriodKind = PeriodKind.MONTH,
+    year: int | None = None,
+    month: int | None = None,
+    start_year: int | None = None,
+    start_month: int | None = None,
+    end_year: int | None = None,
+    end_month: int | None = None,
+    db: Session = Depends(get_db),
+):
+    view = compute_pnl_view(
+        db, period, year, month,
+        start_year=start_year, start_month=start_month,
+        end_year=end_year, end_month=end_month,
+    )
+    start, end = window_for(view)
+    rows = samples_by_sku_shipped(db, start, end)
+
+    def gen():
+        yield "sku_code,name,tiktok_sku_id,samples_sent,sample_orders_shipped,units_sold,sold_per_sample\n"
+        for r in rows:
+            name = (r.name or "").replace(",", " ")
+            sku = (r.sku_code or "Unmapped").replace(",", " ")
+            yield (
+                f"{sku},{name},{r.tiktok_sku_id or ''},"
+                f"{r.samples_sent},{r.sample_orders_shipped},{r.units_sold},"
+                f"{r.sold_per_sample:.2f}\n"
+            )
+
+    filename = f"smashbox_samples_{view.year}"
+    if view.month:
+        filename += f"-{view.month:02d}"
+    filename += ".csv"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

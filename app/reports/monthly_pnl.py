@@ -20,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.models.ad_spend import AdSpend
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
 
@@ -50,6 +51,7 @@ class MonthlyPnL:
     tiktok_managed_service: Decimal
     affiliate_commission: Decimal
     shop_ads_cost: Decimal
+    gmv_max_ad_spend: Decimal                  # TikTok Ads (GMV Max) — from Cost export
     shipping_revenue: Decimal
     shipping_cost: Decimal
     net_profit: Decimal
@@ -93,6 +95,20 @@ class MonthlyPnL:
             return Decimal("0")
         return self.gross_profit / self.net_customer_sales
 
+    @property
+    def total_ad_spend(self) -> Decimal:
+        """All paid marketing in the period: settlement-reported Shop Ads
+        affiliate commission + TikTok Ads Manager GMV Max spend."""
+        return self.shop_ads_cost + self.gmv_max_ad_spend
+
+    @property
+    def roas(self) -> Decimal:
+        """Return on Ad Spend: $ of Net Customer Sales generated per $1 of
+        ad spend. 0 when no ads ran (avoids divide-by-zero)."""
+        if self.total_ad_spend == 0:
+            return Decimal("0")
+        return self.net_customer_sales / self.total_ad_spend
+
 
 def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
     start = datetime(year, month, 1)
@@ -129,6 +145,13 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
 
     cogs = _paid_cogs(db, start, end)
 
+    gmv_max_ad_spend = Decimal(str(
+        db.execute(
+            select(func.coalesce(func.sum(AdSpend.amount), 0))
+            .where(AdSpend.spend_date >= start, AdSpend.spend_date < end)
+        ).scalar() or 0
+    ))
+
     # Units sold (paid orders only). Bundles are one OrderLine each, so this
     # naturally counts a bundle as a single item — not its components.
     units_sold = db.execute(
@@ -152,7 +175,15 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
     ship_rev = Decimal(str(row.ship_rev))
     ship_cost = Decimal(str(row.ship_cost))
 
-    net_profit = gross_profit - tiktok_fees - affiliate - shop_ads - ship_cost + ship_rev
+    net_profit = (
+        gross_profit
+        - tiktok_fees
+        - affiliate
+        - shop_ads
+        - gmv_max_ad_spend
+        - ship_cost
+        + ship_rev
+    )
 
     return MonthlyPnL(
         month=start.date(),
@@ -175,6 +206,7 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         tiktok_managed_service=Decimal(str(row.tiktok_managed_service)),
         affiliate_commission=affiliate,
         shop_ads_cost=shop_ads,
+        gmv_max_ad_spend=gmv_max_ad_spend,
         shipping_revenue=ship_rev,
         shipping_cost=ship_cost,
         net_profit=net_profit,

@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}TikTok Ad Spend · Smashbox{% endblock %}
+
+{% block content %}
+<header class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <p class="mb-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">TikTok Ads</p>
+    <h1 class="text-2xl font-semibold tracking-tight text-slate-900">
+      Ad Spend Summary{% if summary.period_start %}
+        <span class="text-slate-300">·</span>
+        <span class="text-sky-700">{{ summary.period_start.strftime("%b %d, %Y") }} – {{ summary.period_end.strftime("%b %d, %Y") }}</span>
+      {% endif %}
+    </h1>
+    <p class="mt-1 text-sm text-slate-500">
+      {% if summary.period_start %}
+        Across {{ summary.months | length }} month{{ "" if summary.months | length == 1 else "s" }}
+      {% else %}
+        No ad spend imported yet — upload a TikTok Ads "Cost" export from the
+        <a class="underline" href="/uploads">Imports</a> page.
+      {% endif %}
+    </p>
+  </div>
+  <button onclick="window.print()"
+          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">
+    Print
+  </button>
+</header>
+
+{% if summary.months %}
+<section class="grid grid-cols-1 gap-4 sm:grid-cols-4 mb-6">
+  {% set tiles = [
+    ("Cash Spent", summary.cash_cost, "Out-of-pocket charges"),
+    ("Credit Used", summary.credit_cost, "Merchant credit balance drawn"),
+    ("Ad Credits Used", summary.ad_credit_cost, "TikTok-issued promotional credits"),
+    ("Total Reported Spend", summary.total, "What TikTok counts as ad spend"),
+  ] %}
+  {% for label, value, hint in tiles %}
+  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ value | money }}</div>
+    <div class="mt-1 text-xs text-slate-400">{{ hint }}</div>
+  </div>
+  {% endfor %}
+</section>
+
+<section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+  <table class="w-full text-sm">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-slate-500">
+      <tr class="align-bottom">
+        <th class="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider">Month</th>
+        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Cash</th>
+        <th class="px-3 py-2.5 text-right">
+          <div class="text-[11px] font-semibold uppercase tracking-wider">Credit</div>
+          <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">Pre-funded balance · real cash spend</div>
+        </th>
+        <th class="px-3 py-2.5 text-right">
+          <div class="text-[11px] font-semibold uppercase tracking-wider">Ad Credits</div>
+          <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">TikTok-issued promos · not cash</div>
+        </th>
+        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Total</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for r in summary.months %}
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-3 py-3 font-medium text-slate-900">{{ month_label(r.year, r.month) }}</td>
+        <td class="px-3 py-3 text-right tabular-nums text-slate-700">{{ r.cash_cost | money }}</td>
+        <td class="px-3 py-3 text-right tabular-nums text-slate-700">{{ r.credit_cost | money }}</td>
+        <td class="px-3 py-3 text-right tabular-nums {% if r.ad_credit_cost > 0 %}text-emerald-700{% else %}text-slate-400{% endif %}">
+          {{ r.ad_credit_cost | money }}
+        </td>
+        <td class="px-3 py-3 text-right tabular-nums font-medium text-slate-900">{{ r.total | money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
+      <tr>
+        <td class="px-3 py-3">Total ({{ summary.months | length }} month{{ "" if summary.months | length == 1 else "s" }})</td>
+        <td class="px-3 py-3 text-right tabular-nums">{{ summary.cash_cost | money }}</td>
+        <td class="px-3 py-3 text-right tabular-nums">{{ summary.credit_cost | money }}</td>
+        <td class="px-3 py-3 text-right tabular-nums {% if summary.ad_credit_cost > 0 %}text-emerald-700{% endif %}">
+          {{ summary.ad_credit_cost | money }}
+        </td>
+        <td class="px-3 py-3 text-right tabular-nums">{{ summary.total | money }}</td>
+      </tr>
+    </tfoot>
+  </table>
+</section>
+
+<section class="mt-6 rounded-xl border border-slate-200 bg-white p-6 text-sm leading-relaxed text-slate-600 print:hidden">
+  <h2 class="mb-3 text-base font-semibold text-slate-900">Understanding the columns</h2>
+
+  <p class="mb-4">
+    TikTok Ads Manager splits every dollar of reported spend into three buckets, depending on
+    <em>where the money came from</em>. The <strong>Total</strong> column is the sum of the three —
+    that's the figure TikTok considers your "ad spend" and the figure that flows into the
+    P&amp;L as <em>TikTok Ads (GMV Max)</em>.
+  </p>
+
+  <dl class="space-y-4">
+    <div>
+      <dt class="font-semibold text-slate-900">Cash <span class="font-normal text-slate-500">— pay-as-you-go billing</span></dt>
+      <dd class="mt-1">
+        Charges billed directly to your linked payment method (credit card / bank) <em>as the campaign runs</em>.
+        This bucket is only populated when you're on TikTok's pay-as-you-go billing model — every few days TikTok
+        rolls up the spend and bills it to your card. <strong>For Smashbox this is $0</strong> because the
+        account is funded via a pre-loaded balance instead (see Credit below).
+      </dd>
+    </div>
+
+    <div>
+      <dt class="font-semibold text-slate-900">Credit <span class="font-normal text-slate-500">— pre-funded balance drawdown</span></dt>
+      <dd class="mt-1">
+        Drawdown from money you <strong>already paid TikTok</strong> by topping up your ad account balance
+        (e.g. wiring $10K up front to fund a flight of campaigns). TikTok holds that money as a "credit
+        balance" and debits it as ads serve. This <strong>is real cash spend</strong> — the cash just left your
+        account earlier, when you funded the balance, rather than at the time of each ad impression.
+        All of Smashbox's reported spend lands here because the account is pre-funded.
+      </dd>
+    </div>
+
+    <div>
+      <dt class="font-semibold text-slate-900">Ad Credits <span class="font-normal text-slate-500">— TikTok-issued promotional credits</span></dt>
+      <dd class="mt-1">
+        Promotional credits TikTok grants you (welcome offers, performance incentives, account-manager
+        comps, make-goods for platform issues, etc.). <strong>This is the only bucket that is NOT a real
+        cash cost</strong> — TikTok still attributes the spend to your account but no money changed hands.
+        When this column shows a number, your true out-of-pocket cost for that month is
+        <code>Total − Ad Credits</code>.
+      </dd>
+    </div>
+  </dl>
+
+  <div class="mt-5 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+    <p class="text-xs leading-relaxed text-slate-600">
+      <strong class="text-slate-900">Why the P&amp;L uses Total, not (Total − Ad Credits):</strong>
+      The P&amp;L follows TikTok's reporting convention so the line ties directly to Ads Manager and to
+      any reconciliation with TikTok's invoices. If we ever want a "true cash-out" view of marketing
+      spend, the formula is <code>Total − Ad Credits</code> — that figure appears in the
+      <em>Ad Credits Used</em> KPI tile above for quick reference.
+    </p>
+  </div>
+</section>
+{% else %}
+<div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-12 text-center">
+  <p class="text-sm font-medium text-slate-700">No ad spend imported yet</p>
+  <p class="mt-1 text-xs text-slate-500">
+    Upload a TikTok Ads "Cost" export (filename pattern: <code>Cost_*.xlsx</code>) from the
+    <a class="underline" href="/uploads">Imports</a> page.
+  </p>
+</div>
+{% endif %}
+{% endblock %}

@@ -4,7 +4,9 @@
 {% block content %}
 <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight">{{ view.title }}</h1>
+    <h1 class="text-2xl font-semibold tracking-tight">
+      Sample Tracking <span class="text-slate-300">·</span> <span class="text-sky-700">{{ view.title_suffix }}</span>
+    </h1>
     <p class="text-sm text-slate-500">Brand: {{ view.brand }} · {{ view.start.strftime("%Y-%m-%d") }} → {{ view.end.strftime("%Y-%m-%d") }} (end exclusive)</p>
   </div>
   <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>

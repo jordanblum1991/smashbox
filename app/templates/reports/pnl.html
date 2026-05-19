@@ -6,7 +6,13 @@
 {% block content %}
 <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight">{{ view.title }}</h1>
+    <h1 class="text-2xl font-semibold tracking-tight">
+      {% if view.period_kind.value == "ytd" %}
+        YTD P&amp;L through <span class="text-sky-700">{{ view.title_suffix.replace("YTD through ", "") }}</span>
+      {% else %}
+        P&amp;L for <span class="text-sky-700">{{ view.title_suffix }}</span>
+      {% endif %}
+    </h1>
     <p class="text-sm text-slate-500">Smashbox TikTok Shop</p>
   </div>
   <div class="flex gap-2 print:hidden">
@@ -42,55 +48,168 @@
 </div>
 {% endif %}
 
-{# -------- single-month waterfall -------- #}
+{# -------- single-month statement (redesigned) -------- #}
 {% if view.period_kind.value == "month" %}
-<div class="rounded-lg border border-slate-200 bg-white p-6 print:border-0 print:p-0">
-  <table class="w-full text-sm">
-    <tbody class="divide-y divide-slate-100">
-      {% macro row(label, value, bold=false, indent=false, accent=none) %}
-      <tr class="{% if bold %}font-semibold{% endif %}">
-        <td class="py-2 {% if indent %}pl-6 text-slate-600{% endif %}">{{ label }}</td>
-        <td class="py-2 text-right {% if accent == 'pos' %}text-emerald-700{% elif accent == 'neg' %}text-rose-700{% endif %}">
-          {{ value | money }}
-        </td>
-      </tr>
-      {% endmacro %}
 
-      {{ row("Gross Product Sales", pnl.gross_sales) }}
-      {{ row("Less: TikTok-Funded Discount", -pnl.platform_discount) }}
-      {{ row("Less: Outlandish-Funded Discount", -pnl.outlandish_discount, indent=true) }}
-      {{ row("Less: Smashbox-Funded Discount", -pnl.smashbox_discount, indent=true) }}
-      {{ row("Less: Refunds", -pnl.refunds) }}
-      {{ row("Net Customer Sales", pnl.net_customer_sales, bold=true) }}
+{# ---- Macros ---- #}
+{# Accounting-style dollar: positive → $X.XX  ·  negative → ($X.XX) #}
+{% macro acct(v) -%}
+  {%- if v is none -%}—
+  {%- elif v < 0 -%}<span class="text-rose-700">({{ (-v) | money | replace('-', '') }})</span>
+  {%- else -%}{{ v | money }}
+  {%- endif -%}
+{%- endmacro %}
 
-      {{ row("COGS", -pnl.cogs) }}
-      {{ row("Gross Profit", pnl.gross_profit, bold=true, accent="pos" if pnl.gross_profit >= 0 else "neg") }}
+{# % of Net Customer Sales — same paren convention as acct() #}
+{% macro pct_of_sales(v) -%}
+  {%- if pnl.net_customer_sales == 0 or v is none -%}—
+  {%- else -%}
+    {%- set p = (v / pnl.net_customer_sales) -%}
+    {%- if p < 0 -%}<span class="text-rose-700">({{ ((-p) * 100) | round(1) }}%)</span>
+    {%- else -%}{{ (p * 100) | round(1) }}%
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
 
-      {{ row("TikTok fees", -pnl.tiktok_fees) }}
-      {{ row("Referral fee", -pnl.tiktok_referral_fee, indent=true) }}
-      {{ row("Transaction fee", -pnl.tiktok_transaction_fee, indent=true) }}
-      {{ row("Refund admin fee", -pnl.tiktok_refund_admin_fee, indent=true) }}
-      {{ row("Sales tax on referral", -pnl.tiktok_sales_tax_on_referral, indent=true) }}
-      {{ row("Smart promo fee (incl. tax)", -pnl.tiktok_smart_promo_fee, indent=true) }}
-      {{ row("Campaign fees (resource + service)", -pnl.tiktok_campaign_fees, indent=true) }}
-      {{ row("Shop partner commission", -pnl.tiktok_partner_commission, indent=true) }}
-      {{ row("Managed service (incl. tax)", -pnl.tiktok_managed_service, indent=true) }}
-      {{ row("Affiliate commission", -pnl.affiliate_commission) }}
-      {{ row("Shop ads", -pnl.shop_ads_cost) }}
-      {{ row("Shipping revenue", pnl.shipping_revenue) }}
-      {{ row("Shipping cost", -pnl.shipping_cost) }}
+{# A standard line. value is signed: positive=adds to NCS, negative=subtracts. #}
+{% macro line(label, value, indent=0) %}
+  <tr>
+    <td class="py-1.5 {% if indent == 1 %}pl-6{% elif indent == 2 %}pl-12{% endif %} text-slate-700">{{ label }}</td>
+    <td class="py-1.5 text-right tabular-nums text-slate-800">{{ acct(value) }}</td>
+    <td class="py-1.5 pr-1 text-right text-xs tabular-nums text-slate-400">{{ pct_of_sales(value) }}</td>
+  </tr>
+{% endmacro %}
 
-      <tr class="border-t-2 border-slate-300 text-base font-semibold">
-        <td class="py-3">Net Profit</td>
-        <td class="py-3 text-right {% if pnl.net_profit >= 0 %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ pnl.net_profit | money }}</td>
-      </tr>
-      <tr class="text-slate-500">
-        <td class="py-1 text-xs">Gross margin (on Net Customer Sales)</td>
-        <td class="py-1 text-right text-xs">{{ pnl.gross_margin | pct }}</td>
-      </tr>
-    </tbody>
-  </table>
+{# Subtotal: ruled top border, bolder, optional accent color on $ #}
+{% macro subtotal(label, value, accent=none) %}
+  <tr class="border-t border-slate-300">
+    <td class="pt-3 pb-2 text-sm font-semibold uppercase tracking-wider text-slate-900">{{ label }}</td>
+    <td class="pt-3 pb-2 text-right text-base font-semibold tabular-nums
+      {% if accent == 'pos' %}text-emerald-700
+      {% elif accent == 'neg' %}text-rose-700
+      {% else %}text-slate-900{% endif %}">{{ acct(value) }}</td>
+    <td class="pt-3 pb-2 pr-1 text-right text-xs font-semibold tabular-nums text-slate-500">{{ pct_of_sales(value) }}</td>
+  </tr>
+{% endmacro %}
+
+{# Section header — small caps, separator row #}
+{% macro section(label) %}
+  <tr>
+    <td colspan="3" class="pt-6 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{{ label }}</td>
+  </tr>
+{% endmacro %}
+
+<div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm print:rounded-none print:border-0 print:shadow-none">
+  <header class="border-b border-slate-200 bg-slate-50/60 px-6 py-3">
+    <div class="flex items-baseline justify-between text-xs uppercase tracking-wider text-slate-500">
+      <span class="font-semibold">Profit &amp; Loss Statement</span>
+      <span>{{ view.title_suffix }}</span>
+    </div>
+  </header>
+
+  <div class="px-6 py-2">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <th class="py-2 text-left"></th>
+          <th class="py-2 text-right">Amount</th>
+          <th class="py-2 pr-1 text-right">% of Net Sales</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ section("Revenue") }}
+        {{ line("Gross Product Sales", pnl.gross_sales) }}
+        {{ line("Less: TikTok-Funded Discount", -pnl.platform_discount, indent=1) }}
+        {{ line("Less: Outlandish-Funded Discount", -pnl.outlandish_discount, indent=1) }}
+        {{ line("Less: Smashbox-Funded Discount", -pnl.smashbox_discount, indent=1) }}
+        {{ line("Less: Refunds", -pnl.refunds, indent=1) }}
+        {{ subtotal("Net Customer Sales", pnl.net_customer_sales) }}
+
+        {{ section("Cost of Goods Sold") }}
+        {{ line("COGS", -pnl.cogs) }}
+        {{ subtotal("Gross Profit", pnl.gross_profit, accent=("pos" if pnl.gross_profit >= 0 else "neg")) }}
+
+        {{ section("Operating Expenses") }}
+        {# TikTok fees — single line, expandable detail below #}
+        <tr>
+          <td class="py-1.5 text-slate-700">
+            <details class="inline-flex">
+              <summary class="cursor-pointer select-none text-slate-700 marker:text-slate-400 hover:text-slate-900">
+                TikTok fees
+                <span class="ml-1 text-[10px] font-medium text-slate-400">▾ 8 sub-fees</span>
+              </summary>
+            </details>
+          </td>
+          <td class="py-1.5 text-right tabular-nums text-slate-800">{{ acct(-pnl.tiktok_fees) }}</td>
+          <td class="py-1.5 pr-1 text-right text-xs tabular-nums text-slate-400">{{ pct_of_sales(-pnl.tiktok_fees) }}</td>
+        </tr>
+        {# Detail rows — initially hidden via CSS; details/summary toggles them #}
+        <tr class="tiktok-fee-detail hidden">
+          <td colspan="3" class="px-0 py-0">
+            <table class="w-full">
+              {{ line("Referral fee", -pnl.tiktok_referral_fee, indent=2) }}
+              {{ line("Transaction fee", -pnl.tiktok_transaction_fee, indent=2) }}
+              {{ line("Refund admin fee", -pnl.tiktok_refund_admin_fee, indent=2) }}
+              {{ line("Sales tax on referral", -pnl.tiktok_sales_tax_on_referral, indent=2) }}
+              {{ line("Smart promo fee (incl. tax)", -pnl.tiktok_smart_promo_fee, indent=2) }}
+              {{ line("Campaign fees (resource + service)", -pnl.tiktok_campaign_fees, indent=2) }}
+              {{ line("Shop partner commission", -pnl.tiktok_partner_commission, indent=2) }}
+              {{ line("Managed service (incl. tax)", -pnl.tiktok_managed_service, indent=2) }}
+            </table>
+          </td>
+        </tr>
+
+        {{ line("Affiliate commission", -pnl.affiliate_commission) }}
+        {{ line("Affiliate Shop Ad Commission", -pnl.shop_ads_cost) }}
+        {{ line("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend) }}
+        {{ line("Shipping cost", -pnl.shipping_cost) }}
+        {{ line("Shipping revenue", pnl.shipping_revenue) }}
+        {{ subtotal("Net Profit", pnl.net_profit, accent=("pos" if pnl.net_profit >= 0 else "neg")) }}
+      </tbody>
+    </table>
+  </div>
+
+  {# Footer: key margin metrics — readable at a glance #}
+  <footer class="border-t border-slate-200 bg-slate-50/60 px-6 py-3">
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-4">
+      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
+        <dt class="font-medium uppercase tracking-wider text-slate-500">Gross Margin</dt>
+        <dd class="text-base font-semibold tabular-nums text-slate-900">{{ pnl.gross_margin | pct }}</dd>
+      </div>
+      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
+        <dt class="font-medium uppercase tracking-wider text-slate-500">Net Margin</dt>
+        <dd class="text-base font-semibold tabular-nums {% if pnl.net_profit >= 0 %}text-emerald-700{% else %}text-rose-700{% endif %}">
+          {% if pnl.net_customer_sales > 0 %}{{ (pnl.net_profit / pnl.net_customer_sales) | pct }}{% else %}—{% endif %}
+        </dd>
+      </div>
+      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
+        <dt class="font-medium uppercase tracking-wider text-slate-500">ROAS</dt>
+        <dd class="text-base font-semibold tabular-nums text-slate-900">
+          {% if pnl.total_ad_spend > 0 %}{{ "%.2fx" % pnl.roas }}{% else %}—{% endif %}
+        </dd>
+      </div>
+      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
+        <dt class="font-medium uppercase tracking-wider text-slate-500">AOV (after disc.)</dt>
+        <dd class="text-base font-semibold tabular-nums text-slate-900">{{ pnl.aov_after_discounts | money }}</dd>
+      </div>
+    </dl>
+  </footer>
 </div>
+
+<script>
+  // Wire up the TikTok-fees disclosure: toggling the <details> shows/hides the
+  // detail row below. Standalone <details> only toggle their own content; we
+  // need to flip a sibling <tr> too.
+  (function () {
+    document.querySelectorAll("details").forEach(function (d) {
+      var detail = d.closest("tr") && d.closest("tr").nextElementSibling;
+      if (!detail || !detail.classList.contains("tiktok-fee-detail")) return;
+      d.addEventListener("toggle", function () {
+        detail.classList.toggle("hidden", !d.open);
+      });
+    });
+  })();
+</script>
 
 {# -------- year / ytd: per-month columns + totals -------- #}
 {% else %}
@@ -126,7 +245,8 @@
         ("Shop partner commission", "tiktok_partner_commission", true),
         ("Managed service (incl. tax)", "tiktok_managed_service", true),
         ("Affiliate commission", "affiliate_commission", false),
-        ("Shop ads", "shop_ads_cost", false),
+        ("Affiliate Shop Ad Commission", "shop_ads_cost", false),
+        ("TikTok Ads (GMV Max)", "gmv_max_ad_spend", false),
         ("Shipping cost", "shipping_cost", false),
         ("Net Profit", "net_profit", false),
       ] %}

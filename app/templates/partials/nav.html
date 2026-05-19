@@ -10,6 +10,7 @@
         ("/", "Dashboard"),
         ("/reports/pnl", "P&L"),
         ("/reports/samples", "Samples"),
+        ("/reports/ad-spend", "Ad Spend"),
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
       {# count = None → no global check available (e.g. Recon is period-scoped),
