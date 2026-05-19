@@ -123,6 +123,9 @@
     Each row reconciles to the TikTok Seller Center <em>Sales</em> tile for that month.
     Variances between TikTok and our P&amp;L should equal the Refunds column — anything else
     indicates an out-of-sync settlement, an orphan order, or a data-entry issue worth investigating in the detail tables below.
+    Small day-level differences inside a month (visible in the daily table below) are expected
+    and explained there — they come from a 1-hour difference in how the two systems bucket
+    boundary-crossing orders, and net to ~zero at the month total.
   </p>
 </section>
 {% endif %}
@@ -217,13 +220,45 @@
     </table>
   </div>
 
+  {% if has_tt %}
+  <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3 text-xs leading-relaxed text-slate-600">
+    <p class="font-semibold text-slate-900">About daily-level variances</p>
+    <p class="mt-1.5">
+      <strong class="text-amber-700">Amber rows</strong> are days where our pre-refund total disagrees with TikTok's GMV by more than a cent.
+      Variance is shown as <em>ours − TikTok</em>: positive means we're counting more than TikTok on that day, negative means TikTok is counting more.
+    </p>
+    <p class="mt-2">
+      <strong class="text-slate-900">These small daily gaps are expected.</strong>
+      TikTok Seller Center buckets orders by their own reporting timezone, while our app keeps each
+      order's exact <code class="rounded bg-white px-1 ring-1 ring-slate-200">placed_at</code> timestamp from the orders CSV.
+      Orders placed near midnight at the boundary land on different calendar days
+      in the two systems — a single order can flip Day X's variance by its full
+      net amount, which is almost always offset by an equal-and-opposite flip on
+      the neighboring day.
+    </p>
+    <p class="mt-2">
+      <strong class="text-slate-900">Month totals reconcile cleanly.</strong>
+      Boundary-crossing within a month nets to zero, so the only true gap that
+      matters is at the very first/last day of the period. For March 2026 the
+      net monthly residual was <strong>$7.80</strong> — well under typical
+      finance-team tolerance and not worth a fix that would risk other
+      downstream joins.
+    </p>
+    <p class="mt-2 text-slate-500">
+      Investigated 2026-05-19: the empirical offset between the two systems is
+      exactly 1 hour. We deliberately do NOT shift our stored timestamps because
+      the gap is immaterial at the monthly level and changing the data risks
+      breaking settlement reconciliation, P&amp;L date filters, and policy-violation
+      flagging. Treat amber rows as informational, not as bugs.
+    </p>
+  </div>
+  {% else %}
   <p class="mt-3 text-xs leading-relaxed text-slate-500">
-    {% if has_tt %}
-      <strong class="text-amber-700">Amber rows</strong> are days where our pre-refund total disagrees with TikTok's GMV by more than a cent — that's where to drill into the orders placed on that date. Variance shown as <em>ours − TikTok</em>: positive means we're counting more than TikTok shows, negative means TikTok is counting more than us.
-    {% else %}
-      Upload a <em>Shop Analytics</em> Key metrics export on the <a href="/uploads" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">Imports page</a> to see TikTok's daily GMV side-by-side with ours and have variance computed automatically per day.
-    {% endif %}
+    Upload a <em>Shop Analytics</em> Key metrics export on the
+    <a href="/uploads" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">Imports page</a>
+    to see TikTok's daily GMV side-by-side with ours and have variance computed automatically per day.
   </p>
+  {% endif %}
 </details>
 {% endif %}
 

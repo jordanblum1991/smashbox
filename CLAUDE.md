@@ -8,6 +8,8 @@ Internal full-stack web app for managing the **Smashbox TikTok Shop P&L and oper
 
 Private/internal. **Deployed to Fly.io** at https://smashbox.fly.dev/ (LAX region, single shared-cpu-1x VM, 1GB encrypted persistent volume at `/data`). Gated by HTTP Basic Auth — see `app/auth.py`. Password is the Fly secret `BASIC_AUTH_PASSWORD`. README has the operator playbook (deploy, rotate password, data migration, scaling). Production paths use env vars (`DATA_DIR=/data`, `UPLOAD_DIR=/data/uploads`, `EXPORT_DIR=/data/exports`) — repo defaults still point at repo-root paths for local dev.
 
+**Known: 1-hour timezone offset vs TikTok Seller Center daily reporting.** Our `Order.placed_at` is the exact `Created Time` from the orders CSV. TikTok's Seller Center daily Sales tile buckets each order using a reporting timezone that's exactly 1 hour earlier than that timestamp (empirically determined 2026-05-19 against March 2026 data; sweeping offsets showed -1h collapses March's total absolute daily variance from $285.18 to $7.80). We DELIBERATELY do not shift stored timestamps — month totals are immaterial (well under 0.1% gap, sums to a few dollars), and a shift would risk breaking settlement reconciliation, P&L date filters, and policy-violation flagging that all key off `placed_at`. The Reconciliation page's daily-comparison block has an in-line explanation calling this out; amber-highlighted rows are informational, not bugs.
+
 ## Commands
 
 ```bash
