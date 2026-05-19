@@ -12,6 +12,49 @@
   <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
 </div>
 
+<!-- Sales reconciliation — TikTok Seller Center "Sales" tile vs our Net Customer Sales -->
+{% set sr = report.sales %}
+<section class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="mb-3 flex items-baseline justify-between">
+    <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Sales reconciliation</h2>
+    <span class="text-xs text-slate-400">vs TikTok Seller Center</span>
+  </div>
+  <table class="w-full text-sm">
+    <tbody class="divide-y divide-slate-100">
+      <tr>
+        <td class="py-2.5 text-slate-700">
+          TikTok Seller Center <span class="font-medium text-slate-900">"Sales"</span> tile
+        </td>
+        <td class="py-2.5 text-right tabular-nums text-sm font-semibold text-slate-900">{{ sr.tiktok_equivalent_sales | money }}</td>
+      </tr>
+      <tr>
+        <td class="pl-6 py-2 text-slate-500 italic">Less: Refunds in this period</td>
+        <td class="py-2 text-right tabular-nums text-rose-700">
+          {% if sr.refunds > 0 %}({{ sr.refunds | money | replace('-', '') }}){% else %}{{ sr.refunds | money }}{% endif %}
+        </td>
+      </tr>
+      <tr class="border-t-2 border-slate-300">
+        <td class="pt-3 pb-1 text-sm font-bold uppercase tracking-wider text-slate-900">
+          Net Customer Sales <span class="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600">our P&amp;L</span>
+        </td>
+        <td class="pt-3 pb-1 text-right text-base font-bold tabular-nums text-slate-900">{{ sr.net_customer_sales | money }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="mt-4 text-xs leading-relaxed text-slate-500">
+    {% if sr.gap > 0 %}
+      <strong class="text-slate-700">{{ sr.gap | money }}</strong> gap between TikTok and our P&amp;L = refunds. TikTok's
+      "Sales" tile shows what customers were originally charged (before refunds); our Net Customer Sales is the
+      accounting-correct figure (revenue net of returns per ASC 606). Both numbers are right — they're measuring
+      different things. To match TikTok's view exactly, reference the
+      <strong class="text-slate-700">Sales (TikTok-equivalent)</strong> line in the
+      <a href="/reports/pnl?period=month&year={{ report.year }}&month={{ report.month }}" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">P&amp;L for this period</a>.
+    {% else %}
+      No refunds were issued in this period, so TikTok's Sales figure and our Net Customer Sales are identical.
+    {% endif %}
+  </p>
+</section>
+
 <!-- File / data status -->
 {% set s = report.status %}
 <section class="mb-6 rounded-lg border border-slate-200 bg-white p-5">

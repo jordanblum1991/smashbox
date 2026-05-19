@@ -3,7 +3,7 @@
 # team usage; revisit (and add Postgres + multi-instance) when usage grows.
 
 app = "smashbox"
-primary_region = "iad"  # Washington DC — change to "lax", "ord", etc. if closer
+primary_region = "lax"  # Los Angeles
 
 [build]
 

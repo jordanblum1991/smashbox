@@ -92,6 +92,18 @@ class MonthlyPnL:
         return self.outlandish_discount + self.smashbox_discount
 
     @property
+    def sales_pre_refund(self) -> Decimal:
+        """Sales BEFORE the refund deduction — matches the headline "Sales"
+        figure on TikTok Seller Center's dashboard. Net Customer Sales is the
+        accounting-correct version (revenue net of returns per ASC 606); this
+        sibling exists so finance can tie our numbers to what TikTok shows.
+
+        Mathematically: gross_sales − all discounts (no refund subtraction),
+        equivalently net_customer_sales + refunds.
+        """
+        return self.net_customer_sales + self.refunds
+
+    @property
     def gross_margin(self) -> Decimal:
         if self.net_customer_sales == 0:
             return Decimal("0")

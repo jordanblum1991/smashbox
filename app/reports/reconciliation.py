@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.order import Order, OrderType
 from app.models.payout import Payout
 from app.models.settlement import Settlement
+from app.reports.monthly_pnl import compute_monthly_pnl
 
 
 # ---- Status: what files are loaded, what dates are covered -----------------
@@ -115,11 +116,30 @@ class PayoutRow:
 # ---- Full report shape -----------------------------------------------------
 
 @dataclass
+class SalesReconciliation:
+    """Three-row reconciliation that closes the gap between TikTok Seller
+    Center's "Sales" tile (pre-refund) and our P&L's Net Customer Sales
+    (post-refund, accounting-standard).
+
+    Maps directly to user-facing language: "TikTok shows X, we show Y, the
+    gap is refunds."
+    """
+    tiktok_equivalent_sales: Decimal  # what Seller Center's "Sales" tile shows
+    refunds: Decimal                  # subtracted from sales for accounting
+    net_customer_sales: Decimal       # what our P&L shows
+
+    @property
+    def gap(self) -> Decimal:
+        return self.tiktok_equivalent_sales - self.net_customer_sales
+
+
+@dataclass
 class ReconciliationReport:
     year: int
     month: int
     status: FileStatus
     lines: list[ReconciliationLine]
+    sales: SalesReconciliation        # top-of-page sales reconciliation
 
     # System side
     period_orders_total: Decimal
@@ -360,11 +380,20 @@ def reconcile_month(db: Session, year: int, month: int) -> ReconciliationReport:
     )
     lines.append(payout_line)
 
+    # ---- Sales reconciliation block (top of page) --------------------------
+    pnl_for_period = compute_monthly_pnl(db, year, month)
+    sales = SalesReconciliation(
+        tiktok_equivalent_sales=pnl_for_period.sales_pre_refund,
+        refunds=pnl_for_period.refunds,
+        net_customer_sales=pnl_for_period.net_customer_sales,
+    )
+
     return ReconciliationReport(
         year=year,
         month=month,
         status=status,
         lines=lines,
+        sales=sales,
         period_orders_total=period_total,
         period_orders_count=len(paid_orders),
         period_settled_orders_total=settled_total,

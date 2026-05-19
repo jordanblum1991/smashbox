@@ -156,6 +156,7 @@
         {{ line("Less: TikTok-Funded Discount", -pnl.platform_discount, indent=1) }}
         {{ line("Less: Outlandish-Funded Discount", -pnl.outlandish_discount, indent=1) }}
         {{ line("Less: Smashbox-Funded Discount", -pnl.smashbox_discount, indent=1) }}
+        {{ subtotal("Sales (TikTok-equivalent)", pnl.sales_pre_refund) }}
         {{ line("Less: Refunds", -pnl.refunds, indent=1) }}
         {{ subtotal("Net Customer Sales", pnl.net_customer_sales) }}
 
@@ -329,6 +330,8 @@
       {{ line_row("TikTok-Funded Discount", "platform_discount", indent=1, deduction=true) }}
       {{ line_row("Outlandish-Funded Discount", "outlandish_discount", indent=1, deduction=true) }}
       {{ line_row("Smashbox-Funded Discount", "smashbox_discount", indent=1, deduction=true) }}
+
+      {{ subtotal_row("Sales (TikTok-equivalent)", "sales_pre_refund") }}
       {{ line_row("Refunds", "refunds", indent=1, deduction=true) }}
 
       {{ subtotal_row("Net Customer Sales", "net_customer_sales") }}

@@ -46,6 +46,7 @@ def export_monthly_pnl_xlsx(
         ("Less: TikTok-Funded Discount", -pnl.platform_discount),
         ("Less: Outlandish-Funded Discount", -pnl.outlandish_discount),
         ("Less: Smashbox-Funded Discount", -pnl.smashbox_discount),
+        ("Sales (TikTok-equivalent)", pnl.sales_pre_refund),
         ("Less: Refunds", -pnl.refunds),
         ("Net Customer Sales", pnl.net_customer_sales),
         ("COGS", -pnl.cogs),
@@ -308,6 +309,7 @@ def export_pnl_xlsx(
     _write_money_row(row, "TikTok-Funded Discount", "platform_discount", -1, f_line_indent, f_money_indent); row += 1
     _write_money_row(row, "Outlandish-Funded Discount", "outlandish_discount", -1, f_line_indent, f_money_indent); row += 1
     _write_money_row(row, "Smashbox-Funded Discount", "smashbox_discount", -1, f_line_indent, f_money_indent); row += 1
+    _write_money_row(row, "SALES (TIKTOK-EQUIVALENT)", "sales_pre_refund", 1, f_subtotal_label, f_subtotal_money); row += 1
     _write_money_row(row, "Refunds", "refunds", -1, f_line_indent, f_money_indent); row += 1
 
     _write_money_row(row, "NET CUSTOMER SALES", "net_customer_sales", 1, f_subtotal_label, f_subtotal_money); row += 1
