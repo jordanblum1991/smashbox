@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.order import Order, OrderType
 from app.models.payout import Payout
 from app.models.settlement import Settlement
+from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.reports.monthly_pnl import compute_monthly_pnl
 
 
@@ -154,17 +155,32 @@ class MonthlySalesReconciliation:
 class DailySalesReconciliation:
     """One row of the by-day sales-reconciliation table — used to drill into
     a specific month and isolate which day TikTok and our P&L diverge.
-    Computed in a single GROUP-BY query so it's cheap even across a busy
-    31-day month."""
+
+    `tiktok_gmv` / `tiktok_orders` come from the Shop Analytics import (the
+    same numbers TikTok shows on its "Sales" tile). They're None when no
+    analytics file has been uploaded yet — the template falls back to "—" in
+    that case so the row still renders.
+    """
     day: date
-    tiktok_equivalent_sales: Decimal
+    tiktok_equivalent_sales: Decimal  # our pre-refund total derived from orders
     refunds: Decimal
     net_customer_sales: Decimal
     orders_count: int
+    tiktok_gmv: Decimal | None = None  # TikTok-reported GMV for this day
+    tiktok_orders: int | None = None   # TikTok-reported order count
 
     @property
     def gap(self) -> Decimal:
         return self.tiktok_equivalent_sales - self.net_customer_sales
+
+    @property
+    def tiktok_variance(self) -> Decimal | None:
+        """Our pre-refund total minus TikTok's GMV for the same day. Should
+        be exactly zero when everything reconciles; non-zero = the day worth
+        investigating. None when no TikTok data is available."""
+        if self.tiktok_gmv is None:
+            return None
+        return self.tiktok_equivalent_sales - self.tiktok_gmv
 
 
 def daily_sales_reconciliation(
@@ -196,23 +212,55 @@ def daily_sales_reconciliation(
         .order_by(func.date(Order.placed_at))
     ).all()
 
-    out: list[DailySalesReconciliation] = []
+    # Pull TikTok's reported daily GMV + order count for the same window so the
+    # template can show a true side-by-side comparison.
+    tt_rows = db.execute(
+        select(
+            TikTokDailyMetric.metric_date,
+            TikTokDailyMetric.gmv,
+            TikTokDailyMetric.orders,
+        )
+        .where(TikTokDailyMetric.metric_date >= start.date())
+        .where(TikTokDailyMetric.metric_date < end.date())
+    ).all()
+    tt_by_day: dict[date, tuple[Decimal, int]] = {
+        r[0]: (Decimal(str(r[1])), int(r[2] or 0)) for r in tt_rows
+    }
+
+    # Union the day keys: orders-only days, analytics-only days, and overlap.
+    our_by_day: dict[date, dict] = {}
     for row in rows:
         day_str, gross, plat, outl, smash, refund, count = row
-        gross = Decimal(str(gross))
-        plat = Decimal(str(plat))
-        outl = Decimal(str(outl))
-        smash = Decimal(str(smash))
-        refund = Decimal(str(refund))
-        pre_refund = gross - plat - outl - smash
-        # SQLite returns DATE() as a string; Postgres as a date. Normalize.
         day = date.fromisoformat(day_str) if isinstance(day_str, str) else day_str
+        gross, plat, outl, smash, refund = (
+            Decimal(str(gross)), Decimal(str(plat)),
+            Decimal(str(outl)), Decimal(str(smash)),
+            Decimal(str(refund)),
+        )
+        pre_refund = gross - plat - outl - smash
+        our_by_day[day] = {
+            "pre_refund": pre_refund,
+            "refund": refund,
+            "net": pre_refund - refund,
+            "count": int(count or 0),
+        }
+
+    all_days = sorted(set(our_by_day) | set(tt_by_day))
+    out: list[DailySalesReconciliation] = []
+    for day in all_days:
+        ours = our_by_day.get(day, {
+            "pre_refund": Decimal("0"), "refund": Decimal("0"),
+            "net": Decimal("0"), "count": 0,
+        })
+        tt = tt_by_day.get(day)
         out.append(DailySalesReconciliation(
             day=day,
-            tiktok_equivalent_sales=pre_refund,
-            refunds=refund,
-            net_customer_sales=pre_refund - refund,
-            orders_count=int(count or 0),
+            tiktok_equivalent_sales=ours["pre_refund"],
+            refunds=ours["refund"],
+            net_customer_sales=ours["net"],
+            orders_count=ours["count"],
+            tiktok_gmv=tt[0] if tt else None,
+            tiktok_orders=tt[1] if tt else None,
         ))
     return out
 

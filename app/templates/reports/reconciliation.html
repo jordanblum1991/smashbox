@@ -142,18 +142,31 @@
     <span class="text-xs text-slate-400">{{ daily_recon | length }} day{{ '' if daily_recon | length == 1 else 's' }} with activity</span>
   </summary>
 
-  {% set d_tiktok = daily_recon | sum(attribute='tiktok_equivalent_sales') %}
+  {% set d_ours = daily_recon | sum(attribute='tiktok_equivalent_sales') %}
   {% set d_refunds = daily_recon | sum(attribute='refunds') %}
   {% set d_net = daily_recon | sum(attribute='net_customer_sales') %}
+
+  {# True only when the Shop Analytics file has been imported for this month. #}
+  {% set has_tt = daily_recon | selectattr('tiktok_gmv', 'ne', none) | list | length > 0 %}
+  {% set d_tt_gmv = (daily_recon | selectattr('tiktok_gmv', 'ne', none) | sum(attribute='tiktok_gmv')) if has_tt else 0 %}
+  {% set d_variance = d_ours - d_tt_gmv %}
 
   <div class="mt-4 overflow-x-auto">
     <table class="min-w-full text-sm">
       <thead class="border-b border-slate-200 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         <tr>
           <th class="px-2 py-2">Day</th>
-          <th class="px-2 py-2 text-right">TikTok "Sales"
-            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">pre-refund</div>
+          <th class="px-2 py-2 text-right">Our Pre-refund Sales
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">derived from orders file</div>
           </th>
+          {% if has_tt %}
+          <th class="px-2 py-2 text-right">TikTok GMV
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">Shop Analytics export</div>
+          </th>
+          <th class="px-2 py-2 text-right">Variance
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">ours − TikTok</div>
+          </th>
+          {% endif %}
           <th class="px-2 py-2 text-right">Refunds</th>
           <th class="px-2 py-2 text-right">Net Customer Sales
             <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">our P&amp;L</div>
@@ -163,11 +176,19 @@
       </thead>
       <tbody class="divide-y divide-slate-100">
         {% for d in daily_recon %}
-        <tr class="hover:bg-slate-50/60">
-          <td class="px-2 py-1.5 font-medium text-slate-900 whitespace-nowrap">
-            {{ d.day.strftime("%a %b %d") }}
-          </td>
+        {% set v = d.tiktok_variance %}
+        {% set off = (v is not none) and (v | abs > 0.005) %}
+        <tr class="{% if off %}bg-amber-50/40{% else %}hover:bg-slate-50/60{% endif %}">
+          <td class="px-2 py-1.5 font-medium text-slate-900 whitespace-nowrap">{{ d.day.strftime("%a %b %d") }}</td>
           <td class="px-2 py-1.5 text-right tabular-nums text-slate-900">{{ d.tiktok_equivalent_sales | money }}</td>
+          {% if has_tt %}
+          <td class="px-2 py-1.5 text-right tabular-nums {% if d.tiktok_gmv is none %}text-slate-300{% else %}text-slate-900{% endif %}">
+            {% if d.tiktok_gmv is none %}—{% else %}{{ d.tiktok_gmv | money }}{% endif %}
+          </td>
+          <td class="px-2 py-1.5 text-right tabular-nums {% if v is none %}text-slate-300{% elif off and v > 0 %}text-amber-700 font-semibold{% elif off and v < 0 %}text-rose-700 font-semibold{% else %}text-emerald-700{% endif %}">
+            {% if v is none %}—{% elif v == 0 %}$0.00{% elif v > 0 %}+{{ v | money }}{% else %}({{ (-v) | money | replace('-', '') }}){% endif %}
+          </td>
+          {% endif %}
           <td class="px-2 py-1.5 text-right tabular-nums {% if d.refunds > 0 %}text-rose-700{% else %}text-slate-400{% endif %}">
             {% if d.refunds > 0 %}({{ d.refunds | money | replace('-', '') }}){% else %}{{ d.refunds | money }}{% endif %}
           </td>
@@ -179,7 +200,13 @@
       <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
         <tr>
           <td class="px-2 py-3">Month total</td>
-          <td class="px-2 py-3 text-right tabular-nums">{{ d_tiktok | money }}</td>
+          <td class="px-2 py-3 text-right tabular-nums">{{ d_ours | money }}</td>
+          {% if has_tt %}
+          <td class="px-2 py-3 text-right tabular-nums">{{ d_tt_gmv | money }}</td>
+          <td class="px-2 py-3 text-right tabular-nums {% if d_variance | abs > 0.005 and d_variance > 0 %}text-amber-700{% elif d_variance | abs > 0.005 and d_variance < 0 %}text-rose-700{% else %}text-emerald-700{% endif %}">
+            {% if d_variance == 0 %}$0.00{% elif d_variance > 0 %}+{{ d_variance | money }}{% else %}({{ (-d_variance) | money | replace('-', '') }}){% endif %}
+          </td>
+          {% endif %}
           <td class="px-2 py-3 text-right tabular-nums {% if d_refunds > 0 %}text-rose-700{% endif %}">
             {% if d_refunds > 0 %}({{ d_refunds | money | replace('-', '') }}){% else %}{{ d_refunds | money }}{% endif %}
           </td>
@@ -191,9 +218,11 @@
   </div>
 
   <p class="mt-3 text-xs leading-relaxed text-slate-500">
-    Download the per-day Sales breakdown from TikTok Seller Center and compare row-by-row.
-    The day with the largest divergence from this table is where to start drilling — typically
-    a single order with a status, refund, or discount that the two systems are treating differently.
+    {% if has_tt %}
+      <strong class="text-amber-700">Amber rows</strong> are days where our pre-refund total disagrees with TikTok's GMV by more than a cent — that's where to drill into the orders placed on that date. Variance shown as <em>ours − TikTok</em>: positive means we're counting more than TikTok shows, negative means TikTok is counting more than us.
+    {% else %}
+      Upload a <em>Shop Analytics</em> Key metrics export on the <a href="/uploads" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">Imports page</a> to see TikTok's daily GMV side-by-side with ours and have variance computed automatically per day.
+    {% endif %}
   </p>
 </details>
 {% endif %}

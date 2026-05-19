@@ -8,6 +8,7 @@ from app.models.payout import Payout
 from app.models.sample import Sample
 from app.models.settlement import Adjustment, Settlement
 from app.models.sku import Sku
+from app.models.tiktok_daily_metric import TikTokDailyMetric
 
 __all__ = [
     "AdCredit",
@@ -25,6 +26,7 @@ __all__ = [
     "Sample",
     "Settlement",
     "Sku",
+    "TikTokDailyMetric",
 ]
 
 

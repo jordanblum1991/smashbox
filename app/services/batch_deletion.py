@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ad_spend import AdSpend
 from app.models.import_batch import ImportBatch, ImportFileKind
+from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.order import Order
 from app.models.payout import Payout
 from app.models.sample import Sample
@@ -79,6 +80,8 @@ def delete_batch(db: Session, batch: ImportBatch) -> DeletionResult:
         result = _delete_payouts(db, batch)
     elif batch.kind == ImportFileKind.TIKTOK_ADS:
         result = _delete_ad_spend(db, batch)
+    elif batch.kind == ImportFileKind.TIKTOK_ANALYTICS:
+        result = _delete_analytics(db, batch)
     elif batch.kind == ImportFileKind.SAMPLES:
         result = _delete_samples(db, batch)
     elif batch.kind in (ImportFileKind.SKU_MASTER, ImportFileKind.BUNDLE_MAPPING):
@@ -185,6 +188,15 @@ def _delete_payouts(db: Session, batch: ImportBatch) -> DeletionResult:
 def _delete_ad_spend(db: Session, batch: ImportBatch) -> DeletionResult:
     rows = db.execute(
         select(AdSpend).where(AdSpend.import_batch_id == batch.id)
+    ).scalars().all()
+    for r in rows:
+        db.delete(r)
+    return DeletionResult(kind=batch.kind, rows_deleted=len(rows))
+
+
+def _delete_analytics(db: Session, batch: ImportBatch) -> DeletionResult:
+    rows = db.execute(
+        select(TikTokDailyMetric).where(TikTokDailyMetric.import_batch_id == batch.id)
     ).scalars().all()
     for r in rows:
         db.delete(r)
