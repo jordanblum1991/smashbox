@@ -29,6 +29,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -38,6 +39,39 @@ from app.models.order import Order, OrderLine, OrderType
 from app.rules.seller_funded_split import (
     split_seller_funded_discount,
     violates_policy_cap,
+)
+
+# Order columns the SETTLEMENT importer back-fills. When upserting an order
+# from the orders file, these are preserved — settlement is authoritative
+# for fees / refunds / commissions / shop ads / shipping cost.
+_SETTLEMENT_FIELDS = (
+    "refunds",
+    "tiktok_fees",
+    "tiktok_referral_fee",
+    "tiktok_transaction_fee",
+    "tiktok_refund_admin_fee",
+    "tiktok_sales_tax_on_referral",
+    "tiktok_smart_promo_fee",
+    "tiktok_campaign_fees",
+    "tiktok_partner_commission",
+    "tiktok_managed_service",
+    "affiliate_commission",
+    "shop_ads_cost",
+    "shipping_cost",
+)
+
+# Order columns the ORDERS file owns. When upserting, these are overwritten
+# with the new file's values.
+_ORDERS_FILE_FIELDS = (
+    "placed_at",
+    "status",
+    "gross_sales",
+    "platform_discount_total",
+    "shipping_revenue",
+    "seller_funded_discount_total",
+    "seller_funded_outlandish",
+    "seller_funded_smashbox",
+    "discount_policy_violation",
 )
 
 # "our internal name" -> "real TikTok header"
@@ -65,14 +99,24 @@ class TikTokOrdersImporter(BaseImporter):
         df = _read_any(path)
         df = _validate_headers(df)
 
+        new_count = 0
+        updated_count = 0
+
         for tiktok_order_id, group in df.groupby(HEADER_MAP["tiktok_order_id"], sort=False):
             try:
                 clean_id = str(tiktok_order_id).strip().rstrip("\t").strip()
-                order = _build_order(clean_id, group, batch)
-                db.add(order)
+                fresh = _build_order(clean_id, group, batch)
+                existing = db.execute(
+                    select(Order).where(Order.tiktok_order_id == clean_id)
+                ).scalar_one_or_none()
+                final = _persist_upsert(db, existing, fresh, batch)
                 result.rows_imported += 1
-                if order.discount_policy_violation:
-                    for line in order.lines:
+                if existing is None:
+                    new_count += 1
+                else:
+                    updated_count += 1
+                if final.discount_policy_violation:
+                    for line in final.lines:
                         if not line.discount_policy_violation:
                             continue
                         pct = (
@@ -87,7 +131,51 @@ class TikTokOrdersImporter(BaseImporter):
             except Exception as exc:  # noqa: BLE001
                 result.skip(f"order {tiktok_order_id}: {exc}")
 
+        if updated_count > 0:
+            result.errors.append(
+                f"info: {new_count} new orders inserted, {updated_count} existing orders updated "
+                f"(settlement back-fills preserved)"
+            )
         return result
+
+
+def _persist_upsert(
+    db: Session, existing: Order | None, fresh: Order, batch: ImportBatch
+) -> Order:
+    """Insert when no Order exists for this tiktok_order_id; otherwise update
+    in place. Settlement back-filled columns and PAID_SAMPLE classification
+    are preserved. Policy-violation acknowledgements are migrated by SKU."""
+    if existing is None:
+        db.add(fresh)
+        return fresh
+
+    # Preserve acknowledgements indexed by SKU so they survive the line replace.
+    ack_skus = {ln.sku for ln in existing.lines if ln.policy_violation_acknowledged}
+
+    # Detach fresh-built lines from the throwaway Order so we can reattach
+    # them to the existing one without dual ownership.
+    new_lines = list(fresh.lines)
+    fresh.lines = []
+
+    # Delete old lines (delete-orphan cascade) and flush before reattaching.
+    existing.lines.clear()
+    db.flush()
+
+    # Update orders-file-owned columns; preserve settlement-owned columns.
+    for f in _ORDERS_FILE_FIELDS:
+        setattr(existing, f, getattr(fresh, f))
+    # Settlement may have promoted SAMPLE → PAID_SAMPLE — don't unwind that.
+    if existing.order_type != OrderType.PAID_SAMPLE:
+        existing.order_type = fresh.order_type
+    existing.import_batch_id = batch.id  # latest batch owns this row going forward
+
+    # Attach new lines (with acknowledgement preserved for matching SKUs).
+    for ln in new_lines:
+        if ln.sku in ack_skus and ln.discount_policy_violation:
+            ln.policy_violation_acknowledged = True
+        existing.lines.append(ln)
+
+    return existing
 
 
 def _read_any(path: Path) -> pd.DataFrame:

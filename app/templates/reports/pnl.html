@@ -15,11 +15,23 @@
     </h1>
     <p class="text-sm text-slate-500">Smashbox TikTok Shop</p>
   </div>
+  {# Build the query string for the Excel export — same params /reports/pnl
+     was invoked with, so the export reflects exactly what's on screen. #}
+  {% set kind = view.period_kind.value %}
+  {% if kind == "range" and view.monthly_breakdown %}
+    {% set last_m = view.monthly_breakdown[-1].month %}
+    {% set xlsx_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=" ~ (view.month or 1) ~ "&end_year=" ~ last_m.year ~ "&end_month=" ~ last_m.month %}
+  {% else %}
+    {% set xlsx_qs = "?period=" ~ kind ~ "&year=" ~ view.year ~ ("&month=" ~ view.month if view.month else "") %}
+  {% endif %}
   <div class="flex gap-2 print:hidden">
-    {% if view.period_kind.value == "month" %}
-    <a href="/export/monthly-pnl.xlsx?year={{ view.year }}&month={{ view.month }}"
-       class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">Export Excel</a>
-    {% endif %}
+    <a href="/export/pnl.xlsx{{ xlsx_qs }}"
+       class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">
+      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Export Excel
+    </a>
     <button onclick="window.print()"
        class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">Print</button>
   </div>
