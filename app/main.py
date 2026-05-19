@@ -9,6 +9,7 @@ from app.config import settings
 from app.db import Base, SessionLocal, engine
 from app.models import register_models  # noqa: F401  (side-effect: registers tables)
 from app.models.user import User, UserRole
+from app.routers import admin as admin_router
 from app.routers import auth as auth_router
 from app.routers import dashboard, exports, reports, uploads
 
@@ -113,6 +114,7 @@ async def attach_data_health(request: Request, call_next):
 
 
 app.include_router(auth_router.router)
+app.include_router(admin_router.router)
 app.include_router(dashboard.router)
 app.include_router(uploads.router)
 app.include_router(reports.router)

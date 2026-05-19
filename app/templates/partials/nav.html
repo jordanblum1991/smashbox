@@ -98,6 +98,14 @@
             <div class="mt-1 inline-block rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Admin</div>
             {% endif %}
           </div>
+          {% if _user.role.value == 'admin' %}
+          <div class="border-t border-slate-100 px-1 py-1">
+            <a href="/admin/users"
+               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+              Manage users
+            </a>
+          </div>
+          {% endif %}
           <div class="border-t border-slate-100 px-1 py-1">
             <form action="/logout" method="post">
               <button type="submit"

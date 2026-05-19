@@ -16,6 +16,7 @@ Phase 2 will add a `shop_id` FK on User + every transactional table, and the
 middleware will start scoping queries by `request.state.user.shop_id`.
 """
 import bcrypt
+from fastapi import HTTPException, Request as FastAPIRequest
 from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -23,7 +24,7 @@ from starlette.responses import RedirectResponse, Response
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models.user import User
+from app.models.user import User, UserRole
 
 # bcrypt directly — passlib's wrapper has been broken since bcrypt 4.0
 # (passlib reads `bcrypt.__about__` which 4.x removed). Direct API is
@@ -44,6 +45,25 @@ def verify_password(plaintext: str, hashed: str) -> bool:
         return bcrypt.checkpw(plaintext.encode("utf-8"), hashed.encode("utf-8"))
     except (ValueError, TypeError):
         return False
+
+
+# ---- Route dependencies ----------------------------------------------------
+
+def require_admin(request: FastAPIRequest) -> User:
+    """Route dependency: ensure the request is authenticated and the user is
+    an admin. SessionAuthMiddleware has already attached the user to
+    request.state; if auth is disabled (settings.session_secret == ""), this
+    is a no-op so local dev keeps working.
+
+    Returns the User so the route handler can use it without re-fetching.
+    """
+    if not settings.session_secret:
+        # Dev mode — auth disabled, treat as admin
+        return None  # type: ignore[return-value]
+    user = getattr(request.state, "user", None)
+    if user is None or user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
 
 
 class SessionAuthMiddleware(BaseHTTPMiddleware):

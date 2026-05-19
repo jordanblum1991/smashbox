@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Manage Users · Smashbox{% endblock %}
+
+{% block content %}
+<header class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600">Admin</p>
+    <h1 class="text-3xl font-semibold tracking-tight text-slate-900">Manage users</h1>
+    <p class="mt-1.5 text-sm text-slate-500">
+      Add team members, reset passwords, and control role assignments. Users are deactivated rather than deleted to preserve audit trails.
+    </p>
+  </div>
+</header>
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+  {{ notice }}
+</div>
+{% endif %}
+
+{# ---- Add user form ---- #}
+<section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="mb-4 text-sm font-semibold text-slate-900">Add new user</h2>
+  <form action="/admin/users" method="post" class="grid grid-cols-1 gap-3 md:grid-cols-5">
+    <label class="md:col-span-2">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Email</span>
+      <input type="email" name="email" required
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Name</span>
+      <input type="text" name="name" required
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Role</span>
+      <select name="role"
+              class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <option value="member" selected>Member</option>
+        <option value="admin">Admin</option>
+      </select>
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Initial password</span>
+      <input type="text" name="password" required minlength="8" placeholder="min 8 chars"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <div class="md:col-span-5 flex justify-end">
+      <button type="submit"
+              class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        Add user
+      </button>
+    </div>
+  </form>
+  <p class="mt-2 text-xs text-slate-500">
+    Share the initial password with the new user via a secure channel. They'll log in with their email + this password; you (or they) can change it later.
+  </p>
+</section>
+
+{# ---- User list ---- #}
+<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">
+      All users <span class="ml-2 text-xs font-normal text-slate-500">{{ users | length }} total</span>
+    </h2>
+  </header>
+  <div class="divide-y divide-slate-100">
+    {% for u in users %}
+    {% set is_self = (request.state.user and request.state.user.id == u.id) %}
+    <details class="group">
+      <summary class="flex cursor-pointer items-center gap-4 px-5 py-3 hover:bg-slate-50">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white {% if not u.is_active %}opacity-40{% endif %}">
+          {{ u.name[:1] | upper }}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="truncate font-medium text-slate-900 {% if not u.is_active %}text-slate-500 line-through{% endif %}">{{ u.name }}</span>
+            {% if u.role.value == 'admin' %}
+            <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Admin</span>
+            {% else %}
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">Member</span>
+            {% endif %}
+            {% if not u.is_active %}
+            <span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700 ring-1 ring-rose-100">Deactivated</span>
+            {% endif %}
+            {% if is_self %}
+            <span class="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700 ring-1 ring-sky-100">You</span>
+            {% endif %}
+          </div>
+          <div class="truncate text-xs text-slate-500">{{ u.email }}</div>
+        </div>
+        <div class="hidden text-right text-xs text-slate-500 sm:block">
+          <div>Joined {{ u.created_at.strftime("%Y-%m-%d") }}</div>
+          <div class="text-slate-400">
+            {% if u.last_login_at %}Last login {{ u.last_login_at.strftime("%Y-%m-%d %H:%M") }}{% else %}Never logged in{% endif %}
+          </div>
+        </div>
+        <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+        </svg>
+      </summary>
+      <div class="border-t border-slate-100 bg-slate-50/40 px-5 py-4">
+        <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+          {# Edit form #}
+          <form action="/admin/users/{{ u.id }}/edit" method="post" class="space-y-3">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Edit user</div>
+            <label class="block">
+              <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Name</span>
+              <input type="text" name="name" value="{{ u.name }}" required
+                     class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+            </label>
+            <label class="block">
+              <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Role</span>
+              <select name="role"
+                      class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
+                             {% if is_self %}cursor-not-allowed bg-slate-100{% endif %}"
+                      {% if is_self %}disabled{% endif %}>
+                <option value="member" {% if u.role.value == 'member' %}selected{% endif %}>Member</option>
+                <option value="admin" {% if u.role.value == 'admin' %}selected{% endif %}>Admin</option>
+              </select>
+              {% if is_self %}
+              <input type="hidden" name="role" value="{{ u.role.value }}">
+              <span class="mt-1 block text-[11px] text-slate-500">You can't change your own role.</span>
+              {% endif %}
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="checkbox" name="is_active" {% if u.is_active %}checked{% endif %}
+                     {% if is_self %}disabled{% endif %}
+                     class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500
+                            {% if is_self %}cursor-not-allowed{% endif %}">
+              {% if is_self %}<input type="hidden" name="is_active" value="on">{% endif %}
+              <span class="text-sm text-slate-700">Account is active{% if is_self %} <span class="text-[11px] text-slate-500">(can't deactivate yourself)</span>{% endif %}</span>
+            </label>
+            <button type="submit"
+                    class="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800">
+              Save changes
+            </button>
+          </form>
+
+          {# Reset password form #}
+          <form action="/admin/users/{{ u.id }}/reset-password" method="post" class="space-y-3"
+                onsubmit="return confirm('Reset password for {{ u.email }}? They will need the new password to log in.');">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Reset password</div>
+            <label class="block">
+              <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">New password</span>
+              <input type="text" name="new_password" minlength="8" placeholder="min 8 chars" required
+                     class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+            </label>
+            <button type="submit"
+                    class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50">
+              Reset password
+            </button>
+            <p class="text-[11px] text-slate-500">
+              Share the new password with the user via a secure channel. Their old password stops working immediately.
+            </p>
+          </form>
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
