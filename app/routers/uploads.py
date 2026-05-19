@@ -31,16 +31,27 @@ router = APIRouter(tags=["uploads"])
 
 @router.get("/uploads")
 def uploads_page(request: Request, db: Session = Depends(get_db)):
-    batches = (
+    # Group batches by kind in the canonical ImportFileKind order so the
+    # page renders one collapsible section per kind. Keeps the list scannable
+    # once a project has accumulated many uploads.
+    all_batches = (
         db.query(ImportBatch)
         .order_by(ImportBatch.uploaded_at.desc())
-        .limit(50)
         .all()
     )
+    batches_by_kind: dict[ImportFileKind, list[ImportBatch]] = {
+        k: [] for k in ImportFileKind
+    }
+    for b in all_batches:
+        batches_by_kind[b.kind].append(b)
     return templates.TemplateResponse(
         request,
         "uploads.html",
-        {"batches": batches, "kinds": list(ImportFileKind)},
+        {
+            "batches_by_kind": batches_by_kind,
+            "total_batches": len(all_batches),
+            "kinds": list(ImportFileKind),
+        },
     )
 
 

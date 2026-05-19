@@ -110,7 +110,7 @@
    the metric is directional (Net Profit). #}
 <section aria-label="Financial KPIs" class="grid grid-cols-2 gap-4 lg:grid-cols-5">
   {% set roas_accent = none %}
-  {% if pnl.total_ad_spend > 0 %}
+  {% if pnl.net_ad_spend > 0 %}
     {% set roas_accent = 'emerald' if pnl.roas >= 3 else ('amber' if pnl.roas >= 1 else 'rose') %}
   {% endif %}
   {% set financial_tiles = [
@@ -118,7 +118,7 @@
     ("Net Profit", pnl.net_profit | money, ('emerald' if pnl.net_profit >= 0 else 'rose'), "/reports/pnl" ~ pnl_qs, "After COGS, fees, ads, shipping"),
     ("Gross Margin", pnl.gross_margin | pct, none, "/reports/pnl" ~ pnl_qs, "Gross profit / Net Customer Sales"),
     ("Avg Order Value", pnl.aov_after_discounts | money, none, "/reports/pnl" ~ pnl_qs, "Net Customer Sales / Total Orders"),
-    ("ROAS", ("%.2fx" % pnl.roas) if pnl.total_ad_spend > 0 else "—", roas_accent, "/reports/ad-spend", "Net Sales per $1 ad spend"),
+    ("ROAS", ("%.2fx" % pnl.roas) if pnl.net_ad_spend > 0 else "—", roas_accent, "/reports/ad-spend", "Net Sales per $1 net ad spend"),
   ] %}
   {% for label, value, accent, href, hint in financial_tiles %}
   <a href="{{ href }}"
@@ -140,7 +140,7 @@
     ("Total Orders", "{:,}".format(pnl.orders_count), "/reports/pnl" ~ pnl_qs, "Paid customer orders (excludes samples)"),
     ("Total Units Sold", "{:,}".format(pnl.units_sold), "/reports/pnl" ~ pnl_qs, "Bundles count as 1 item"),
     ("Total Samples Shipped", "{:,}".format(samples_shipped), "/reports/samples" ~ samples_qs, "Free + explicit-paid sample units"),
-    ("TikTok Ad Spend", pnl.total_ad_spend | money, "/reports/ad-spend", "Shop Ads + GMV Max combined"),
+    ("TikTok Ad Spend", pnl.net_ad_spend | money, "/reports/ad-spend", "Net of credits · Shop Ads + GMV Max"),
   ] %}
   {% for label, value, href, hint in operating_tiles %}
   <a href="{{ href }}"

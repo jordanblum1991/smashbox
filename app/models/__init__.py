@@ -1,4 +1,5 @@
 """Importing this module registers all ORM models with SQLAlchemy's metadata."""
+from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.bundle import Bundle, BundleComponent
 from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
@@ -9,6 +10,7 @@ from app.models.settlement import Adjustment, Settlement
 from app.models.sku import Sku
 
 __all__ = [
+    "AdCredit",
     "AdSpend",
     "Adjustment",
     "Bundle",

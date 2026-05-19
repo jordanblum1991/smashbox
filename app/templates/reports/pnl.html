@@ -28,22 +28,44 @@
 {% set selector_action = "/reports/pnl" %}
 {% include "partials/period_selector.html" %}
 
-<!-- Settlement coverage banner (works for any period — applies to the aggregated total) -->
+<!-- Period summary cards — give the big picture before the line-level detail -->
+{% if pnl.orders_count > 0 %}
+<section aria-label="Period summary" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+  {% set summary_cards = [
+    ("Gross Sales", pnl.gross_sales | money, none),
+    ("Net Customer Sales", pnl.net_customer_sales | money, none),
+    ("Gross Profit", pnl.gross_profit | money, "emerald" if pnl.gross_profit >= 0 else "rose"),
+    ("Total Ad Spend", pnl.net_ad_spend | money, none),
+    ("Net Profit", pnl.net_profit | money, "emerald" if pnl.net_profit >= 0 else "rose"),
+    ("Gross Margin", pnl.gross_margin | pct, none),
+    ("Net Margin", pnl.net_margin | pct, "emerald" if pnl.net_margin >= 0 else "rose"),
+  ] %}
+  {% for label, value, accent in summary_cards %}
+  <div class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
+    <div class="mt-1 text-lg font-semibold tabular-nums
+      {% if accent == 'emerald' %}text-emerald-700
+      {% elif accent == 'rose' %}text-rose-700
+      {% else %}text-slate-900{% endif %}">{{ value }}</div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<!-- Settlement coverage banner — concise version -->
 {% if pnl.orders_count > 0 and pnl.orders_settled < pnl.orders_count %}
 {% set pct = pnl.settlement_coverage_pct %}
 {% set severe = pct < 50 %}
 {% set pending = pnl.orders_count - pnl.orders_settled %}
-<div class="mb-6 flex items-start gap-2.5 rounded-lg border {{ 'border-rose-200 bg-rose-50' if severe else 'border-amber-200 bg-amber-50' }} px-3 py-2 text-xs leading-snug">
+<div class="mb-5 flex items-start gap-2 rounded-lg border {{ 'border-rose-200 bg-rose-50' if severe else 'border-amber-200 bg-amber-50' }} px-3 py-2 text-xs leading-snug print:hidden">
   <svg class="mt-0.5 h-4 w-4 shrink-0 {{ 'text-rose-500' if severe else 'text-amber-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
   </svg>
   <div class="min-w-0 flex-1 {{ 'text-rose-900' if severe else 'text-amber-900' }}">
-    <span class="font-semibold">Settlement coverage: {{ "%.0f" % pct }}%</span>
-    <span class="{{ 'text-rose-800' if severe else 'text-amber-800' }}">
-      · TikTok has settled <strong>{{ pnl.orders_settled }}</strong> of <strong>{{ pnl.orders_count }}</strong> paid orders for this period.
-      {% if pending > 0 %}These <strong>{{ pending }}</strong> order{{ '' if pending == 1 else 's' }} {{ 'is' if pending == 1 else 'are' }} still pending settlement.{% endif %}
-      Sales and discounts are included, but fees, affiliate commissions, ad costs, and shipping costs have not yet been reported — expenses may be understated and Net Profit overstated until an updated settlement file is uploaded.
-    </span>
+    <span class="font-semibold">Settlement coverage: {{ "%.0f" % pct }}%</span> —
+    {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders have been settled.
+    {% if pending > 0 %}{{ pending }} order{{ '' if pending == 1 else 's' }} still pending,
+    so some fees, commissions, ad costs, and shipping costs may not be fully reflected yet.{% endif %}
   </div>
 </div>
 {% endif %}
@@ -162,6 +184,9 @@
         {{ line("Affiliate commission", -pnl.affiliate_commission) }}
         {{ line("Affiliate Shop Ad Commission", -pnl.shop_ads_cost) }}
         {{ line("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend) }}
+        {% if pnl.ad_credit_offset > 0 %}
+        {{ line("Less: Ad Credits", pnl.ad_credit_offset, indent=1) }}
+        {% endif %}
         {{ line("Shipping cost", -pnl.shipping_cost) }}
         {{ line("Shipping revenue", pnl.shipping_revenue) }}
         {{ subtotal("Net Profit", pnl.net_profit, accent=("pos" if pnl.net_profit >= 0 else "neg")) }}
@@ -169,31 +194,6 @@
     </table>
   </div>
 
-  {# Footer: key margin metrics — readable at a glance #}
-  <footer class="border-t border-slate-200 bg-slate-50/60 px-6 py-3">
-    <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-4">
-      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
-        <dt class="font-medium uppercase tracking-wider text-slate-500">Gross Margin</dt>
-        <dd class="text-base font-semibold tabular-nums text-slate-900">{{ pnl.gross_margin | pct }}</dd>
-      </div>
-      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
-        <dt class="font-medium uppercase tracking-wider text-slate-500">Net Margin</dt>
-        <dd class="text-base font-semibold tabular-nums {% if pnl.net_profit >= 0 %}text-emerald-700{% else %}text-rose-700{% endif %}">
-          {% if pnl.net_customer_sales > 0 %}{{ (pnl.net_profit / pnl.net_customer_sales) | pct }}{% else %}—{% endif %}
-        </dd>
-      </div>
-      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
-        <dt class="font-medium uppercase tracking-wider text-slate-500">ROAS</dt>
-        <dd class="text-base font-semibold tabular-nums text-slate-900">
-          {% if pnl.total_ad_spend > 0 %}{{ "%.2fx" % pnl.roas }}{% else %}—{% endif %}
-        </dd>
-      </div>
-      <div class="flex items-baseline justify-between sm:flex-col sm:items-start sm:gap-0.5">
-        <dt class="font-medium uppercase tracking-wider text-slate-500">AOV (after disc.)</dt>
-        <dd class="text-base font-semibold tabular-nums text-slate-900">{{ pnl.aov_after_discounts | money }}</dd>
-      </div>
-    </dl>
-  </footer>
 </div>
 
 <script>
@@ -211,97 +211,182 @@
   })();
 </script>
 
-{# -------- year / ytd: per-month columns + totals -------- #}
+{# -------- year / ytd / range: per-month columns + totals -------- #}
 {% else %}
 {% set total_label = "Year" if view.period_kind.value == "year" else "YTD" %}
-<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+{% set months = view.monthly_breakdown %}
+
+{# Controls strip — sits above the table and toggles JS-driven visibility. #}
+<div class="mb-3 flex flex-wrap items-center gap-4 text-xs print:hidden">
+  <label class="inline-flex cursor-pointer items-center gap-2 text-slate-600">
+    <input type="checkbox" id="hide-zero-rows"
+           class="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500">
+    <span>Hide rows that are <strong>$0</strong> across all months</span>
+  </label>
+  <span class="text-slate-300">·</span>
+  <label class="inline-flex cursor-pointer items-center gap-2 text-slate-600">
+    <input type="checkbox" id="show-tiktok-detail"
+           class="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500">
+    <span>Show TikTok fee breakdown</span>
+  </label>
+</div>
+
+{# ---- Macros for the multi-month table ---- #}
+{% macro money_td(v, year_col=false, bold=false, deduction=false, parent_class="") %}
+  {% set display = (0 - v) if deduction else v %}
+  <td class="whitespace-nowrap py-2 text-right tabular-nums
+    {% if year_col %}border-l-2 border-slate-300 bg-slate-50/70 px-4{% else %}px-3{% endif %}
+    {% if bold %} font-semibold text-slate-900{% endif %}
+    {{ parent_class }}">
+    {% if display == 0 %}<span class="text-slate-300">$0.00</span>
+    {% elif display < 0 %}<span class="text-rose-700">({{ (-display) | money | replace('-', '') }})</span>
+    {% else %}{{ display | money }}
+    {% endif %}
+  </td>
+{% endmacro %}
+
+{% macro line_row(label, attr, indent=0, deduction=false, detail=false, all_zero_class="") %}
+  {% set ns = namespace(all_zero=true) %}
+  {% if view.total[attr] != 0 %}{% set ns.all_zero = false %}{% endif %}
+  {% for m in months %}{% if m[attr] != 0 %}{% set ns.all_zero = false %}{% endif %}{% endfor %}
+  <tr class="hover:bg-sky-50/30 transition-colors
+    {% if detail %}tiktok-fee-row hidden{% endif %}
+    {% if ns.all_zero %}all-zero{% endif %}">
+    <th scope="row"
+        class="sticky left-0 z-10 bg-white py-2 text-left font-normal
+          {% if indent == 1 %}pl-9 text-slate-600{% elif indent == 2 %}pl-14 text-slate-500{% else %}pl-4 text-slate-800{% endif %}
+          pr-4 whitespace-nowrap text-xs">
+      {{ label }}
+    </th>
+    {% for m in months %}{{ money_td(m[attr], deduction=deduction) }}{% endfor %}
+    {{ money_td(view.total[attr], year_col=true, deduction=deduction) }}
+  </tr>
+{% endmacro %}
+
+{% macro subtotal_row(label, attr, accent=false, big=false, deduction=false) %}
+  <tr class="bg-slate-100/80 border-y border-slate-300">
+    <th scope="row"
+        class="sticky left-0 z-10 bg-slate-100/80 py-3 pl-4 pr-4 text-left whitespace-nowrap
+          {{ 'text-base' if big else 'text-sm' }} font-bold uppercase tracking-wider
+          {% if accent %}{% if view.total[attr] >= 0 %}text-emerald-800{% else %}text-rose-800{% endif %}
+          {% else %}text-slate-900{% endif %}">
+      {{ label }}
+    </th>
+    {% for m in months %}
+      {{ money_td(m[attr], bold=true, deduction=deduction, parent_class='bg-slate-100/80') }}
+    {% endfor %}
+    {{ money_td(view.total[attr], year_col=true, bold=true, deduction=deduction, parent_class='bg-slate-200/60') }}
+  </tr>
+{% endmacro %}
+
+{% macro section_header(label, span_classes="", toggle_id="") %}
+  <tr class="bg-slate-50/80">
+    <th colspan="{{ months | length + 2 }}"
+        class="sticky left-0 z-10 bg-slate-50/80 px-4 pt-5 pb-2 text-left text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+      {{ label }}{% if toggle_id %}<span class="ml-2 text-[10px] font-normal normal-case tracking-normal text-slate-400">(toggle detail in controls above)</span>{% endif %}
+    </th>
+  </tr>
+{% endmacro %}
+
+{# Pre-compute whether any month has an ad-credit, to decide whether to render that line at all #}
+{% set ns = namespace(has_credit=false) %}
+{% if view.total.ad_credit_offset > 0 %}{% set ns.has_credit = true %}{% endif %}
+{% for m in months %}{% if m.ad_credit_offset > 0 %}{% set ns.has_credit = true %}{% endif %}{% endfor %}
+
+<div id="pnl-table-wrap"
+     class="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm print:rounded-none print:border-0 print:shadow-none print:overflow-visible"
+     style="max-height: 80vh;">
   <table class="min-w-full text-sm">
-    <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+    <thead class="sticky top-0 z-20 bg-slate-50/95 backdrop-blur text-xs font-semibold uppercase tracking-wider text-slate-500">
       <tr>
-        <th class="px-4 py-2">Line</th>
-        {% for m in view.monthly_breakdown %}
-        <th class="px-3 py-2 text-right">{{ m.month | month_short }}</th>
+        <th scope="col"
+            class="sticky left-0 top-0 z-30 bg-slate-50/95 backdrop-blur px-4 py-3 text-left">Line</th>
+        {% for m in months %}
+        <th scope="col" class="px-3 py-3 text-right whitespace-nowrap">{{ m.month | month_short }}<span class="ml-1 text-[10px] font-normal text-slate-400">{{ m.month.strftime("'%y") }}</span></th>
         {% endfor %}
-        <th class="px-4 py-2 text-right">{{ total_label }}</th>
+        <th scope="col"
+            class="border-l-2 border-slate-300 bg-slate-200/60 px-4 py-3 text-right">{{ total_label }}</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-slate-100">
-      {% set lines = [
-        ("Gross Product Sales", "gross_sales", false),
-        ("TikTok-Funded Discount", "platform_discount", false),
-        ("Outlandish-Funded", "outlandish_discount", false),
-        ("Smashbox-Funded", "smashbox_discount", false),
-        ("Refunds", "refunds", false),
-        ("Net Customer Sales", "net_customer_sales", false),
-        ("COGS", "cogs", false),
-        ("Gross Profit", "gross_profit", false),
-        ("TikTok fees", "tiktok_fees", false),
-        ("Referral fee", "tiktok_referral_fee", true),
-        ("Transaction fee", "tiktok_transaction_fee", true),
-        ("Refund admin fee", "tiktok_refund_admin_fee", true),
-        ("Sales tax on referral", "tiktok_sales_tax_on_referral", true),
-        ("Smart promo fee (incl. tax)", "tiktok_smart_promo_fee", true),
-        ("Campaign fees (resource + service)", "tiktok_campaign_fees", true),
-        ("Shop partner commission", "tiktok_partner_commission", true),
-        ("Managed service (incl. tax)", "tiktok_managed_service", true),
-        ("Affiliate commission", "affiliate_commission", false),
-        ("Affiliate Shop Ad Commission", "shop_ads_cost", false),
-        ("TikTok Ads (GMV Max)", "gmv_max_ad_spend", false),
-        ("Shipping cost", "shipping_cost", false),
-        ("Net Profit", "net_profit", false),
-      ] %}
-      {% for label, attr, indent in lines %}
-      <tr class="{% if attr in ['net_customer_sales','gross_profit','net_profit'] %}font-semibold bg-slate-50/40{% endif %}">
-        <td class="px-4 py-2 {% if indent %}pl-10 text-slate-600{% endif %}">{{ label }}</td>
-        {% for m in view.monthly_breakdown %}
-        <td class="px-3 py-2 text-right {% if indent %}text-slate-600{% endif %}">{{ m[attr] | money }}</td>
-        {% endfor %}
-        <td class="px-4 py-2 text-right {% if indent %}text-slate-600{% endif %}">{{ view.total[attr] | money }}</td>
-      </tr>
-      {% endfor %}
+
+      {{ section_header("Revenue") }}
+      {{ line_row("Gross Product Sales", "gross_sales") }}
+
+      {{ section_header("Discounts & Refunds") }}
+      {{ line_row("TikTok-Funded Discount", "platform_discount", indent=1, deduction=true) }}
+      {{ line_row("Outlandish-Funded Discount", "outlandish_discount", indent=1, deduction=true) }}
+      {{ line_row("Smashbox-Funded Discount", "smashbox_discount", indent=1, deduction=true) }}
+      {{ line_row("Refunds", "refunds", indent=1, deduction=true) }}
+
+      {{ subtotal_row("Net Customer Sales", "net_customer_sales") }}
+
+      {{ section_header("Cost of Goods Sold") }}
+      {{ line_row("COGS", "cogs", indent=1, deduction=true) }}
+
+      {{ subtotal_row("Gross Profit", "gross_profit", accent=true) }}
+
+      {{ section_header("TikTok Fees", toggle_id="tiktok-fee") }}
+      {{ line_row("TikTok fees (total)", "tiktok_fees", indent=1, deduction=true) }}
+      {{ line_row("Referral fee", "tiktok_referral_fee", indent=2, deduction=true, detail=true) }}
+      {{ line_row("Transaction fee", "tiktok_transaction_fee", indent=2, deduction=true, detail=true) }}
+      {{ line_row("Refund admin fee", "tiktok_refund_admin_fee", indent=2, deduction=true, detail=true) }}
+      {{ line_row("Sales tax on referral", "tiktok_sales_tax_on_referral", indent=2, deduction=true, detail=true) }}
+      {{ line_row("Smart promo fee (incl. tax)", "tiktok_smart_promo_fee", indent=2, deduction=true, detail=true) }}
+      {{ line_row("Campaign fees (resource + service)", "tiktok_campaign_fees", indent=2, deduction=true, detail=true) }}
+      {{ line_row("Shop partner commission", "tiktok_partner_commission", indent=2, deduction=true, detail=true) }}
+      {{ line_row("Managed service (incl. tax)", "tiktok_managed_service", indent=2, deduction=true, detail=true) }}
+
+      {{ section_header("Affiliate / Commission Costs") }}
+      {{ line_row("Affiliate commission", "affiliate_commission", indent=1, deduction=true) }}
+      {{ line_row("Affiliate Shop Ad Commission", "shop_ads_cost", indent=1, deduction=true) }}
+
+      {{ section_header("Advertising") }}
+      {{ line_row("TikTok Ads (GMV Max)", "gmv_max_ad_spend", indent=1, deduction=true) }}
+      {% if ns.has_credit %}
+      {{ line_row("Less: Ad Credits", "ad_credit_offset", indent=2) }}
+      {% endif %}
+
+      {{ section_header("Shipping / Fulfillment") }}
+      {{ line_row("Shipping revenue", "shipping_revenue", indent=1) }}
+      {{ line_row("Shipping cost", "shipping_cost", indent=1, deduction=true) }}
+
+      {{ subtotal_row("Total Operating Expenses", "total_operating_expenses", deduction=true) }}
+      {{ subtotal_row("Net Profit", "net_profit", accent=true, big=true) }}
     </tbody>
   </table>
 </div>
-<p class="mt-3 text-xs text-slate-500">
-  {{ view.monthly_breakdown | length }} month{{ "" if view.monthly_breakdown | length == 1 else "s" }} included.
-  The {{ total_label }} column is the sum of the monthly columns — verifiable line-by-line.
-</p>
-{% endif %}
 
-{# -------- Discount waterfall summary (all periods) -------- #}
-<section class="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm print:hidden">
-  <header class="mb-4 flex items-center justify-between">
-    <h2 class="text-base font-semibold text-slate-900">Discount waterfall</h2>
-    <span class="text-xs text-slate-400">{{ view.title_suffix }}</span>
-  </header>
-  <dl class="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
-    <div class="flex items-center justify-between">
-      <dt class="flex items-center gap-2 text-slate-600">
-        <span class="h-2 w-2 rounded-full bg-sky-500"></span> TikTok-Funded
-      </dt>
-      <dd class="font-medium tabular-nums text-slate-900">{{ pnl.platform_discount | money }}</dd>
-    </div>
-    <div class="flex items-center justify-between">
-      <dt class="flex items-center gap-2 text-slate-600">
-        <span class="h-2 w-2 rounded-full bg-indigo-500"></span> Outlandish-Funded
-      </dt>
-      <dd class="font-medium tabular-nums text-slate-900">{{ pnl.outlandish_discount | money }}</dd>
-    </div>
-    <div class="flex items-center justify-between">
-      <dt class="flex items-center gap-2 text-slate-600">
-        <span class="h-2 w-2 rounded-full bg-slate-700"></span> Smashbox-Funded
-      </dt>
-      <dd class="font-medium tabular-nums text-slate-900">{{ pnl.smashbox_discount | money }}</dd>
-    </div>
-    <div class="flex items-center justify-between border-t border-slate-200 pt-3 sm:border-0 sm:pt-0">
-      <dt class="font-medium text-slate-700">Seller-Funded Total</dt>
-      <dd class="font-semibold tabular-nums text-slate-900">{{ pnl.seller_funded_total | money }}</dd>
-    </div>
-  </dl>
-  <p class="mt-4 text-xs leading-relaxed text-slate-400">
-    Outlandish + Smashbox always sums exactly to TikTok's reported seller-funded total.
-  </p>
-</section>
+<p class="mt-3 text-xs text-slate-500 print:hidden">
+  {{ months | length }} month{{ "" if months | length == 1 else "s" }} shown. The
+  <span class="rounded bg-slate-200/60 px-1.5 py-0.5 font-medium text-slate-700">{{ total_label }}</span> column
+  is the sum of the monthly columns — verifiable line-by-line.
+  Costs displayed in <span class="text-rose-700">red parentheses</span>; subtotals in bold.
+</p>
+
+<script>
+  (function () {
+    // Toggle 1: Hide rows where every month + total is $0.
+    var hideZero = document.getElementById("hide-zero-rows");
+    if (hideZero) {
+      hideZero.addEventListener("change", function () {
+        document.querySelectorAll(".all-zero").forEach(function (tr) {
+          tr.classList.toggle("hidden", hideZero.checked);
+        });
+      });
+    }
+    // Toggle 2: Show/hide TikTok fee sub-rows.
+    var showDetail = document.getElementById("show-tiktok-detail");
+    if (showDetail) {
+      showDetail.addEventListener("change", function () {
+        document.querySelectorAll(".tiktok-fee-row").forEach(function (tr) {
+          tr.classList.toggle("hidden", !showDetail.checked);
+        });
+      });
+    }
+  })();
+</script>
+{% endif %}
 
 <details class="mt-6 rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-600 print:hidden">
   <summary class="cursor-pointer font-medium text-slate-700">How are the discount lines calculated?</summary>

@@ -12,7 +12,7 @@
       {% endif %}
     </h1>
     <p class="mt-1 text-sm text-slate-500">
-      {% if summary.period_start %}
+      {% if summary.months %}
         Across {{ summary.months | length }} month{{ "" if summary.months | length == 1 else "s" }}
       {% else %}
         No ad spend imported yet — upload a TikTok Ads "Cost" export from the
@@ -26,18 +26,21 @@
   </button>
 </header>
 
+{# Top KPIs — Gross / Credits / Net at a glance. #}
 {% if summary.months %}
-<section class="grid grid-cols-1 gap-4 sm:grid-cols-4 mb-6">
+<section class="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
   {% set tiles = [
-    ("Cash Spent", summary.cash_cost, "Out-of-pocket charges"),
-    ("Credit Used", summary.credit_cost, "Merchant credit balance drawn"),
-    ("Ad Credits Used", summary.ad_credit_cost, "TikTok-issued promotional credits"),
-    ("Total Reported Spend", summary.total, "What TikTok counts as ad spend"),
+    ("Gross Ad Spend", summary.total, "Total reported by TikTok"),
+    ("Ad Credits", summary.manual_credit, "Manually-entered TikTok promo credits"),
+    ("Net Ad Spend", summary.net_total, "Gross − Credits · flows into P&L"),
   ] %}
   {% for label, value, hint in tiles %}
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ value | money }}</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums
+      {% if label == 'Ad Credits' and value > 0 %}text-emerald-700
+      {% elif label == 'Net Ad Spend' %}text-slate-900
+      {% else %}text-slate-900{% endif %}">{{ value | money }}</div>
     <div class="mt-1 text-xs text-slate-400">{{ hint }}</div>
   </div>
   {% endfor %}
@@ -48,106 +51,148 @@
     <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-slate-500">
       <tr class="align-bottom">
         <th class="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider">Month</th>
-        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Cash</th>
-        <th class="px-3 py-2.5 text-right">
-          <div class="text-[11px] font-semibold uppercase tracking-wider">Credit</div>
-          <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">Pre-funded balance · real cash spend</div>
-        </th>
+        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Gross Ad Spend</th>
         <th class="px-3 py-2.5 text-right">
           <div class="text-[11px] font-semibold uppercase tracking-wider">Ad Credits</div>
-          <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">TikTok-issued promos · not cash</div>
+          <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">Editable · offsets P&amp;L</div>
         </th>
-        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Total</th>
+        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Net Ad Spend</th>
+        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider print:hidden">Note</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% for r in summary.months %}
       <tr class="hover:bg-slate-50/60">
         <td class="px-3 py-3 font-medium text-slate-900">{{ month_label(r.year, r.month) }}</td>
-        <td class="px-3 py-3 text-right tabular-nums text-slate-700">{{ r.cash_cost | money }}</td>
-        <td class="px-3 py-3 text-right tabular-nums text-slate-700">{{ r.credit_cost | money }}</td>
-        <td class="px-3 py-3 text-right tabular-nums {% if r.ad_credit_cost > 0 %}text-emerald-700{% else %}text-slate-400{% endif %}">
-          {{ r.ad_credit_cost | money }}
+        <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ r.total | money }}</td>
+        <td class="px-3 py-3 print:py-1">
+          <form action="/reports/ad-spend/credits" method="post"
+                class="flex items-center justify-end gap-1.5 print:hidden">
+            <input type="hidden" name="year" value="{{ r.year }}">
+            <input type="hidden" name="month" value="{{ r.month }}">
+            <span class="text-slate-400">$</span>
+            <input type="number" name="amount" step="0.01" min="0"
+                   value="{{ '%.2f'|format(r.manual_credit) if r.manual_credit > 0 else '' }}"
+                   placeholder="0.00"
+                   class="w-24 rounded-md border border-slate-300 bg-white px-2 py-1 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="text" name="note" value="{{ r.credit_note or '' }}" placeholder="note (optional)"
+                   class="w-32 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <button type="submit"
+                    class="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800">Save</button>
+          </form>
+          <span class="hidden text-right tabular-nums text-emerald-700 print:inline">{{ r.manual_credit | money }}</span>
         </td>
-        <td class="px-3 py-3 text-right tabular-nums font-medium text-slate-900">{{ r.total | money }}</td>
+        <td class="px-3 py-3 text-right tabular-nums font-semibold text-slate-900">{{ r.net_total | money }}</td>
+        <td class="px-3 py-3 text-right text-xs text-slate-500 print:hidden">{{ r.credit_note or "" }}</td>
       </tr>
       {% endfor %}
     </tbody>
     <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
       <tr>
         <td class="px-3 py-3">Total ({{ summary.months | length }} month{{ "" if summary.months | length == 1 else "s" }})</td>
-        <td class="px-3 py-3 text-right tabular-nums">{{ summary.cash_cost | money }}</td>
-        <td class="px-3 py-3 text-right tabular-nums">{{ summary.credit_cost | money }}</td>
-        <td class="px-3 py-3 text-right tabular-nums {% if summary.ad_credit_cost > 0 %}text-emerald-700{% endif %}">
-          {{ summary.ad_credit_cost | money }}
-        </td>
         <td class="px-3 py-3 text-right tabular-nums">{{ summary.total | money }}</td>
+        <td class="px-3 py-3 text-right tabular-nums {% if summary.manual_credit > 0 %}text-emerald-700{% endif %}">{{ summary.manual_credit | money }}</td>
+        <td class="px-3 py-3 text-right tabular-nums">{{ summary.net_total | money }}</td>
+        <td class="px-3 py-3 print:hidden"></td>
       </tr>
     </tfoot>
   </table>
 </section>
+{% endif %}
 
-<section class="mt-6 rounded-xl border border-slate-200 bg-white p-6 text-sm leading-relaxed text-slate-600 print:hidden">
-  <h2 class="mb-3 text-base font-semibold text-slate-900">Understanding the columns</h2>
-
-  <p class="mb-4">
-    TikTok Ads Manager splits every dollar of reported spend into three buckets, depending on
-    <em>where the money came from</em>. The <strong>Total</strong> column is the sum of the three —
-    that's the figure TikTok considers your "ad spend" and the figure that flows into the
-    P&amp;L as <em>TikTok Ads (GMV Max)</em>.
+{# Catch-all form: enter a credit for ANY month, even one with no spend rows. #}
+<section class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm print:hidden">
+  <h2 class="text-sm font-semibold text-slate-900">Add or update a credit for any month</h2>
+  <p class="mt-1 text-xs text-slate-500">
+    Use this when the month doesn't yet appear in the table above (e.g. a credit issued for a month
+    with no campaign spend). Submitting the same month again overwrites the existing entry. Enter
+    <strong>0</strong> or leave amount blank to clear an existing credit.
   </p>
+  <form action="/reports/ad-spend/credits" method="post"
+        class="mt-4 flex flex-wrap items-end gap-3">
+    <label class="block">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Year</span>
+      <select name="year" required
+              class="mt-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+        {% for y in range(2024, 2031) %}
+        <option value="{{ y }}" {% if y == today.year %}selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Month</span>
+      <select name="month" required
+              class="mt-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+        {% for mm in range(1, 13) %}
+        <option value="{{ mm }}" {% if mm == today.month %}selected{% endif %}>{{ mm | month_short }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+      <input type="number" name="amount" step="0.01" min="0" placeholder="0.00"
+             class="mt-1 w-32 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="block flex-1 min-w-[12rem]">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Note (optional)</span>
+      <input type="text" name="note" placeholder="e.g. Performance incentive Q1"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <button type="submit"
+            class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+      Save credit
+    </button>
+  </form>
+</section>
 
-  <dl class="space-y-4">
-    <div>
-      <dt class="font-semibold text-slate-900">Cash <span class="font-normal text-slate-500">— pay-as-you-go billing</span></dt>
-      <dd class="mt-1">
-        Charges billed directly to your linked payment method (credit card / bank) <em>as the campaign runs</em>.
-        This bucket is only populated when you're on TikTok's pay-as-you-go billing model — every few days TikTok
-        rolls up the spend and bills it to your card. <strong>For Smashbox this is $0</strong> because the
-        account is funded via a pre-loaded balance instead (see Credit below).
-      </dd>
-    </div>
-
-    <div>
-      <dt class="font-semibold text-slate-900">Credit <span class="font-normal text-slate-500">— pre-funded balance drawdown</span></dt>
-      <dd class="mt-1">
-        Drawdown from money you <strong>already paid TikTok</strong> by topping up your ad account balance
-        (e.g. wiring $10K up front to fund a flight of campaigns). TikTok holds that money as a "credit
-        balance" and debits it as ads serve. This <strong>is real cash spend</strong> — the cash just left your
-        account earlier, when you funded the balance, rather than at the time of each ad impression.
-        All of Smashbox's reported spend lands here because the account is pre-funded.
-      </dd>
-    </div>
-
-    <div>
-      <dt class="font-semibold text-slate-900">Ad Credits <span class="font-normal text-slate-500">— TikTok-issued promotional credits</span></dt>
-      <dd class="mt-1">
-        Promotional credits TikTok grants you (welcome offers, performance incentives, account-manager
-        comps, make-goods for platform issues, etc.). <strong>This is the only bucket that is NOT a real
-        cash cost</strong> — TikTok still attributes the spend to your account but no money changed hands.
-        When this column shows a number, your true out-of-pocket cost for that month is
-        <code>Total − Ad Credits</code>.
-      </dd>
-    </div>
-  </dl>
-
-  <div class="mt-5 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-    <p class="text-xs leading-relaxed text-slate-600">
-      <strong class="text-slate-900">Why the P&amp;L uses Total, not (Total − Ad Credits):</strong>
-      The P&amp;L follows TikTok's reporting convention so the line ties directly to Ads Manager and to
-      any reconciliation with TikTok's invoices. If we ever want a "true cash-out" view of marketing
-      spend, the formula is <code>Total − Ad Credits</code> — that figure appears in the
-      <em>Ad Credits Used</em> KPI tile above for quick reference.
+{# TikTok-reported breakdown (collapsible) — keeps the original Cash/Credit/AdCredit detail
+   accessible for reconciliation but de-emphasized since most users want Gross/Credits/Net. #}
+{% if summary.months %}
+<details class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm print:hidden">
+  <summary class="cursor-pointer text-sm font-semibold text-slate-900">
+    TikTok-reported spend breakdown (Cash / Credit / Ad Credits)
+  </summary>
+  <div class="mt-4">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-3 py-2">Month</th>
+          <th class="px-3 py-2 text-right">Cash <span class="font-normal text-slate-400">pay-as-you-go</span></th>
+          <th class="px-3 py-2 text-right">Credit <span class="font-normal text-slate-400">pre-funded balance</span></th>
+          <th class="px-3 py-2 text-right">Ad Credits <span class="font-normal text-slate-400">TikTok promo</span></th>
+          <th class="px-3 py-2 text-right">Total</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in summary.months %}
+        <tr>
+          <td class="px-3 py-2 font-medium text-slate-900">{{ month_label(r.year, r.month) }}</td>
+          <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.cash_cost | money }}</td>
+          <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.credit_cost | money }}</td>
+          <td class="px-3 py-2 text-right tabular-nums {% if r.ad_credit_cost > 0 %}text-emerald-700{% else %}text-slate-400{% endif %}">{{ r.ad_credit_cost | money }}</td>
+          <td class="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{{ r.total | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="mt-3 text-xs text-slate-500">
+      <strong>Note:</strong> the <em>Ad Credits</em> column here reflects what TikTok auto-reports in the Cost export.
+      The <strong>Ad Credits</strong> column in the main table above is for credits you manually enter — separate from
+      anything TikTok ships in the file. Both reduce true cash spend, but only the manual entry currently flows into the P&amp;L.
     </p>
   </div>
-</section>
-{% else %}
-<div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-12 text-center">
-  <p class="text-sm font-medium text-slate-700">No ad spend imported yet</p>
-  <p class="mt-1 text-xs text-slate-500">
-    Upload a TikTok Ads "Cost" export (filename pattern: <code>Cost_*.xlsx</code>) from the
-    <a class="underline" href="/uploads">Imports</a> page.
-  </p>
-</div>
+</details>
 {% endif %}
+
+<section class="mt-6 rounded-xl border border-slate-200 bg-white p-6 text-sm leading-relaxed text-slate-600 print:hidden">
+  <h2 class="mb-3 text-base font-semibold text-slate-900">How ad credits affect the P&amp;L</h2>
+
+  <ul class="list-disc space-y-1.5 pl-5">
+    <li><strong>Gross Ad Spend</strong> is what TikTok charges (Shop Ads affiliate commission + GMV Max from the Cost export) — unchanged from before.</li>
+    <li><strong>Ad Credits</strong> are amounts you manually enter here when TikTok grants you promotional credits that should reduce your reported spend.</li>
+    <li><strong>Net Ad Spend = Gross − Credits.</strong> This is the figure that flows into the P&amp;L Net Profit calculation and into ROAS.</li>
+    <li>On the P&amp;L, you'll see an indented <em>Less: Ad Credits</em> row beneath the ad-spend lines when a credit exists for that month — so Gross and Credits remain visible separately for reconciliation.</li>
+    <li>Enter <strong>$0</strong> (or leave blank) to clear a credit; the row is removed entirely.</li>
+  </ul>
+</section>
 {% endblock %}

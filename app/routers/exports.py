@@ -62,6 +62,7 @@ def export_monthly_pnl_xlsx(
         ("Affiliate commission", -pnl.affiliate_commission),
         ("Affiliate Shop Ad Commission", -pnl.shop_ads_cost),
         ("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend),
+        ("Less: Ad Credits", pnl.ad_credit_offset),
         ("Shipping revenue", pnl.shipping_revenue),
         ("Shipping cost", -pnl.shipping_cost),
         ("Net Profit", pnl.net_profit),

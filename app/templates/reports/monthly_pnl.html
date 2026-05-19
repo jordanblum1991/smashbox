@@ -69,6 +69,9 @@
       {{ row("Affiliate commission", -pnl.affiliate_commission) }}
       {{ row("Affiliate Shop Ad Commission", -pnl.shop_ads_cost) }}
       {{ row("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend) }}
+      {% if pnl.ad_credit_offset > 0 %}
+      {{ row("Less: Ad Credits", pnl.ad_credit_offset, indent=true) }}
+      {% endif %}
       {{ row("Shipping revenue", pnl.shipping_revenue) }}
       {{ row("Shipping cost", -pnl.shipping_cost) }}
 

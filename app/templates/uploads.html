@@ -10,7 +10,15 @@
      href="/static/templates/samples_template.csv" download>download the template</a>.
 </p>
 
-<form action="/uploads" method="post" enctype="multipart/form-data"
+<style>
+  @keyframes upload-bar-slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+  .upload-bar-fill { animation: upload-bar-slide 1.4s linear infinite; }
+</style>
+
+<form id="upload-form" action="/uploads" method="post" enctype="multipart/form-data"
       class="mb-8 rounded-lg border border-slate-200 bg-white p-6">
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
     <label class="sm:col-span-1">
@@ -29,62 +37,190 @@
     </label>
   </div>
   <div class="mt-4 flex justify-end">
-    <button type="submit" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+    <button id="upload-submit" type="submit"
+            class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
       Upload &amp; process
     </button>
   </div>
+
+  {# Status panel — hidden until the form is submitted. Indeterminate animated
+     bar (we can't get real progress from a single multipart POST). Stage text
+     advances on a timer so the user sees lifecycle feedback. #}
+  <div id="upload-status" class="mt-4 hidden rounded-md border border-sky-200 bg-sky-50 p-4">
+    <div class="flex items-center gap-3">
+      <svg class="h-5 w-5 shrink-0 animate-spin text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+        <circle cx="12" cy="12" r="9" stroke-opacity="0.25"/>
+        <path d="M21 12a9 9 0 00-9-9"/>
+      </svg>
+      <div class="min-w-0 flex-1">
+        <div id="upload-stage" class="text-sm font-semibold text-sky-900">Uploading file…</div>
+        <div id="upload-hint" class="mt-0.5 text-xs text-sky-800">Settlement files take ~60 seconds. Don't navigate away.</div>
+      </div>
+      <div id="upload-elapsed" class="shrink-0 text-xs tabular-nums text-sky-700">0s</div>
+    </div>
+    <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-sky-100">
+      <div class="upload-bar-fill h-full w-1/4 rounded-full bg-sky-500"></div>
+    </div>
+  </div>
 </form>
 
-<div class="rounded-lg border border-slate-200 bg-white">
-  <table class="min-w-full divide-y divide-slate-200 text-sm">
-    <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-      <tr>
-        <th class="px-4 py-2">Uploaded</th>
-        <th class="px-4 py-2">Kind</th>
-        <th class="px-4 py-2">File</th>
-        <th class="px-4 py-2 text-right">Imported</th>
-        <th class="px-4 py-2 text-right">Skipped</th>
-        <th class="px-4 py-2">Status</th>
-        <th class="px-4 py-2 text-right">Actions</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100">
-      {% for b in batches %}
-      {% set audit_only = b.kind.value in ("sku_master", "bundle_mapping") %}
-      {% set kind_label = b.kind.value.replace("_", " ") %}
-      {% if audit_only %}
-        {% set confirm_msg = "This is a catalog upload. Deleting only removes this audit entry — the " ~ kind_label ~ " rows in the database are NOT rolled back (they have no batch tracking). Continue?" %}
-      {% else %}
-        {% set confirm_msg = "Delete this " ~ kind_label ~ " batch and its " ~ b.rows_imported ~ " row(s)? This cannot be undone." %}
-      {% endif %}
-      <tr>
-        <td class="px-4 py-2 text-slate-600">{{ b.uploaded_at.strftime("%Y-%m-%d %H:%M") }}</td>
-        <td class="px-4 py-2">{{ b.kind.value }}</td>
-        <td class="px-4 py-2">{{ b.original_filename }}</td>
-        <td class="px-4 py-2 text-right">{{ b.rows_imported }}</td>
-        <td class="px-4 py-2 text-right">{{ b.rows_skipped }}</td>
-        <td class="px-4 py-2">
-          <span class="rounded px-2 py-0.5 text-xs
-            {% if b.status.value == 'completed' %}bg-emerald-50 text-emerald-700
-            {% elif b.status.value == 'failed' %}bg-rose-50 text-rose-700
-            {% else %}bg-slate-100 text-slate-600{% endif %}">
-            {{ b.status.value }}
+<script>
+  (function () {
+    var form = document.getElementById("upload-form");
+    if (!form) return;
+
+    // Stage progression timed against typical import durations. Numbers are
+    // rough — uploads vary by file kind, but the user just needs to see motion.
+    var STAGES = [
+      [0,  "Uploading file…"],
+      [3,  "Parsing rows…"],
+      [12, "Importing rows into database…"],
+      [30, "Recomputing P&L totals…"],
+      [55, "Finalizing… almost done"],
+    ];
+
+    form.addEventListener("submit", function () {
+      var btn = document.getElementById("upload-submit");
+      var status = document.getElementById("upload-status");
+      var stage = document.getElementById("upload-stage");
+      var elapsed = document.getElementById("upload-elapsed");
+
+      btn.disabled = true;
+      btn.classList.remove("bg-slate-900", "hover:bg-slate-800");
+      btn.classList.add("bg-slate-500", "cursor-wait");
+      btn.textContent = "Working…";
+
+      status.classList.remove("hidden");
+
+      var startedAt = Date.now();
+      setInterval(function () {
+        var secs = Math.floor((Date.now() - startedAt) / 1000);
+        elapsed.textContent = secs + "s";
+        // Advance stage text past the threshold matching elapsed seconds.
+        for (var i = STAGES.length - 1; i >= 0; i--) {
+          if (secs >= STAGES[i][0]) {
+            stage.textContent = STAGES[i][1];
+            break;
+          }
+        }
+      }, 250);
+    });
+  })();
+</script>
+
+<h2 class="mb-3 flex items-baseline justify-between text-sm font-semibold text-slate-700">
+  Import history
+  <span class="text-xs font-normal text-slate-500">{{ total_batches }} total upload{{ '' if total_batches == 1 else 's' }}</span>
+</h2>
+
+{% if total_batches == 0 %}
+<div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
+  <p class="text-sm font-medium text-slate-700">No imports yet.</p>
+  <p class="mt-1 text-xs text-slate-500">Use the form above to upload your first file.</p>
+</div>
+{% endif %}
+
+{# One collapsible section per file kind, in canonical ImportFileKind order. #}
+{% set kind_pretty = {
+  "tiktok_orders":      ("TikTok Orders",       "Customer orders export"),
+  "tiktok_settlements": ("TikTok Settlements",  "Earnings analytics workbook"),
+  "tiktok_payouts":     ("TikTok Payouts",      "Payouts & income export"),
+  "tiktok_ads":         ("TikTok Ads (GMV Max)","Ads Manager cost export"),
+  "sku_master":         ("SKU Master",          "Internal product catalog"),
+  "bundle_mapping":     ("Bundle Mapping",      "Internal bundle components"),
+  "samples":            ("Samples",             "Off-platform sample log"),
+} %}
+
+<div class="space-y-3">
+  {% for kind in kinds %}
+  {% set group = batches_by_kind[kind] %}
+  {% set label, hint = kind_pretty.get(kind.value, (kind.value.replace('_',' ').title(), '')) %}
+  {% set audit_only = kind.value in ("sku_master", "bundle_mapping") %}
+  {% set latest = group[0] if group else none %}
+  {% set has_failed = group | selectattr('status.value', 'equalto', 'failed') | list | length > 0 %}
+
+  <details class="group rounded-lg border border-slate-200 bg-white {% if has_failed %}border-l-4 border-l-rose-400{% endif %}"
+           {% if has_failed %}open{% endif %}>
+    <summary class="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2">
+          <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-open:rotate-90"
+               fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+          </svg>
+          <span class="text-sm font-semibold text-slate-900">{{ label }}</span>
+          {% if group %}
+          <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">
+            {{ group | length }}
           </span>
-        </td>
-        <td class="px-4 py-2 text-right">
-          <form action="/uploads/{{ b.id }}/delete" method="post" class="inline"
-                onsubmit="return confirm('{{ confirm_msg }}');">
-            <button type="submit"
-                    class="rounded px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">
-              Delete
-            </button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td class="px-4 py-6 text-center text-slate-400" colspan="7">No imports yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          {% else %}
+          <span class="rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">
+            none
+          </span>
+          {% endif %}
+          {% if has_failed %}
+          <span class="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700">
+            has failures
+          </span>
+          {% endif %}
+        </div>
+        <div class="mt-0.5 ml-5.5 pl-[1.375rem] text-xs text-slate-500">
+          {{ hint }}{% if latest %} · last uploaded {{ latest.uploaded_at.strftime("%Y-%m-%d %H:%M") }} ({{ latest.status.value }}){% endif %}
+        </div>
+      </div>
+    </summary>
+
+    {% if group %}
+    <div class="border-t border-slate-200">
+      <table class="min-w-full divide-y divide-slate-100 text-sm">
+        <thead class="bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <tr>
+            <th class="px-4 py-2">Uploaded</th>
+            <th class="px-4 py-2">File</th>
+            <th class="px-4 py-2 text-right">Imported</th>
+            <th class="px-4 py-2 text-right">Skipped</th>
+            <th class="px-4 py-2">Status</th>
+            <th class="px-4 py-2 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for b in group %}
+          {% if audit_only %}
+            {% set confirm_msg = "This is a catalog upload. Deleting only removes this audit entry — the " ~ label ~ " rows in the database are NOT rolled back (they have no batch tracking). Continue?" %}
+          {% else %}
+            {% set confirm_msg = "Delete this " ~ label ~ " batch and its " ~ b.rows_imported ~ " row(s)? This cannot be undone." %}
+          {% endif %}
+          <tr class="hover:bg-slate-50/60">
+            <td class="px-4 py-2 text-slate-600">{{ b.uploaded_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td class="px-4 py-2 truncate max-w-[24rem] font-mono text-xs text-slate-700" title="{{ b.original_filename }}">{{ b.original_filename }}</td>
+            <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(b.rows_imported) }}</td>
+            <td class="px-4 py-2 text-right tabular-nums {% if b.rows_skipped > 0 %}text-amber-700{% else %}text-slate-400{% endif %}">{{ "{:,}".format(b.rows_skipped) }}</td>
+            <td class="px-4 py-2">
+              <span class="rounded px-2 py-0.5 text-xs
+                {% if b.status.value == 'completed' %}bg-emerald-50 text-emerald-700
+                {% elif b.status.value == 'failed' %}bg-rose-50 text-rose-700
+                {% else %}bg-slate-100 text-slate-600{% endif %}">
+                {{ b.status.value }}
+              </span>
+            </td>
+            <td class="px-4 py-2 text-right">
+              <form action="/uploads/{{ b.id }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('{{ confirm_msg }}');">
+                <button type="submit"
+                        class="rounded px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="border-t border-slate-200 px-4 py-3 text-xs text-slate-400">
+      No {{ label }} files uploaded yet.
+    </div>
+    {% endif %}
+  </details>
+  {% endfor %}
 </div>
 {% endblock %}

@@ -20,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
@@ -52,6 +53,7 @@ class MonthlyPnL:
     affiliate_commission: Decimal
     shop_ads_cost: Decimal
     gmv_max_ad_spend: Decimal                  # TikTok Ads (GMV Max) — from Cost export
+    ad_credit_offset: Decimal                  # Manually-entered ad credits for the month
     shipping_revenue: Decimal
     shipping_cost: Decimal
     net_profit: Decimal
@@ -96,18 +98,40 @@ class MonthlyPnL:
         return self.gross_profit / self.net_customer_sales
 
     @property
+    def total_operating_expenses(self) -> Decimal:
+        """Everything between Gross Profit and Net Profit — TikTok fees,
+        affiliate, ads (net of credits), and net shipping. Defined as the
+        gap rather than re-summed so the math stays self-consistent with
+        the net_profit calculation."""
+        return self.gross_profit - self.net_profit
+
+    @property
+    def net_margin(self) -> Decimal:
+        if self.net_customer_sales == 0:
+            return Decimal("0")
+        return self.net_profit / self.net_customer_sales
+
+    @property
     def total_ad_spend(self) -> Decimal:
-        """All paid marketing in the period: settlement-reported Shop Ads
-        affiliate commission + TikTok Ads Manager GMV Max spend."""
+        """GROSS paid marketing in the period (before manual ad credits):
+        settlement-reported Shop Ads + TikTok Ads Manager GMV Max."""
         return self.shop_ads_cost + self.gmv_max_ad_spend
+
+    @property
+    def net_ad_spend(self) -> Decimal:
+        """Gross ad spend minus manually-entered TikTok ad credits. This is
+        the true cash cost of marketing — what flows into the P&L and what
+        ROAS is computed against."""
+        return self.total_ad_spend - self.ad_credit_offset
 
     @property
     def roas(self) -> Decimal:
         """Return on Ad Spend: $ of Net Customer Sales generated per $1 of
-        ad spend. 0 when no ads ran (avoids divide-by-zero)."""
-        if self.total_ad_spend == 0:
+        NET ad spend (after applying ad credits). 0 when no net spend
+        (avoids divide-by-zero)."""
+        if self.net_ad_spend <= 0:
             return Decimal("0")
-        return self.net_customer_sales / self.total_ad_spend
+        return self.net_customer_sales / self.net_ad_spend
 
 
 def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
@@ -152,6 +176,13 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         ).scalar() or 0
     ))
 
+    ad_credit_offset = Decimal(str(
+        db.execute(
+            select(func.coalesce(func.sum(AdCredit.amount), 0))
+            .where(AdCredit.year == year, AdCredit.month == month)
+        ).scalar() or 0
+    ))
+
     # Units sold (paid orders only). Bundles are one OrderLine each, so this
     # naturally counts a bundle as a single item — not its components.
     units_sold = db.execute(
@@ -181,6 +212,7 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         - affiliate
         - shop_ads
         - gmv_max_ad_spend
+        + ad_credit_offset                # credits reduce ad expense
         - ship_cost
         + ship_rev
     )
@@ -207,6 +239,7 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         affiliate_commission=affiliate,
         shop_ads_cost=shop_ads,
         gmv_max_ad_spend=gmv_max_ad_spend,
+        ad_credit_offset=ad_credit_offset,
         shipping_revenue=ship_rev,
         shipping_cost=ship_cost,
         net_profit=net_profit,

@@ -20,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 
 
@@ -30,7 +31,15 @@ class AdSpendMonthRow:
     cash_cost: Decimal
     credit_cost: Decimal
     ad_credit_cost: Decimal
-    total: Decimal
+    total: Decimal                     # gross — what TikTok reported as spend
+    manual_credit: Decimal             # manually-entered offset (may be 0)
+    credit_note: str | None
+    credit_id: int | None              # so the row form can target the existing record
+
+    @property
+    def net_total(self) -> Decimal:
+        """Gross spend minus manual ad credit — the true cash cost."""
+        return self.total - self.manual_credit
 
 
 @dataclass
@@ -39,15 +48,21 @@ class AdSpendSummary:
     cash_cost: Decimal
     credit_cost: Decimal
     ad_credit_cost: Decimal
-    total: Decimal
+    total: Decimal                     # gross totals
+    manual_credit: Decimal             # all-time manual credits
     period_start: date | None
     period_end: date | None
+
+    @property
+    def net_total(self) -> Decimal:
+        return self.total - self.manual_credit
 
 
 def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
     """All-time monthly breakdown — no period filter; the page itself is a
-    cross-period summary."""
-    rows = db.execute(
+    cross-period summary. Joins in any manual ad credits per month, and
+    surfaces months that have a credit even when there's no spend yet."""
+    spend_rows = db.execute(
         select(
             func.extract("year", AdSpend.spend_date).label("y"),
             func.extract("month", AdSpend.spend_date).label("m"),
@@ -60,17 +75,46 @@ def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
         .order_by("y", "m")
     ).all()
 
-    months = [
-        AdSpendMonthRow(
-            year=int(r.y),
-            month=int(r.m),
+    credit_rows = db.execute(
+        select(AdCredit.year, AdCredit.month, AdCredit.amount, AdCredit.note, AdCredit.id)
+    ).all()
+    credits: dict[tuple[int, int], tuple[Decimal, str | None, int]] = {
+        (int(r.year), int(r.month)): (Decimal(str(r.amount)), r.note, int(r.id))
+        for r in credit_rows
+    }
+
+    months_seen: dict[tuple[int, int], AdSpendMonthRow] = {}
+    for r in spend_rows:
+        key = (int(r.y), int(r.m))
+        credit_amt, credit_note, credit_id = credits.get(key, (Decimal("0"), None, None))
+        months_seen[key] = AdSpendMonthRow(
+            year=key[0],
+            month=key[1],
             cash_cost=Decimal(str(r.cash)),
             credit_cost=Decimal(str(r.credit)),
             ad_credit_cost=Decimal(str(r.ad_credit)),
             total=Decimal(str(r.total)),
+            manual_credit=credit_amt,
+            credit_note=credit_note,
+            credit_id=credit_id,
         )
-        for r in rows
-    ]
+    # Months that have a credit but no spend row — surface them so the user
+    # can still see/edit the credit they entered.
+    for key, (amt, note, cid) in credits.items():
+        if key not in months_seen:
+            months_seen[key] = AdSpendMonthRow(
+                year=key[0],
+                month=key[1],
+                cash_cost=Decimal("0"),
+                credit_cost=Decimal("0"),
+                ad_credit_cost=Decimal("0"),
+                total=Decimal("0"),
+                manual_credit=amt,
+                credit_note=note,
+                credit_id=cid,
+            )
+
+    months = [months_seen[k] for k in sorted(months_seen.keys())]
 
     bounds = db.execute(
         select(func.min(AdSpend.spend_date), func.max(AdSpend.spend_date))
@@ -85,6 +129,7 @@ def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
         credit_cost=sum((m.credit_cost for m in months), Decimal("0")),
         ad_credit_cost=sum((m.ad_credit_cost for m in months), Decimal("0")),
         total=sum((m.total for m in months), Decimal("0")),
+        manual_credit=sum((m.manual_credit for m in months), Decimal("0")),
         period_start=_d(bounds[0]),
         period_end=_d(bounds[1]),
     )

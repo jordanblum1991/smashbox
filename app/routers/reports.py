@@ -5,11 +5,15 @@ so any report page can be sent to PDF or paper for brand meetings.
 """
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from decimal import Decimal, InvalidOperation
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.ad_credit import AdCredit
 from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
 from app.reports.ad_spend import compute_ad_spend_summary
@@ -197,6 +201,45 @@ def policy_violation_acknowledge(
     return RedirectResponse(redirect_to, status_code=303)
 
 
+@router.post("/reports/ad-spend/credits")
+def upsert_ad_credit(
+    year: int = Form(...),
+    month: int = Form(...),
+    amount: str = Form(...),
+    note: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    """Upsert a manual ad credit for (year, month).
+
+    Empty/zero amount → row is deleted (so the P&L no longer offsets that
+    month). Invalid input → silently treated as zero rather than 500ing; the
+    user can re-submit.
+    """
+    if not (1 <= month <= 12):
+        raise HTTPException(status_code=400, detail="month must be 1–12")
+    try:
+        amt = Decimal(amount.strip() or "0")
+    except (InvalidOperation, AttributeError):
+        amt = Decimal("0")
+    amt = abs(amt)  # always store positive; we treat it as an offset magnitude
+    note_clean = (note or "").strip() or None
+
+    existing = db.execute(
+        select(AdCredit).where(AdCredit.year == year, AdCredit.month == month)
+    ).scalar_one_or_none()
+
+    if amt == 0:
+        if existing is not None:
+            db.delete(existing)
+    elif existing is None:
+        db.add(AdCredit(year=year, month=month, amount=amt, note=note_clean))
+    else:
+        existing.amount = amt
+        existing.note = note_clean
+    db.commit()
+    return RedirectResponse("/reports/ad-spend", status_code=303)
+
+
 @router.get("/reports/ad-spend")
 def ad_spend_view(request: Request, db: Session = Depends(get_db)):
     """Monthly TikTok ad spend with cash / credit / ad-credit breakdown."""
@@ -204,7 +247,7 @@ def ad_spend_view(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
-        {"summary": summary},
+        {"summary": summary, "today": date.today()},
     )
 
 
