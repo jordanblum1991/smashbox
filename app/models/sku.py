@@ -13,7 +13,7 @@ key TikTok exported.
 """
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Integer, Numeric, String
+from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -33,6 +33,7 @@ class Sku(Base):
     __tablename__ = "skus"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
 
     # Human-readable product code (SBX-form). Multiple rows can share this when
     # a single product has multiple TikTok variations.

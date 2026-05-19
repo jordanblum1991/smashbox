@@ -17,6 +17,7 @@ class Sample(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
 
     shipped_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     sku: Mapped[str] = mapped_column(String(128), index=True)

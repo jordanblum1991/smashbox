@@ -29,6 +29,7 @@ class Settlement(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
 
     tiktok_order_id: Mapped[str] = mapped_column(String(64), index=True)
     linked_statement_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -83,6 +84,7 @@ class Adjustment(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
 
     adjustment_id: Mapped[str] = mapped_column(String(64), index=True)
     adjustment_type: Mapped[str] = mapped_column(String(128), index=True)

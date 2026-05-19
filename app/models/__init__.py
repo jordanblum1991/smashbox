@@ -7,6 +7,7 @@ from app.models.order import Order, OrderLine, OrderType
 from app.models.payout import Payout
 from app.models.sample import Sample
 from app.models.settlement import Adjustment, Settlement
+from app.models.shop import Shop
 from app.models.sku import Sku
 from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.user import User, UserRole
@@ -26,6 +27,7 @@ __all__ = [
     "Payout",
     "Sample",
     "Settlement",
+    "Shop",
     "Sku",
     "TikTokDailyMetric",
     "User",

@@ -27,6 +27,9 @@ class Order(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
+    # Phase 2: tenant FK. Nullable for migration friendliness — application
+    # code always sets it on insert; existing rows backfilled in main.py.
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
 
     tiktok_order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     placed_at: Mapped[datetime] = mapped_column(DateTime, index=True)

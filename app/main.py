@@ -26,10 +26,28 @@ def _ensure_columns() -> None:
     on Base.metadata.create_all. When a model gains a column, list it here so
     existing DBs pick it up on the next boot without dropping data."""
     from sqlalchemy import inspect, text
+    # Phase 2: shop_id FK on every tenant-scoped table. Nullable so the
+    # ALTER TABLE works without a default; the bootstrap migration backfills.
+    shop_id_col = ("shop_id", "INTEGER REFERENCES shops(id)")
     needed = {
         "order_lines": [
             ("policy_violation_acknowledged", "BOOLEAN NOT NULL DEFAULT 0"),
             ("policy_violation_acknowledged_at", "DATETIME"),
+        ],
+        "orders":               [shop_id_col],
+        "settlements":          [shop_id_col],
+        "adjustments":          [shop_id_col],
+        "payouts":              [shop_id_col],
+        "ad_spend":             [shop_id_col],
+        "ad_credits":           [shop_id_col],
+        "samples":              [shop_id_col],
+        "tiktok_daily_metrics": [shop_id_col],
+        "import_batches":       [shop_id_col],
+        "skus":                 [shop_id_col],
+        "bundles":              [shop_id_col],
+        "users": [
+            shop_id_col,
+            ("is_super_admin", "BOOLEAN NOT NULL DEFAULT 0"),
         ],
     }
     insp = inspect(engine)
@@ -43,7 +61,61 @@ def _ensure_columns() -> None:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
+def _bootstrap_shop_and_backfill() -> None:
+    """Phase 2 migration: ensure a 'smashbox' Shop row exists and backfill
+    shop_id on every existing row of every tenant-scoped table. Idempotent —
+    safe to run on every boot. Also promotes existing admins to super_admin
+    so Phase 2c's cross-shop UI is reachable to whoever already had admin.
+
+    Runs AFTER _ensure_columns (which has added the shop_id columns) and
+    BEFORE _bootstrap_admin_user (so the bootstrapped admin gets a shop_id
+    on creation rather than via this backfill)."""
+    from sqlalchemy import text
+    from app.models.shop import Shop
+    from app.models.user import User, UserRole
+
+    SHOP_SCOPED_TABLES = (
+        "orders", "settlements", "adjustments", "payouts",
+        "ad_spend", "ad_credits", "samples", "tiktok_daily_metrics",
+        "import_batches", "skus", "bundles",
+    )
+
+    with SessionLocal() as db:
+        smashbox = db.query(Shop).filter_by(slug="smashbox").one_or_none()
+        if smashbox is None:
+            smashbox = Shop(
+                slug="smashbox",
+                name="Smashbox",
+                timezone="America/Los_Angeles",
+                is_active=True,
+            )
+            db.add(smashbox)
+            db.commit()
+            db.refresh(smashbox)
+
+        # Backfill every shop-scoped table. We deliberately UPDATE only NULL
+        # rows so future multi-shop data isn't overwritten when this re-runs.
+        for table in SHOP_SCOPED_TABLES:
+            db.execute(text(
+                f"UPDATE {table} SET shop_id = :sid WHERE shop_id IS NULL"
+            ), {"sid": smashbox.id})
+
+        # Users: backfill shop_id and promote existing admins to super_admin.
+        db.execute(text(
+            "UPDATE users SET shop_id = :sid WHERE shop_id IS NULL"
+        ), {"sid": smashbox.id})
+        # SQLAlchemy's Enum column stores the enum NAME (e.g. "ADMIN"), not
+        # the value ("admin") — use .name here, not .value.
+        db.execute(text(
+            "UPDATE users SET is_super_admin = 1 "
+            "WHERE role = :admin AND is_super_admin = 0"
+        ), {"admin": UserRole.ADMIN.name})
+
+        db.commit()
+
+
 _ensure_columns()
+_bootstrap_shop_and_backfill()
 
 
 def _bootstrap_admin_user() -> None:
@@ -54,14 +126,19 @@ def _bootstrap_admin_user() -> None:
     """
     if not (settings.initial_admin_email and settings.initial_admin_password):
         return
+    from app.models.shop import Shop
     with SessionLocal() as db:
         if db.query(User).count() > 0:
             return
+        # The smashbox shop is guaranteed to exist by _bootstrap_shop_and_backfill.
+        smashbox = db.query(Shop).filter_by(slug="smashbox").one()
         admin = User(
             email=settings.initial_admin_email.lower().strip(),
             name=settings.initial_admin_name,
             password_hash=hash_password(settings.initial_admin_password),
             role=UserRole.ADMIN,
+            is_super_admin=True,  # seed admin gets cross-shop access by default
+            shop_id=smashbox.id,
             is_active=True,
         )
         db.add(admin)

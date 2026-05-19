@@ -9,7 +9,7 @@ serialize `password_hash` in any response.
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -35,6 +35,10 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole), default=UserRole.MEMBER, index=True
     )
+    # Phase 2: tenant FK + cross-shop super-admin flag.
+    # Nullable for migration compat; bootstrap backfills it to the smashbox shop.
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -24,6 +24,7 @@ class TikTokDailyMetric(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
     metric_date: Mapped[date_t] = mapped_column(Date, index=True)
 
     # Headline "Sales" figure as displayed on the Seller Center dashboard.

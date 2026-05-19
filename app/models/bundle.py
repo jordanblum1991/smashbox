@@ -17,6 +17,7 @@ class Bundle(Base):
     __tablename__ = "bundles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
 
     # Either may be missing in the mapping file — at least one must be set.
     bundle_sku: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)

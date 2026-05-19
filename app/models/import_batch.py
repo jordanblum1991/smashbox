@@ -6,7 +6,7 @@ so a bad import can be rolled back by deleting one batch.
 import enum
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -39,6 +39,7 @@ class ImportBatch(Base):
     __tablename__ = "import_batches"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
     kind: Mapped[ImportFileKind] = mapped_column(Enum(ImportFileKind), index=True)
     status: Mapped[ImportBatchStatus] = mapped_column(
         Enum(ImportBatchStatus), default=ImportBatchStatus.PENDING, index=True

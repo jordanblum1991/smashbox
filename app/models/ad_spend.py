@@ -26,6 +26,7 @@ class AdSpend(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), index=True)
+    shop_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id"), index=True, nullable=True)
 
     spend_date: Mapped[datetime] = mapped_column(DateTime, index=True)
     campaign_id: Mapped[str] = mapped_column(String(64), index=True)
