@@ -42,7 +42,7 @@ The app runs on **Fly.io** at https://smashbox.fly.dev/ (LAX region).
 | | |
 |---|---|
 | **URL** | https://smashbox.fly.dev/ |
-| **Auth** | HTTP Basic — username `smashbox`, password stored as Fly secret `BASIC_AUTH_PASSWORD` |
+| **Auth** | Per-user sessions (Phase 1). Bootstrap admin via Fly secrets — see "Auth & user management" below. |
 | **Region** | LAX (Los Angeles) |
 | **Machine** | 1× shared-cpu-1x · 512MB RAM · auto-sleep when idle, auto-wake on request |
 | **Volume** | `smashbox_data` · 1GB encrypted at `/data` — SQLite DB + uploads + exports all live here |
@@ -57,14 +57,36 @@ fly deploy --app smashbox      # ~30s redeploy of the Fly machine
 
 Everything in the repo is shipped except dev artifacts (see `.dockerignore`). The `fly.toml` in the repo root is the deploy config.
 
-### Rotating the auth password
+### Auth & user management (Phase 1)
+
+The app uses per-user logins backed by bcrypt-hashed passwords and signed session cookies. Three Fly secrets drive it:
 
 ```bash
-fly secrets set BASIC_AUTH_PASSWORD=<new-password> --app smashbox
-# Fly restarts the machine automatically when secrets change.
+# Required in production — long random string signing session cookies
+fly secrets set SESSION_SECRET="$(openssl rand -base64 32)" --app smashbox
+
+# Used ONCE on first boot to create the seed admin user. Once a User row exists, these are ignored.
+fly secrets set INITIAL_ADMIN_EMAIL="you@yourcompany.com" --app smashbox
+fly secrets set INITIAL_ADMIN_PASSWORD="<strong-password>" --app smashbox
+fly secrets set INITIAL_ADMIN_NAME="Jordan Blum" --app smashbox
 ```
 
-Setting `BASIC_AUTH_PASSWORD` to an empty string disables auth entirely — that's the local-dev default (so you don't have to log in on every reload), but **never set it empty in production**.
+Empty `SESSION_SECRET` disables auth entirely — that's the local-dev default (so you don't have to log in on every reload). **Never empty in production**; if it's empty, the legacy `BasicAuthMiddleware` kicks in as a safety net (requires `BASIC_AUTH_PASSWORD` to be set), otherwise the app is wide open.
+
+**Adding more users** (until the user-management UI ships in Phase 1b):
+
+```bash
+fly ssh console --app smashbox -C "sh -c 'cd /app && python -c \"
+from app.db import SessionLocal
+from app.auth import hash_password
+from app.models.user import User, UserRole
+with SessionLocal() as db:
+    db.add(User(email=\\\"colleague@yourcompany.com\\\", name=\\\"Their Name\\\", password_hash=hash_password(\\\"InitialPassword123\\\"), role=UserRole.MEMBER))
+    db.commit()
+\"'"
+```
+
+**Resetting a forgotten password** uses the same pattern but with `User.password_hash = hash_password(...)` on an existing row.
 
 ### Inspecting the running app
 

@@ -75,6 +75,40 @@
         </svg>
         Import
       </a>
+
+      {# Authenticated user chip + sign-out. Only renders when SessionAuth is on. #}
+      {% set _user = request.state.user if request.state is defined and request.state.user is defined else none %}
+      {% if _user %}
+      <div class="group relative ml-2">
+        <button type="button"
+                class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
+            {{ _user.name[:1] | upper }}
+          </span>
+          <span class="max-w-[8rem] truncate">{{ _user.name }}</span>
+          <svg class="h-3 w-3 text-slate-400 transition-transform group-hover:rotate-180 group-focus-within:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+        <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
+          <div class="px-3 pb-2 pt-1">
+            <div class="text-sm font-medium text-slate-900 truncate">{{ _user.name }}</div>
+            <div class="truncate text-xs text-slate-500">{{ _user.email }}</div>
+            {% if _user.role.value == 'admin' %}
+            <div class="mt-1 inline-block rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Admin</div>
+            {% endif %}
+          </div>
+          <div class="border-t border-slate-100 px-1 py-1">
+            <form action="/logout" method="post">
+              <button type="submit"
+                      class="block w-full rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+                Sign out
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
 </nav>

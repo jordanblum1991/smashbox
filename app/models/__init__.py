@@ -9,6 +9,7 @@ from app.models.sample import Sample
 from app.models.settlement import Adjustment, Settlement
 from app.models.sku import Sku
 from app.models.tiktok_daily_metric import TikTokDailyMetric
+from app.models.user import User, UserRole
 
 __all__ = [
     "AdCredit",
@@ -27,6 +28,8 @@ __all__ = [
     "Settlement",
     "Sku",
     "TikTokDailyMetric",
+    "User",
+    "UserRole",
 ]
 
 

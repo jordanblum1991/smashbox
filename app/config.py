@@ -22,11 +22,27 @@ class Settings(BaseSettings):
 
     default_brand: str = "smashbox"
 
-    # ---- Auth (HTTP Basic) ------------------------------------------------
-    # Single shared credential gating the whole app. Username defaults to
-    # "smashbox"; password MUST be set via env var when deployed (`fly secrets
-    # set BASIC_AUTH_PASSWORD=...`). Empty password disables auth entirely —
-    # used for local dev so we don't have to log in on every reload.
+    # ---- Auth (per-user sessions) -----------------------------------------
+    # Phase 1: real users instead of the v1 shared HTTP Basic credential.
+    #
+    # session_secret signs the session cookie (Starlette SessionMiddleware via
+    # itsdangerous). Empty string = auth disabled — convenient for local dev
+    # so reloads don't sign you out. Production MUST set this to a long random
+    # string via `fly secrets set SESSION_SECRET=...`.
+    session_secret: str = ""
+
+    # First-time bootstrap. When no User rows exist and these are populated,
+    # the startup hook creates an admin user with these credentials. Set
+    # before the first deploy, then unset (or leave alone — they're ignored
+    # once a user exists).
+    initial_admin_email: str = ""
+    initial_admin_password: str = ""
+    initial_admin_name: str = "Admin"
+
+    # ---- Auth (legacy, kept for backward-compat with old deploys) ---------
+    # Phase 1's session middleware is the new gate. These remain so a fresh
+    # deploy that hasn't yet set SESSION_SECRET stays protected by Basic Auth
+    # rather than wide-open. Empty values keep the legacy path inert.
     basic_auth_username: str = "smashbox"
     basic_auth_password: str = ""
 

@@ -2,10 +2,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import BasicAuthMiddleware
+from app.auth import BasicAuthMiddleware, SessionAuthMiddleware, hash_password
+from app.config import settings
 from app.db import Base, SessionLocal, engine
 from app.models import register_models  # noqa: F401  (side-effect: registers tables)
+from app.models.user import User, UserRole
+from app.routers import auth as auth_router
 from app.routers import dashboard, exports, reports, uploads
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -40,11 +44,50 @@ def _ensure_columns() -> None:
 
 _ensure_columns()
 
+
+def _bootstrap_admin_user() -> None:
+    """First-time setup. When no User rows exist and the operator has set
+    INITIAL_ADMIN_EMAIL + INITIAL_ADMIN_PASSWORD, create that user as admin
+    so the deployer can actually log in. After the first user exists, these
+    env vars are ignored (idempotent on subsequent restarts).
+    """
+    if not (settings.initial_admin_email and settings.initial_admin_password):
+        return
+    with SessionLocal() as db:
+        if db.query(User).count() > 0:
+            return
+        admin = User(
+            email=settings.initial_admin_email.lower().strip(),
+            name=settings.initial_admin_name,
+            password_hash=hash_password(settings.initial_admin_password),
+            role=UserRole.ADMIN,
+            is_active=True,
+        )
+        db.add(admin)
+        db.commit()
+
+
+_bootstrap_admin_user()
+
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
-# Auth must be registered BEFORE the data-health middleware so unauth requests
-# short-circuit without doing DB work.
-app.add_middleware(BasicAuthMiddleware)
+# Middleware order: outermost runs first. SessionMiddleware must be added
+# BEFORE SessionAuthMiddleware so the latter has `request.session` available.
+# Starlette inverts the registration order, so we add SessionAuthMiddleware
+# first and SessionMiddleware second to get [Session → SessionAuth] inbound.
+if settings.session_secret:
+    app.add_middleware(SessionAuthMiddleware)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret,
+        same_site="lax",
+        https_only=True,
+        max_age=14 * 24 * 3600,  # 14 days
+    )
+else:
+    # No SESSION_SECRET set → fall back to the legacy Basic Auth gate (if
+    # configured) or wide-open (local dev).
+    app.add_middleware(BasicAuthMiddleware)
 
 
 @app.middleware("http")
@@ -69,6 +112,7 @@ async def attach_data_health(request: Request, call_next):
     return await call_next(request)
 
 
+app.include_router(auth_router.router)
 app.include_router(dashboard.router)
 app.include_router(uploads.router)
 app.include_router(reports.router)

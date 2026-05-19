@@ -1,46 +1,112 @@
-"""HTTP Basic Auth — single shared credential gating the whole app.
+"""Per-user authentication (Phase 1 of the multi-user roadmap).
 
-This is the deliberate v1 of authentication: one username, one password, set
-via environment variables (`BASIC_AUTH_USERNAME`, `BASIC_AUTH_PASSWORD`).
-Designed to be the cheapest possible gate when exposing the dashboard on the
-public internet so the financial data isn't sitting unauthenticated.
+Replaces the v1 HTTP Basic credential with email+password logins backed by:
+- bcrypt-hashed passwords (passlib)
+- Server-side signed-cookie sessions (Starlette SessionMiddleware, signed
+  with `settings.session_secret`)
+- A small middleware that loads `request.state.user` from the session and
+  redirects unauthenticated requests to /login
 
-When this grows up to per-user logins + RBAC, swap the middleware out — the
-public surface (route protection) stays the same.
+Forward-compat hooks:
+- `request.state.user.role` is exposed so future routes can demand admin
+- The empty-secret escape hatch (settings.session_secret == "") keeps local
+  dev frictionless — same UX as the old empty-BASIC_AUTH_PASSWORD pattern
 
-Behaviour:
-- If `basic_auth_password` is empty, auth is disabled (local dev convenience).
-- `/static/*` is always reachable so the browser can load CSS/JS without
-  prompting again on every asset request.
-- Any other route returns 401 with `WWW-Authenticate: Basic` until valid
-  credentials arrive — browser shows its native login dialog.
+Phase 2 will add a `shop_id` FK on User + every transactional table, and the
+middleware will start scoping queries by `request.state.user.shop_id`.
 """
-import secrets
-
+import bcrypt
+from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import RedirectResponse, Response
 
 from app.config import settings
+from app.db import SessionLocal
+from app.models.user import User
+
+# bcrypt directly — passlib's wrapper has been broken since bcrypt 4.0
+# (passlib reads `bcrypt.__about__` which 4.x removed). Direct API is
+# small enough to use without an abstraction.
+
+
+def hash_password(plaintext: str) -> str:
+    """Return the bcrypt hash of `plaintext` (~12 cost factor by default,
+    ~250ms verify on modern hardware)."""
+    return bcrypt.hashpw(plaintext.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plaintext: str, hashed: str) -> bool:
+    """Constant-time bcrypt verify. Returns False on any malformed-hash
+    error rather than raising — caller is doing user-facing login, so a
+    benign no-match is the right behaviour."""
+    try:
+        return bcrypt.checkpw(plaintext.encode("utf-8"), hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+class SessionAuthMiddleware(BaseHTTPMiddleware):
+    """Gate every route on a session-attached User.
+
+    Behaviour:
+      - `settings.session_secret == ""`  → auth disabled (local dev)
+      - `/static/*`, `/login`, `/logout` → always reachable
+      - Otherwise: look up session["user_id"]; load the User; attach to
+        `request.state.user`. Missing/invalid → redirect to /login.
+    """
+
+    EXEMPT_PREFIXES = ("/static/", "/login", "/logout")
+
+    async def dispatch(self, request: Request, call_next):
+        if not settings.session_secret:
+            # Dev mode — pretend there's no auth at all
+            request.state.user = None
+            return await call_next(request)
+
+        path = request.url.path
+        if any(path.startswith(p) for p in self.EXEMPT_PREFIXES):
+            request.state.user = None
+            return await call_next(request)
+
+        user_id = request.session.get("user_id") if hasattr(request, "session") else None
+        if user_id is None:
+            return RedirectResponse(url=f"/login?next={path}", status_code=303)
+
+        with SessionLocal() as db:
+            user = db.execute(
+                select(User).where(User.id == user_id).where(User.is_active.is_(True))
+            ).scalar_one_or_none()
+        if user is None:
+            # Session is stale (user deleted or deactivated) → bounce to login
+            request.session.clear()
+            return RedirectResponse(url="/login", status_code=303)
+
+        request.state.user = user
+        return await call_next(request)
+
+
+# ---- Legacy HTTP Basic — kept for old deploys that haven't yet set ---------
+# `SESSION_SECRET`. Once that secret is set on production, the SessionAuthMiddleware
+# is the active gate and BasicAuthMiddleware can be removed in a follow-up.
+
+import secrets
 
 
 class BasicAuthMiddleware(BaseHTTPMiddleware):
-    """Reject every request that doesn't carry a valid Basic Auth header."""
+    """Pre-Phase-1 single-credential gate. Inert when basic_auth_password is
+    empty. Slated for removal once all deploys are on SessionAuthMiddleware."""
 
     EXEMPT_PREFIXES = ("/static/",)
 
     async def dispatch(self, request: Request, call_next):
-        # Empty password = auth disabled (local dev).
         if not settings.basic_auth_password:
             return await call_next(request)
-
         if any(request.url.path.startswith(p) for p in self.EXEMPT_PREFIXES):
             return await call_next(request)
-
         header = request.headers.get("Authorization", "")
-        if header.startswith("Basic ") and _matches(header):
+        if header.startswith("Basic ") and _basic_matches(header):
             return await call_next(request)
-
         return Response(
             status_code=401,
             content="Authentication required.",
@@ -48,19 +114,14 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         )
 
 
-def _matches(auth_header: str) -> bool:
-    """Constant-time compare against the configured credential pair.
-
-    Uses secrets.compare_digest to avoid leaking timing information about
-    which character mismatched, which is the standard practice for any
-    cred check even when the threat model is low.
-    """
+def _basic_matches(auth_header: str) -> bool:
     import base64
     try:
         raw = base64.b64decode(auth_header[len("Basic "):], validate=True).decode("utf-8")
         username, _, password = raw.partition(":")
-    except Exception:  # noqa: BLE001 — malformed header → just reject
+    except Exception:  # noqa: BLE001
         return False
-    ok_user = secrets.compare_digest(username, settings.basic_auth_username)
-    ok_pass = secrets.compare_digest(password, settings.basic_auth_password)
-    return ok_user and ok_pass
+    return (
+        secrets.compare_digest(username, settings.basic_auth_username)
+        and secrets.compare_digest(password, settings.basic_auth_password)
+    )
