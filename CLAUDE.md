@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Internal full-stack web app for managing the **Smashbox TikTok Shop P&L and operating reports**. Users (me and a small finance/ops team) upload TikTok Shop exports (orders, settlements, payouts) plus reference files (SKU master, bundle mapping, samples) and the app produces monthly P&L, YTD P&L, SKU-level profitability, sample tracking, and reconciliation against TikTok's raw numbers.
 
-Private/internal — no public-facing surface, no auth in v1.
+Private/internal. **Deployed to Fly.io** at https://smashbox.fly.dev/ (LAX region, single shared-cpu-1x VM, 1GB encrypted persistent volume at `/data`). Gated by HTTP Basic Auth — see `app/auth.py`. Password is the Fly secret `BASIC_AUTH_PASSWORD`. README has the operator playbook (deploy, rotate password, data migration, scaling). Production paths use env vars (`DATA_DIR=/data`, `UPLOAD_DIR=/data/uploads`, `EXPORT_DIR=/data/exports`) — repo defaults still point at repo-root paths for local dev.
 
 ## Commands
 
