@@ -127,6 +127,77 @@
 </section>
 {% endif %}
 
+<!-- Daily sales reconciliation for the selected month -->
+{% if daily_recon %}
+<details class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm group" open>
+  <summary class="cursor-pointer list-none flex items-baseline justify-between">
+    <div class="flex items-center gap-2">
+      <svg class="h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+      </svg>
+      <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+        Daily sales reconciliation · {{ month_label(report.year, report.month) }}
+      </h2>
+    </div>
+    <span class="text-xs text-slate-400">{{ daily_recon | length }} day{{ '' if daily_recon | length == 1 else 's' }} with activity</span>
+  </summary>
+
+  {% set d_tiktok = daily_recon | sum(attribute='tiktok_equivalent_sales') %}
+  {% set d_refunds = daily_recon | sum(attribute='refunds') %}
+  {% set d_net = daily_recon | sum(attribute='net_customer_sales') %}
+
+  <div class="mt-4 overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-2 py-2">Day</th>
+          <th class="px-2 py-2 text-right">TikTok "Sales"
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">pre-refund</div>
+          </th>
+          <th class="px-2 py-2 text-right">Refunds</th>
+          <th class="px-2 py-2 text-right">Net Customer Sales
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">our P&amp;L</div>
+          </th>
+          <th class="px-2 py-2 text-right">Orders</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for d in daily_recon %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-2 py-1.5 font-medium text-slate-900 whitespace-nowrap">
+            {{ d.day.strftime("%a %b %d") }}
+          </td>
+          <td class="px-2 py-1.5 text-right tabular-nums text-slate-900">{{ d.tiktok_equivalent_sales | money }}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums {% if d.refunds > 0 %}text-rose-700{% else %}text-slate-400{% endif %}">
+            {% if d.refunds > 0 %}({{ d.refunds | money | replace('-', '') }}){% else %}{{ d.refunds | money }}{% endif %}
+          </td>
+          <td class="px-2 py-1.5 text-right tabular-nums font-medium text-slate-900">{{ d.net_customer_sales | money }}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums text-slate-500">{{ "{:,}".format(d.orders_count) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
+        <tr>
+          <td class="px-2 py-3">Month total</td>
+          <td class="px-2 py-3 text-right tabular-nums">{{ d_tiktok | money }}</td>
+          <td class="px-2 py-3 text-right tabular-nums {% if d_refunds > 0 %}text-rose-700{% endif %}">
+            {% if d_refunds > 0 %}({{ d_refunds | money | replace('-', '') }}){% else %}{{ d_refunds | money }}{% endif %}
+          </td>
+          <td class="px-2 py-3 text-right tabular-nums">{{ d_net | money }}</td>
+          <td class="px-2 py-3 text-right tabular-nums text-slate-500">{{ "{:,}".format(daily_recon | sum(attribute='orders_count')) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <p class="mt-3 text-xs leading-relaxed text-slate-500">
+    Download the per-day Sales breakdown from TikTok Seller Center and compare row-by-row.
+    The day with the largest divergence from this table is where to start drilling — typically
+    a single order with a status, refund, or discount that the two systems are treating differently.
+  </p>
+</details>
+{% endif %}
+
 <!-- File / data status -->
 {% set s = report.status %}
 <section class="mb-6 rounded-lg border border-slate-200 bg-white p-5">

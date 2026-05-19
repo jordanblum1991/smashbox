@@ -23,7 +23,11 @@ from app.reports.policy_violations import (
     compute_policy_violations,
     months_with_unacknowledged_violations,
 )
-from app.reports.reconciliation import reconcile_month, yearly_sales_reconciliation
+from app.reports.reconciliation import (
+    daily_sales_reconciliation,
+    reconcile_month,
+    yearly_sales_reconciliation,
+)
 from app.reports.sample_tracking import (
     SamplePeriodKind,
     compute_sample_view,
@@ -261,8 +265,13 @@ def reconciliation_view(
     y, m = _ym(year, month)
     report = reconcile_month(db, y, m)
     monthly_recon = yearly_sales_reconciliation(db, y)
+    daily_recon = daily_sales_reconciliation(db, y, m)
     return templates.TemplateResponse(
         request,
         "reports/reconciliation.html",
-        {"report": report, "monthly_recon": monthly_recon},
+        {
+            "report": report,
+            "monthly_recon": monthly_recon,
+            "daily_recon": daily_recon,
+        },
     )

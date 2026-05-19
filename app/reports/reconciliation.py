@@ -12,7 +12,7 @@ The seller-funded discount split check is kept exactly as-is — it asserts the
 load-bearing invariant Outlandish + Smashbox == TikTok total seller-funded.
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import case, distinct, func, select
@@ -148,6 +148,73 @@ class MonthlySalesReconciliation:
     @property
     def gap(self) -> Decimal:
         return self.tiktok_equivalent_sales - self.net_customer_sales
+
+
+@dataclass
+class DailySalesReconciliation:
+    """One row of the by-day sales-reconciliation table — used to drill into
+    a specific month and isolate which day TikTok and our P&L diverge.
+    Computed in a single GROUP-BY query so it's cheap even across a busy
+    31-day month."""
+    day: date
+    tiktok_equivalent_sales: Decimal
+    refunds: Decimal
+    net_customer_sales: Decimal
+    orders_count: int
+
+    @property
+    def gap(self) -> Decimal:
+        return self.tiktok_equivalent_sales - self.net_customer_sales
+
+
+def daily_sales_reconciliation(
+    db: Session, year: int, month: int
+) -> list[DailySalesReconciliation]:
+    """Sales reconciliation broken into days for a given month — one row per
+    calendar day that had at least one PAID order placed on it. Same three
+    headline figures as the monthly view (TikTok Sales, Refunds, Net Customer
+    Sales) plus an order count for context.
+
+    Single GROUP BY DATE(placed_at) query — works fine on SQLite + Postgres.
+    """
+    start = datetime(year, month, 1)
+    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+
+    rows = db.execute(
+        select(
+            func.date(Order.placed_at).label("day"),
+            func.coalesce(func.sum(Order.gross_sales), 0),
+            func.coalesce(func.sum(Order.platform_discount_total), 0),
+            func.coalesce(func.sum(Order.seller_funded_outlandish), 0),
+            func.coalesce(func.sum(Order.seller_funded_smashbox), 0),
+            func.coalesce(func.sum(Order.refunds), 0),
+            func.count(Order.id),
+        )
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type == OrderType.PAID)
+        .group_by(func.date(Order.placed_at))
+        .order_by(func.date(Order.placed_at))
+    ).all()
+
+    out: list[DailySalesReconciliation] = []
+    for row in rows:
+        day_str, gross, plat, outl, smash, refund, count = row
+        gross = Decimal(str(gross))
+        plat = Decimal(str(plat))
+        outl = Decimal(str(outl))
+        smash = Decimal(str(smash))
+        refund = Decimal(str(refund))
+        pre_refund = gross - plat - outl - smash
+        # SQLite returns DATE() as a string; Postgres as a date. Normalize.
+        day = date.fromisoformat(day_str) if isinstance(day_str, str) else day_str
+        out.append(DailySalesReconciliation(
+            day=day,
+            tiktok_equivalent_sales=pre_refund,
+            refunds=refund,
+            net_customer_sales=pre_refund - refund,
+            orders_count=int(count or 0),
+        ))
+    return out
 
 
 def yearly_sales_reconciliation(
