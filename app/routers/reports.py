@@ -248,12 +248,12 @@ def upsert_ad_credit(
 
 # Whitelist of columns the planner table can sort by. Anything else falls
 # back to the report's native urgency-first sort.
-_DEMAND_SORT_KEYS = {"on_hand", "days_of_supply", "suggested_qty"}
+_DEMAND_SORT_KEYS = {"on_hand", "days_of_supply", "stockout_date", "suggested_qty"}
 
 
 def _apply_planner_sort(rows, sort_key: str, direction: str) -> None:
-    """Sort `rows` in-place by the chosen column. `days_of_supply` nulls go
-    to the bottom regardless of direction (a null = no data, not a value)."""
+    """Sort `rows` in-place by the chosen column. Null dates / days-of-supply
+    sink to the bottom regardless of direction (null = no signal, not a value)."""
     reverse = direction == "desc"
     if sort_key == "on_hand":
         rows.sort(key=lambda r: r.on_hand, reverse=reverse)
@@ -264,6 +264,14 @@ def _apply_planner_sort(rows, sort_key: str, direction: str) -> None:
             1 if r.days_of_supply is None else 0,
             (-r.days_of_supply if reverse else r.days_of_supply)
             if r.days_of_supply is not None else Decimal("0"),
+        ))
+    elif sort_key == "stockout_date":
+        # date.toordinal sorts dates as integers — negate for desc so nulls
+        # still sink to the bottom rather than flipping to the top.
+        rows.sort(key=lambda r: (
+            1 if r.stockout_date is None else 0,
+            (-r.stockout_date.toordinal() if reverse else r.stockout_date.toordinal())
+            if r.stockout_date is not None else 0,
         ))
 
 

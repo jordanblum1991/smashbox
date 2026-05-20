@@ -86,6 +86,108 @@
   {% endfor %}
 </section>
 
+{# Plain-language explainer — collapsed by default so it doesn't dominate
+   the page, but always one click away. #}
+<details class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <summary class="cursor-pointer select-none px-6 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    How is this calculated?
+    <span class="ml-2 text-xs font-normal text-slate-400">(plain English)</span>
+  </summary>
+  <div class="space-y-4 border-t border-slate-200 px-6 py-5 text-sm leading-relaxed text-slate-700">
+    <p>
+      For every SKU we look at three things: <strong>how fast it sells</strong>,
+      <strong>how much we have on hand right now</strong>, and
+      <strong>how long it takes to restock</strong>. Then we work out whether
+      we need to place a PO today, how many units to buy, and when to expect a stockout.
+    </p>
+
+    <div>
+      <h3 class="mb-1 font-semibold text-slate-900">How fast it sells (velocity)</h3>
+      <p>
+        We count units shipped over the last 60 days, divide by 60, and call that
+        the daily sales rate. We also compute a 14-day rate as a "recent trend"
+        signal. Bundles count as demand for each component inside them
+        (a "Kit A" sale of 2 means 2 of each component inside the kit).
+        Cancelled/withdrawn orders don't count — only Shipped + Completed.
+      </p>
+      <p class="mt-1.5 text-xs text-slate-500">
+        One quirk: if a single day had a viral spike (e.g. a creator went viral
+        and 500 units sold), that day would inflate the 60-day average for two
+        months and trick us into over-buying. So we cap each day at the larger of
+        3× the typical day or 5× the overall average — outliers get clipped, normal
+        good days don't. The 14-day number you see in the table is uncapped on
+        purpose, so the buyer can spot a trend changing.
+      </p>
+    </div>
+
+    <div>
+      <h3 class="mb-1 font-semibold text-slate-900">Days of supply &amp; Stockout date</h3>
+      <p>
+        <strong>Days of supply</strong> = on-hand ÷ daily velocity.
+        <strong>Stockout</strong> = today + days of supply. So "Stockout: Jun 12"
+        means at the current sales rate, we'll run out around June 12 if no new
+        inventory arrives.
+      </p>
+    </div>
+
+    <div>
+      <h3 class="mb-1 font-semibold text-slate-900">Reorder point</h3>
+      <p>
+        The on-hand level at which a PO must be placed to avoid a stockout
+        before it arrives. Formula:
+        <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">velocity × lead time × (1 + safety stock %)</code>.
+      </p>
+      <p class="mt-1.5 text-xs text-slate-500">
+        With the defaults (14-day lead time, 10% safety): a SKU selling 5 units/day
+        needs a reorder point of <code class="rounded bg-slate-100 px-1 py-0.5">5 × 14 × 1.10 ≈ 77 units</code>.
+        Drop below 77 → time to PO. Lead time and safety stock can both be overridden per SKU.
+      </p>
+    </div>
+
+    <div>
+      <h3 class="mb-1 font-semibold text-slate-900">Suggested order quantity</h3>
+      <p>
+        How many units to actually buy when we trip the reorder point.
+        We aim to cover <strong>lead time + cover days</strong> of forward demand
+        (default 14 + 45 = 59 days), minus whatever's already on hand or in transit.
+      </p>
+      <p>
+        Formula:
+        <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">velocity × (lead time + cover days) − on hand − in-transit</code>.
+        Then we round up to the supplier's MOQ if set, and to the next case-pack multiple.
+      </p>
+    </div>
+
+    <div>
+      <h3 class="mb-1 font-semibold text-slate-900">Status colors</h3>
+      <ul class="ml-5 list-disc space-y-0.5">
+        <li><span class="font-medium text-rose-700">Out of stock</span> — on hand ≤ 0.</li>
+        <li><span class="font-medium text-amber-700">At risk</span> — will run out before a new PO can arrive (days of supply &lt; lead time).</li>
+        <li><span class="font-medium text-indigo-700">Reorder now</span> — still has runway, but below reorder point — place a PO today.</li>
+        <li><span class="font-medium text-emerald-700">Healthy</span> — sitting between reorder point and overstock line.</li>
+        <li><span class="font-medium text-sky-700">Overstocked</span> — more than 180 days of supply on hand (capital sitting idle).</li>
+        <li><span class="text-slate-500">Discontinued / No velocity</span> — flagged not-reorderable, or never sold in the 60-day window.</li>
+      </ul>
+    </div>
+
+    <div>
+      <h3 class="mb-1 font-semibold text-slate-900">Investment outlook (top tiles)</h3>
+      <p>
+        Projected capital required to keep selling at the current rate for the next
+        30 / 60 / 90 days, ignoring SKUs that are already healthy or overstocked.
+        <em>Reorder Now</em> = the immediate PO total for SKUs currently below
+        their reorder point.
+      </p>
+    </div>
+
+    <p class="text-xs italic text-slate-500">
+      Defaults: lead time 14 days, safety stock {{ (v.safety_stock_pct * 100) | round(0, 'floor') | int }}%,
+      cover {{ v.cover_days }} days. All are tweakable per SKU on the drill-down page,
+      and the page-wide safety / cover dropdowns above let you run what-ifs.
+    </p>
+  </div>
+</details>
+
 {# Main replenishment table #}
 {% if not v.rows %}
 {% call ui.banner(tone="info", title="Nothing to plan yet") %}
@@ -135,7 +237,14 @@
               <span class="text-[9px] tabular-nums {% if not sort_links.days_of_supply.is_active %}text-slate-300{% endif %}">{{ sort_links.days_of_supply.arrow or '↕' }}</span>
             </a>
           </th>
-          <th class="px-3 py-2.5 text-right">Stockout</th>
+          <th class="px-3 py-2.5 text-right">
+            <a href="{{ sort_links.stockout_date.href }}"
+               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.stockout_date.is_active %}text-slate-900{% endif %}"
+               title="Projected date inventory hits zero at current velocity">
+              Stockout
+              <span class="text-[9px] tabular-nums {% if not sort_links.stockout_date.is_active %}text-slate-300{% endif %}">{{ sort_links.stockout_date.arrow or '↕' }}</span>
+            </a>
+          </th>
           <th class="px-3 py-2.5 text-right">Lead time</th>
           <th class="px-3 py-2.5 text-right">Reorder pt</th>
           <th class="px-3 py-2.5 text-right">
