@@ -11,6 +11,11 @@ two ways for the same period:
 The planner shows BOTH side-by-side so the buyer can spot SKUs whose
 recent trend diverges from baseline.
 
+The 60-day baseline is exposed in two flavours: a *raw* mean (every day
+counted at face value) and a *robust* mean (each day clipped at a per-SKU
+spike cap before averaging). The robust rate drives buying math; the raw
+rate drives stockout/at-risk flags so a viral spike still shows up as risk.
+
 Demand filtering (per the product-requirements answer):
 - Only PAID + PAID_SAMPLE order types (real revenue-generating sales)
 - Only Order.status in ('Shipped', 'Completed') — canceled/withdrawn
@@ -22,13 +27,14 @@ The output is `{component_sku: daily_velocity}` — keyed by the SKU you
 actually need to reorder, not the SKU the customer clicked.
 """
 from collections import defaultdict
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.order import Order, OrderLine, OrderType
 from app.services.demand.bundle_expansion import bundle_component_breakdown
 
@@ -37,6 +43,60 @@ from app.services.demand.bundle_expansion import bundle_component_breakdown
 # else (Canceled, Withdrawn, Failed, To ship) didn't materially impact stock.
 COUNTED_STATUSES = ("Shipped", "Completed")
 
+WINDOW_DAYS = 60
+
+
+def _median(values: list[int]) -> Decimal:
+    """Median of a non-empty list. Returns Decimal."""
+    if not values:
+        return Decimal("0")
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    if n % 2 == 1:
+        return Decimal(s[mid])
+    return (Decimal(s[mid - 1]) + Decimal(s[mid])) / Decimal(2)
+
+
+def robust_daily_rate(
+    daily_series: list[int],
+    *,
+    spike_cap_mult: Decimal | None = None,
+    raw_mean_mult: Decimal | None = None,
+    min_units_for_dampening: int | None = None,
+) -> Decimal:
+    """Spike-dampened daily rate for a zero-filled daily-units series.
+
+    See `velocity-spike-dampening-spec-short.md`. A day is clipped only when
+    it exceeds BOTH `cap_mult × median(non-zero days)` AND
+    `mean_mult × raw_mean` — so the two arms protect different regimes:
+    the median arm leaves steady SKUs alone; the mean arm protects
+    intermittent SKUs whose median is degenerate.
+
+    When the SKU's 60-day total is below the units gate, no dampening is
+    applied — the raw rate is returned. This avoids churning low-volume
+    SKUs whose noise floor is already below any meaningful cap.
+    """
+    cap_mult = spike_cap_mult if spike_cap_mult is not None else settings.velocity_spike_cap_mult
+    mean_mult = raw_mean_mult if raw_mean_mult is not None else settings.velocity_raw_mean_mult
+    min_units = (min_units_for_dampening if min_units_for_dampening is not None
+                 else settings.velocity_min_units_for_dampening)
+
+    n = len(daily_series)
+    if n == 0:
+        return Decimal("0")
+    total = sum(daily_series)
+    raw_mean = (Decimal(total) / Decimal(n))
+
+    if total < min_units:
+        return raw_mean.quantize(Decimal("0.01"))
+
+    median_nz = _median([d for d in daily_series if d > 0])
+    cap_day = max(cap_mult * median_nz, mean_mult * raw_mean)
+
+    clipped_total = sum((min(Decimal(d), cap_day) for d in daily_series), Decimal("0"))
+    return (clipped_total / Decimal(n)).quantize(Decimal("0.01"))
+
 
 @dataclass
 class SkuVelocity:
@@ -44,91 +104,117 @@ class SkuVelocity:
     component_sku: str
     units_14d: int          # raw units in last 14d (post-expansion)
     units_60d: int          # raw units in last 60d (post-expansion)
+    daily_series_60d: list[int] = field(default_factory=list)  # zero-filled 60-day series
 
     @property
     def daily_14d(self) -> Decimal:
         return (Decimal(self.units_14d) / Decimal(14)).quantize(Decimal("0.01"))
 
     @property
+    def daily_60d_raw(self) -> Decimal:
+        """Flat 60-day mean — used for days-of-supply, stockout dates, and
+        the at-risk/out-of-stock flags so a viral spike surfaces as risk."""
+        return (Decimal(self.units_60d) / Decimal(WINDOW_DAYS)).quantize(Decimal("0.01"))
+
+    # Back-compat alias: `daily_60d` historically meant the raw mean. Kept so
+    # callers that don't care about the raw/robust split keep working.
+    @property
     def daily_60d(self) -> Decimal:
-        return (Decimal(self.units_60d) / Decimal(60)).quantize(Decimal("0.01"))
+        return self.daily_60d_raw
+
+    @property
+    def daily_60d_robust(self) -> Decimal:
+        """Spike-dampened 60-day rate — drives reorder point, suggested qty,
+        and the investment outlook so one outlier day doesn't trigger
+        overbuying for two months."""
+        return robust_daily_rate(self.daily_series_60d)
 
     @property
     def trend_ratio(self) -> Decimal:
-        """14-day / 60-day daily rate. >1 = accelerating, <1 = decelerating.
-        Returns 1.0 when 60-day rate is zero (no signal to compare against)."""
-        if self.daily_60d == 0:
+        """14-day / 60-day daily rate, both RAW. Surfaces real demand shape
+        without the cap muddying the signal. Returns 1.0 when 60-day rate
+        is zero (no signal to compare against)."""
+        raw = self.daily_60d_raw
+        if raw == 0:
             return Decimal("1")
-        return (self.daily_14d / self.daily_60d).quantize(Decimal("0.01"))
+        return (self.daily_14d / raw).quantize(Decimal("0.01"))
 
 
-def _units_by_sku_in_window(
+def _daily_units_by_sku(
     db: Session, start: datetime, end: datetime
-) -> dict[str, int]:
-    """Raw `{order_line.sku: units}` for shipped/completed PAID orders in
-    [start, end). Pre-bundle-expansion."""
+) -> dict[str, dict[date, int]]:
+    """Per-SKU per-day units for shipped/completed PAID orders in [start, end).
+    Pre-bundle-expansion. Returns `{order_line.sku: {date: units}}`."""
     rows = db.execute(
-        select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+        select(OrderLine.sku, OrderLine.quantity, Order.placed_at)
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.placed_at >= start, Order.placed_at < end)
         .where(Order.order_type.in_([OrderType.PAID, OrderType.PAID_SAMPLE]))
         .where(Order.status.in_(COUNTED_STATUSES))
-        .group_by(OrderLine.sku)
     ).all()
-    return {sku: int(qty or 0) for sku, qty in rows}
+    out: dict[str, dict[date, int]] = defaultdict(lambda: defaultdict(int))
+    for sku, qty, placed_at in rows:
+        out[sku][placed_at.date()] += int(qty or 0)
+    return {k: dict(v) for k, v in out.items()}
 
 
-def _expand_to_components(
-    db: Session, units_by_sku: dict[str, int]
-) -> dict[str, int]:
-    """Translate `{order_line.sku: units}` into `{component_sku: units}` by
-    exploding bundle SKUs into the SKUs of their constituent components.
-
-    A bundle sale of "Kit A" (qty=2) with components 1× Foo + 1× Bar adds
-    2 units of demand to Foo AND 2 units of demand to Bar. A single-SKU
-    sale (no bundle row matches) passes through to its own component
-    bucket.
-    """
-    if not units_by_sku:
+def _expand_daily_to_components(
+    db: Session, daily_by_sku: dict[str, dict[date, int]]
+) -> dict[str, dict[date, int]]:
+    """Translate `{order_line.sku: {date: units}}` into
+    `{component_sku: {date: units}}` by exploding bundle SKUs into their
+    constituent component SKUs. A bundle sale of "Kit A" (qty=N) with
+    components 1× Foo + 1× Bar adds N units of demand to Foo AND N units
+    of demand to Bar on that day. A single-SKU sale passes through to its
+    own component bucket."""
+    if not daily_by_sku:
         return {}
 
-    bundle_map = bundle_component_breakdown(db, set(units_by_sku))
+    bundle_map = bundle_component_breakdown(db, set(daily_by_sku))
 
-    out: dict[str, int] = defaultdict(int)
-    for sku_key, units in units_by_sku.items():
-        if units <= 0:
-            continue
+    out: dict[str, dict[date, int]] = defaultdict(lambda: defaultdict(int))
+    for sku_key, by_day in daily_by_sku.items():
         components = bundle_map.get(sku_key)
         if components:
             for component_sku, qty_per_bundle in components:
-                out[component_sku] += units * qty_per_bundle
+                for d, units in by_day.items():
+                    out[component_sku][d] += units * qty_per_bundle
         else:
-            # Non-bundle: this IS the component SKU itself.
-            out[sku_key] += units
-    return dict(out)
+            for d, units in by_day.items():
+                out[sku_key][d] += units
+    return {k: dict(v) for k, v in out.items()}
 
 
 def compute_velocity(db: Session, *, as_of: datetime) -> dict[str, SkuVelocity]:
-    """Per-component daily velocity over trailing 14d and 60d as of `as_of`.
+    """Per-component daily velocity over trailing 60d as of `as_of`, with
+    a 14d sub-window derived from the same series.
+
+    Window is anchored to midnight so the daily series has clean date
+    boundaries — a query at 14:00 still slots events into whole-day buckets.
 
     Returns a dict keyed by the component SKU (the SKU you reorder against).
     """
-    end = as_of
-    start_14 = end - timedelta(days=14)
-    start_60 = end - timedelta(days=60)
+    end_date = as_of.date()
+    start_date = end_date - timedelta(days=WINDOW_DAYS)
+    start_dt = datetime(start_date.year, start_date.month, start_date.day)
+    end_dt = datetime(end_date.year, end_date.month, end_date.day)
 
-    raw_14 = _units_by_sku_in_window(db, start_14, end)
-    raw_60 = _units_by_sku_in_window(db, start_60, end)
+    raw_daily = _daily_units_by_sku(db, start_dt, end_dt)
+    comp_daily = _expand_daily_to_components(db, raw_daily)
 
-    comp_14 = _expand_to_components(db, raw_14)
-    comp_60 = _expand_to_components(db, raw_60)
-
-    all_components = set(comp_14) | set(comp_60)
-    return {
-        sku: SkuVelocity(
-            component_sku=sku,
-            units_14d=comp_14.get(sku, 0),
-            units_60d=comp_60.get(sku, 0),
+    out: dict[str, SkuVelocity] = {}
+    for component_sku, by_day in comp_daily.items():
+        series_60 = [by_day.get(start_date + timedelta(days=i), 0)
+                     for i in range(WINDOW_DAYS)]
+        units_60 = sum(series_60)
+        if units_60 == 0:
+            # No demand at all — skip rather than emit a zero-velocity row
+            # the planner has to filter back out.
+            continue
+        out[component_sku] = SkuVelocity(
+            component_sku=component_sku,
+            units_14d=sum(series_60[-14:]),
+            units_60d=units_60,
+            daily_series_60d=series_60,
         )
-        for sku in all_components
-    }
+    return out

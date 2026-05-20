@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     demand_cover_days: int = 45
     demand_overstocked_days: int = 180
 
+    # ---- Velocity spike dampening ----------------------------------------
+    # `daily_60d` is a flat 60-day mean — one viral spike inflates it for the
+    # whole window and drives overbuying. The robust rate clips each day at
+    # the max of (cap_mult × median of non-zero days) and (mean_mult × raw mean),
+    # so a real outlier gets capped but normal high-volume days don't. The
+    # units gate avoids churning dead SKUs without dropping live-but-lumpy ones.
+    velocity_spike_cap_mult: Decimal = Decimal("3.0")
+    velocity_raw_mean_mult: Decimal = Decimal("5.0")
+    velocity_min_units_for_dampening: int = 5
+
 
 settings = Settings()
 

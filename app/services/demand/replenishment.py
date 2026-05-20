@@ -53,18 +53,25 @@ class ReplenishmentInputs:
     on_hand: int
     expected_receipts: int        # in-transit / buyer override (default 0)
 
-    daily_velocity: Decimal       # 60-day baseline
+    # 60-day baseline. `daily_velocity` is the ROBUST (spike-dampened) rate —
+    # drives reorder point, suggested qty, and investment math (conservative
+    # buying). `daily_velocity_raw` is the unclipped mean and drives
+    # days-of-supply, stockout date, and at-risk/out-of-stock flags so a
+    # viral spike still surfaces as risk. Falls back to `daily_velocity`
+    # when omitted, so pre-dampening callers and unit tests still work.
+    daily_velocity: Decimal
     daily_velocity_14d: Decimal   # short-term comparison
+    daily_velocity_raw: Decimal | None = None
 
-    lead_time_days: int           # per-SKU or default
-    safety_stock_pct: Decimal     # 0.10 = 10% — same scale across all SKUs
-    cover_days: int               # forward-looking cover beyond lead time
-    overstocked_threshold_days: int
+    lead_time_days: int = 14
+    safety_stock_pct: Decimal = Decimal("0.10")
+    cover_days: int = 45
+    overstocked_threshold_days: int = 180
 
-    moq: int                      # minimum order qty (0 = no minimum)
-    case_pack: int                # round up to this multiple (0/1 = no rounding)
-    is_reorderable: bool
-    unit_cogs: Decimal            # for investment $$ math
+    moq: int = 0                  # minimum order qty (0 = no minimum)
+    case_pack: int = 0            # round up to this multiple (0/1 = no rounding)
+    is_reorderable: bool = True
+    unit_cogs: Decimal = Decimal("0")  # for investment $$ math
 
 
 @dataclass
@@ -96,10 +103,14 @@ class ReplenishmentResult:
 def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult:
     """Single-SKU replenishment calculation."""
     available = inp.on_hand + inp.expected_receipts
-    v = inp.daily_velocity
+    v = inp.daily_velocity                              # ROBUST — drives buying math
+    v_raw = inp.daily_velocity_raw if inp.daily_velocity_raw is not None else v
 
-    # Status: no-velocity SKUs can't drive math (would divide by zero).
-    if v <= 0:
+    # Status: no-velocity SKUs can't drive math (would divide by zero). Use
+    # the raw rate to detect "we have no signal" — if there were ANY recent
+    # sales we have a signal, even if the robust mean got dampened to zero
+    # (only theoretically possible when raw is also zero).
+    if v_raw <= 0:
         status = ReplenishmentStatus.DISCONTINUED if not inp.is_reorderable \
             else ReplenishmentStatus.NO_VELOCITY
         return ReplenishmentResult(
@@ -115,18 +126,21 @@ def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult
             status=status,
         )
 
-    trend = (inp.daily_velocity_14d / v) if v > 0 else Decimal("1")
-    trend = trend.quantize(Decimal("0.01"))
+    # Trend ratio: RAW vs RAW. Surfaces real demand shape — clipping would
+    # muddy the very signal the trend is meant to reveal.
+    trend = (inp.daily_velocity_14d / v_raw).quantize(Decimal("0.01"))
 
-    days_of_supply = (Decimal(available) / v).quantize(Decimal("0.1"))
+    # Days of supply / stockout: RAW. Pessimistic on risk — flag stockouts
+    # early so a viral spike still pings the buyer.
+    days_of_supply = (Decimal(available) / v_raw).quantize(Decimal("0.1"))
     stockout_date = as_of + timedelta(days=int(days_of_supply))
 
-    # Reorder point: cover lead-time demand + safety stock buffer.
+    # Reorder point + order quantity: ROBUST. Conservative on buying —
+    # outlier days don't inflate the projection for two months.
     lead_demand = v * Decimal(inp.lead_time_days)
     safety_buffer = lead_demand * inp.safety_stock_pct
     reorder_point = int((lead_demand + safety_buffer).to_integral_value(rounding="ROUND_HALF_UP"))
 
-    # Suggested order quantity (only matters when we're below the reorder point).
     target_units = v * Decimal(inp.lead_time_days + inp.cover_days)
     raw_qty = int((target_units - Decimal(available)).to_integral_value(rounding="ROUND_HALF_UP"))
     raw_qty = max(raw_qty, 0)
