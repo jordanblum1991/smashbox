@@ -295,6 +295,35 @@ class BundleRelationship:
 
 
 @dataclass
+class SkuDemandBreakdown:
+    """Sixty-day order-line mix for one SKU, broken out by what the planner
+    counts vs what it filters out. Buyer uses this to reconcile our planner
+    counts against TikTok Seller Center's raw line view. Totals match
+    `OrderLine` rows directly — no bundle expansion (intentional: TikTok's
+    view is at the order-line level)."""
+    counted_units: int        # PAID/PAID_SAMPLE + Shipped/Completed — drives velocity
+    counted_lines: int
+    free_sample_units: int    # type=SAMPLE + Shipped/Completed — see Sample Tracking report
+    free_sample_lines: int
+    canceled_units: int       # any type, status=Canceled
+    canceled_lines: int
+    pending_units: int        # any type, status="To ship" (fulfillment not yet underway)
+    pending_lines: int
+    other_units: int          # any other status (Failed, Withdrawn, etc.)
+    other_lines: int
+
+    @property
+    def total_units(self) -> int:
+        return (self.counted_units + self.free_sample_units
+                + self.canceled_units + self.pending_units + self.other_units)
+
+    @property
+    def total_lines(self) -> int:
+        return (self.counted_lines + self.free_sample_lines
+                + self.canceled_lines + self.pending_lines + self.other_lines)
+
+
+@dataclass
 class SkuDetailView:
     # The replenishment row (same shape as on the main table).
     row: ReplenishmentResult
@@ -320,6 +349,9 @@ class SkuDetailView:
     # buyer knows what value applies when a per-SKU override is blank.
     default_lead_time_days: int
     default_safety_stock_pct: Decimal
+
+    # Order-line mix over 60 days — for cross-checking against TikTok.
+    demand_breakdown: "SkuDemandBreakdown | None" = None
 
 
 def _weekly_velocity(
@@ -384,6 +416,62 @@ def _weekly_velocity(
         out.append(WeeklyVelocityBucket(week_start=wk_start,
                                         units=component_weekly.get(wk_start, 0)))
     return out
+
+
+def _demand_breakdown(
+    db: Session, component_sku: str, *, as_of: datetime
+) -> SkuDemandBreakdown:
+    """60-day order-line mix for `component_sku`. Buckets every line by what
+    the planner does with it: counted as demand, treated as a free sample,
+    cancelled, pending, or other. Useful for cross-checking against TikTok
+    Seller Center's raw line view."""
+    end_date = as_of.date()
+    start_date = end_date - timedelta(days=60)
+    start_dt = datetime(start_date.year, start_date.month, start_date.day)
+    end_dt = datetime(end_date.year, end_date.month, end_date.day)
+
+    rows = db.execute(
+        select(Order.status, Order.order_type,
+               func.count(OrderLine.id),
+               func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(OrderLine.sku == component_sku)
+        .where(Order.placed_at >= start_dt, Order.placed_at < end_dt)
+        .group_by(Order.status, Order.order_type)
+    ).all()
+
+    counted_u = counted_l = 0
+    sample_u = sample_l = 0
+    canceled_u = canceled_l = 0
+    pending_u = pending_l = 0
+    other_u = other_l = 0
+
+    for status, otype, n_lines, units in rows:
+        u = int(units or 0)
+        ln = int(n_lines or 0)
+        if otype in (OrderType.PAID, OrderType.PAID_SAMPLE) and status in COUNTED_STATUSES:
+            counted_u += u
+            counted_l += ln
+        elif otype == OrderType.SAMPLE and status in COUNTED_STATUSES:
+            sample_u += u
+            sample_l += ln
+        elif status == "Canceled":
+            canceled_u += u
+            canceled_l += ln
+        elif status == "To ship":
+            pending_u += u
+            pending_l += ln
+        else:
+            other_u += u
+            other_l += ln
+
+    return SkuDemandBreakdown(
+        counted_units=counted_u, counted_lines=counted_l,
+        free_sample_units=sample_u, free_sample_lines=sample_l,
+        canceled_units=canceled_u, canceled_lines=canceled_l,
+        pending_units=pending_u, pending_lines=pending_l,
+        other_units=other_u, other_lines=other_l,
+    )
 
 
 def _inventory_history(db: Session, component_sku: str) -> list[InventorySnapshotRow]:
@@ -555,4 +643,5 @@ def compute_sku_detail_view(
         available=available,
         default_lead_time_days=settings.demand_lead_time_default_days,
         default_safety_stock_pct=settings.demand_safety_stock_pct,
+        demand_breakdown=_demand_breakdown(db, component_sku, as_of=now),
     )

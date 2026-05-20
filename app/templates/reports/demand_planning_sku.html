@@ -125,6 +125,80 @@
   </div>
 </section>
 
+{# 60-day demand mix — for cross-checking against TikTok Seller Center #}
+{% if v.demand_breakdown %}
+{% set b = v.demand_breakdown %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">60-day demand mix</h2>
+    <p class="mt-0.5 text-xs text-slate-500">
+      Every order line for this SKU in the trailing 60 days, broken out by what the planner counts vs filters out.
+      Cross-check the total against TikTok Seller Center.
+    </p>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-6 py-2.5">Bucket</th>
+          <th class="px-3 py-2.5 text-right">Units</th>
+          <th class="px-3 py-2.5 text-right">Lines</th>
+          <th class="px-6 py-2.5">Counted by planner?</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        <tr class="bg-emerald-50/30">
+          <td class="px-6 py-2.5 font-medium text-slate-900">Paid · Shipped or Completed</td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">{{ "{:,}".format(b.counted_units) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ "{:,}".format(b.counted_lines) }}</td>
+          <td class="px-6 py-2.5 text-emerald-700">Yes — drives velocity</td>
+        </tr>
+        <tr>
+          <td class="px-6 py-2.5 text-slate-700">Free samples (Shipped or Completed)</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(b.free_sample_units) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ "{:,}".format(b.free_sample_lines) }}</td>
+          <td class="px-6 py-2.5 text-slate-500">No — see <a href="/reports/samples" class="font-medium text-indigo-600 hover:text-indigo-500">Sample Tracking</a></td>
+        </tr>
+        <tr>
+          <td class="px-6 py-2.5 text-slate-700">Cancelled</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(b.canceled_units) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ "{:,}".format(b.canceled_lines) }}</td>
+          <td class="px-6 py-2.5 text-slate-500">No — never shipped</td>
+        </tr>
+        <tr>
+          <td class="px-6 py-2.5 text-slate-700">Pending (To ship)</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(b.pending_units) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ "{:,}".format(b.pending_lines) }}</td>
+          <td class="px-6 py-2.5 text-slate-500">Not yet — counts after it ships</td>
+        </tr>
+        {% if b.other_units > 0 or b.other_lines > 0 %}
+        <tr>
+          <td class="px-6 py-2.5 text-slate-700">Other (Failed, Withdrawn, etc.)</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(b.other_units) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ "{:,}".format(b.other_lines) }}</td>
+          <td class="px-6 py-2.5 text-slate-500">No</td>
+        </tr>
+        {% endif %}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-300 bg-slate-50">
+        <tr>
+          <td class="px-6 py-2.5 font-semibold text-slate-900">Total (matches TikTok line view)</td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">{{ "{:,}".format(b.total_units) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-700">{{ "{:,}".format(b.total_lines) }}</td>
+          <td class="px-6 py-2.5 text-xs text-slate-500">Every order line, regardless of status</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% if b.total_units == 0 %}
+  <div class="border-t border-slate-200 px-6 py-4 text-sm text-slate-500">
+    No order lines for this SKU in the last 60 days under any status. Possible reasons: new catalog item,
+    SKU-code mismatch between orders and inventory, or genuinely dormant.
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 {# Inventory history #}
 <section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="border-b border-slate-200 px-6 py-3">
