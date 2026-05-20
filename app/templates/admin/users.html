@@ -1,16 +1,14 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}Manage Users · Smashbox{% endblock %}
 
 {% block content %}
-<header class="mb-6 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600">Admin</p>
-    <h1 class="text-3xl font-semibold tracking-tight text-slate-900">Manage users</h1>
-    <p class="mt-1.5 text-sm text-slate-500">
-      Add team members, reset passwords, and control role assignments. Users are deactivated rather than deleted to preserve audit trails.
-    </p>
-  </div>
-</header>
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Manage users",
+  subtitle="Add team members, reset passwords, and control role assignments. Users are deactivated rather than deleted to preserve audit trails.",
+) %}
+{% endcall %}
 
 {% if error %}
 <div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
