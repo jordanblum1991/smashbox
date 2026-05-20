@@ -168,7 +168,7 @@
             </a>
             <div class="font-mono text-[10px] text-slate-400">{{ r.component_sku }}</div>
           </td>
-          <td class="px-4 py-2.5 text-slate-700 max-w-[18rem] truncate" title="{{ r.name or '' }}">{{ r.name or "—" }}</td>
+          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ r.name or "—" }}</td>
           <td class="px-3 py-2.5 text-right tabular-nums">{{ "{:,}".format(r.on_hand) }}</td>
           <td class="px-3 py-2.5 text-right tabular-nums {% if r.expected_receipts > 0 %}text-emerald-700{% else %}text-slate-300{% endif %}">
             {% if r.expected_receipts > 0 %}+{{ "{:,}".format(r.expected_receipts) }}{% else %}—{% endif %}
