@@ -13,47 +13,45 @@
 {% endcall %}
 
 {% if not rows %}
-<div class="rounded-lg border border-emerald-200 bg-emerald-50 p-6 text-center text-emerald-800">
-  <p class="text-lg font-medium">Every settled order has a matching order row.</p>
-  <p class="mt-1 text-sm">Your orders file fully covers the date range of your settlement file.</p>
-</div>
+{% call ui.banner(tone="success", title="Every settled order has a matching order row.") %}
+  Your orders file fully covers the date range of your settlement file.
+{% endcall %}
 {% else %}
-<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-  <strong>{{ rows | length }}</strong> settled order{{ '' if rows | length == 1 else 's' }} missing from your orders file.
-  Total impact:
-  {{ rows | sum(attribute='settlement_gross') | money }} of settled gross sales,
-  {{ rows | sum(attribute='settlement_fees') | money }} of TikTok fees — invisible in the P&amp;L until fixed.
-  <p class="mt-1 text-xs">
-    <strong>To fix:</strong> open TikTok Seller Center, export an orders file with a wider date range
-    that covers the dates below, then upload it. The matching settlement data will back-fill automatically.
-  </p>
-</div>
+{% call ui.banner(tone="error",
+                  title=(rows | length | string) ~ " settled order" ~ ('' if rows | length == 1 else 's') ~ " missing from your orders file") %}
+  Total impact: {{ rows | sum(attribute='settlement_gross') | money }} of settled gross sales,
+  {{ rows | sum(attribute='settlement_fees') | money }} of TikTok fees — invisible in the P&amp;L until fixed.<br>
+  <strong>To fix:</strong> open TikTok Seller Center, export an orders file with a wider date range
+  that covers the dates below, then upload it. The matching settlement data will back-fill automatically.
+{% endcall %}
 
-<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+ <div class="overflow-x-auto">
   <table class="min-w-full text-sm">
-    <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
       <tr>
-        <th class="px-4 py-2">TikTok Order ID</th>
-        <th class="px-4 py-2 text-right">Statements</th>
-        <th class="px-4 py-2 text-right">Settled gross</th>
-        <th class="px-4 py-2 text-right">TikTok fees</th>
-        <th class="px-4 py-2">Paid date</th>
-        <th class="px-4 py-2">Settled date</th>
+        <th class="px-4 py-2.5">TikTok Order ID</th>
+        <th class="px-4 py-2.5 text-right">Statements</th>
+        <th class="px-4 py-2.5 text-right">Settled gross</th>
+        <th class="px-4 py-2.5 text-right">TikTok fees</th>
+        <th class="px-4 py-2.5">Paid date</th>
+        <th class="px-4 py-2.5">Settled date</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% for r in rows %}
-      <tr>
-        <td class="px-4 py-2 font-mono text-xs">{{ r.tiktok_order_id }}</td>
-        <td class="px-4 py-2 text-right">{{ r.statement_ids }}</td>
-        <td class="px-4 py-2 text-right">{{ r.settlement_gross | money }}</td>
-        <td class="px-4 py-2 text-right">{{ r.settlement_fees | money }}</td>
-        <td class="px-4 py-2 text-slate-600">{{ r.paid_date.strftime("%Y-%m-%d") if r.paid_date else "—" }}</td>
-        <td class="px-4 py-2 text-slate-600">{{ r.settled_date.strftime("%Y-%m-%d") if r.settled_date else "—" }}</td>
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-4 py-2.5 font-mono text-xs">{{ r.tiktok_order_id }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums">{{ r.statement_ids }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums">{{ r.settlement_gross | money }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums">{{ r.settlement_fees | money }}</td>
+        <td class="px-4 py-2.5 text-slate-600">{{ r.paid_date.strftime("%Y-%m-%d") if r.paid_date else "—" }}</td>
+        <td class="px-4 py-2.5 text-slate-600">{{ r.settled_date.strftime("%Y-%m-%d") if r.settled_date else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+ </div>
 </div>
 {% endif %}
 {% endblock %}

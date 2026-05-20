@@ -265,16 +265,18 @@
 
 <!-- File / data status -->
 {% set s = report.status %}
-<section class="mb-6 rounded-lg border border-slate-200 bg-white p-5">
-  <h2 class="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Data status</h2>
-  <dl class="grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Data status</h2>
+  </header>
+  <dl class="grid grid-cols-1 gap-x-8 gap-y-2 p-6 text-sm sm:grid-cols-2">
     <div class="flex justify-between"><dt class="text-slate-600">Selected reporting period</dt><dd class="font-medium">{{ month_label(report.year, report.month) }}</dd></div>
     <div class="flex justify-between"><dt class="text-slate-600">Orders file loaded</dt>
       <dd class="font-medium {% if s.orders_loaded %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ "Yes" if s.orders_loaded else "No" }}</dd></div>
     <div class="flex justify-between"><dt class="text-slate-600">Settlement file loaded</dt>
       <dd class="font-medium {% if s.settlements_loaded %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ "Yes" if s.settlements_loaded else "No" }}</dd></div>
-    <div class="flex justify-between"><dt class="text-slate-600">Orders row count</dt><dd>{{ "{:,}".format(s.orders_count) }}</dd></div>
-    <div class="flex justify-between"><dt class="text-slate-600">Settlement row count</dt><dd>{{ "{:,}".format(s.settlements_count) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Orders row count</dt><dd class="tabular-nums">{{ "{:,}".format(s.orders_count) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Settlement row count</dt><dd class="tabular-nums">{{ "{:,}".format(s.settlements_count) }}</dd></div>
     <div class="flex justify-between"><dt class="text-slate-600">Latest order placed</dt><dd>{{ s.latest_order_date.strftime("%Y-%m-%d") if s.latest_order_date else "—" }}</dd></div>
     <div class="flex justify-between"><dt class="text-slate-600">Latest settlement (paid_date)</dt><dd>{{ s.latest_settlement_paid_date.strftime("%Y-%m-%d") if s.latest_settlement_paid_date else "—" }}</dd></div>
     <div class="flex justify-between"><dt class="text-slate-600">Latest settlement (settled_date)</dt><dd>{{ s.latest_settlement_settled_date.strftime("%Y-%m-%d") if s.latest_settlement_settled_date else "—" }}</dd></div>
@@ -282,9 +284,9 @@
 </section>
 
 <!-- Reconciliation table -->
-<div class="rounded-lg border border-slate-200 bg-white">
+<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <table class="min-w-full text-sm">
-    <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
       <tr>
         <th class="px-4 py-2">Check</th>
         <th class="px-4 py-2 text-right">Orders / Workbook<br>(System Calculated)</th>

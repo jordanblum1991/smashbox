@@ -106,27 +106,15 @@
 </form>
 
 <!-- Headline tiles -->
-<section class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-  <div class="rounded-lg border border-slate-200 bg-white p-5">
-    <div class="text-xs uppercase tracking-wider text-slate-500">Total Samples Shipped</div>
-    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ view.total_units_shipped }}</div>
-    <p class="mt-1 text-xs text-slate-500">{{ view.sample_orders | length }} sample order line{{ "" if view.sample_orders | length == 1 else "s" }}</p>
-  </div>
-  <div class="rounded-lg border border-slate-200 bg-white p-5">
-    <div class="text-xs uppercase tracking-wider text-slate-500">Total SKU Units Shipped</div>
-    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ view.total_sku_units_shipped }}</div>
-    <p class="mt-1 text-xs text-slate-500">Bundles expanded into their components</p>
-  </div>
-  <div class="rounded-lg border border-slate-200 bg-white p-5">
-    <div class="text-xs uppercase tracking-wider text-slate-500">Free</div>
-    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ view.free_units_shipped }}</div>
-    <p class="mt-1 text-xs text-slate-500">Order type = SAMPLE (TikTok $0 free samples)</p>
-  </div>
-  <div class="rounded-lg border border-slate-200 bg-white p-5">
-    <div class="text-xs uppercase tracking-wider text-slate-500">Paid (explicit)</div>
-    <div class="mt-2 text-3xl font-semibold text-slate-900">{{ view.explicit_paid_units_shipped }}</div>
-    <p class="mt-1 text-xs text-slate-500">Order type = PAID_SAMPLE (only when TikTok flags it)</p>
-  </div>
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {{ ui.kpi("Total Samples Shipped", view.total_units_shipped,
+            (view.sample_orders | length | string) ~ " sample order line" ~ ("" if view.sample_orders | length == 1 else "s")) }}
+  {{ ui.kpi("Total SKU Units Shipped", view.total_sku_units_shipped,
+            "Bundles expanded into their components") }}
+  {{ ui.kpi("Free", view.free_units_shipped,
+            "Order type = SAMPLE (TikTok $0 free samples)") }}
+  {{ ui.kpi("Paid (explicit)", view.explicit_paid_units_shipped,
+            "Order type = PAID_SAMPLE (only when TikTok flags it)") }}
 </section>
 
 <p class="mb-6 text-xs text-slate-500">
@@ -135,12 +123,13 @@
 </p>
 
 {% if view.status_counts %}
-<section class="mb-6 rounded-lg border border-slate-200 bg-white p-5">
-  <h2 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Sample order status</h2>
+<section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Sample order status</h2>
   <div class="flex flex-wrap gap-2 text-sm">
     {% for status, count in view.status_counts.items() %}
-    <span class="rounded-md border border-slate-200 bg-slate-50 px-3 py-1">
-      <span class="text-slate-500">{{ status }}:</span> <strong>{{ count }}</strong>
+    <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-200">
+      <span class="text-slate-500">{{ status }}</span>
+      <strong class="tabular-nums text-slate-900">{{ count }}</strong>
     </span>
     {% endfor %}
   </div>
@@ -152,13 +141,13 @@
 </section>
 {% endif %}
 
-<section class="mb-6 rounded-lg border border-slate-200 bg-white">
-  <h2 class="border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-    Samples vs sales by SKU
-  </h2>
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Samples vs sales by SKU</h2>
+  </header>
   <div class="overflow-x-auto">
     <table class="min-w-full text-sm">
-      <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         <tr>
           <th class="px-4 py-2">SKU</th>
           <th class="px-4 py-2">Product Name</th>
@@ -197,15 +186,15 @@
   </div>
 </section>
 
-<details class="rounded-lg border border-slate-200 bg-white print:hidden">
-  <summary class="cursor-pointer px-5 py-3 text-sm font-medium">
+<details class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm print:hidden">
+  <summary class="cursor-pointer px-6 py-3 text-base font-semibold text-slate-900 hover:bg-slate-50/60">
     Sample order drill-down
-    <span class="ml-2 text-slate-500">({{ view.sample_orders | length }} line{{ "" if view.sample_orders | length == 1 else "s" }})</span>
+    <span class="ml-2 text-xs font-normal text-slate-500">({{ view.sample_orders | length }} line{{ "" if view.sample_orders | length == 1 else "s" }})</span>
   </summary>
   {% if view.sample_orders %}
   <div class="overflow-x-auto">
     <table class="min-w-full text-sm">
-      <thead class="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         <tr>
           <th class="px-4 py-2">Placed</th>
           <th class="px-4 py-2">TikTok Order ID</th>
