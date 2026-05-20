@@ -32,7 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models.bundle import Bundle
+from app.models.bundle import Bundle, BundleComponent
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
 from app.models.sku import Sku
@@ -115,6 +115,7 @@ class SampleView:
 
     free_units_shipped: int
     explicit_paid_units_shipped: int
+    total_sku_units_shipped: int = 0  # bundles expanded into component counts
     status_counts: dict[str, int] = field(default_factory=dict)
     sample_orders: list[SampleOrderRow] = field(default_factory=list)
     by_sku: list[SampleVsSalesRow] = field(default_factory=list)
@@ -255,6 +256,7 @@ def compute_sample_view(
     ]
 
     by_sku = samples_vs_sales_by_sku(db, start, end)
+    total_sku_units = count_sku_units_shipped(db, start, end)
 
     return SampleView(
         brand=brand,
@@ -264,10 +266,72 @@ def compute_sample_view(
         end=end,
         free_units_shipped=int(free_units_table) + int(free_units_orders),
         explicit_paid_units_shipped=int(paid_units_table) + int(paid_units_orders),
+        total_sku_units_shipped=total_sku_units,
         status_counts=status_counts,
         sample_orders=sample_orders,
         by_sku=by_sku,
     )
+
+
+def count_sku_units_shipped(db: Session, start: datetime, end: datetime) -> int:
+    """Total physical SKU units shipped as samples in [start, end), with bundles
+    EXPANDED into their component counts.
+
+    A sample line of "qty 2" of a bundle whose components sum to 3 contributes
+    2 × 3 = 6 here, vs. 2 for `count_samples_shipped`. Lines that don't resolve
+    to a Bundle (single SKU, or unmapped) contribute their raw quantity.
+
+    Matches the scope of "Total Samples Shipped" — any status, SAMPLE or
+    PAID_SAMPLE order types, plus the manual Sample table.
+    """
+    order_units = dict(
+        db.execute(
+            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+            .join(Order, Order.id == OrderLine.order_id)
+            .where(Order.placed_at >= start, Order.placed_at < end)
+            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+            .group_by(OrderLine.sku)
+        ).all()
+    )
+    sample_units = dict(
+        db.execute(
+            select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
+            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+            .group_by(Sample.sku)
+        ).all()
+    )
+
+    keys = set(order_units) | set(sample_units)
+    if not keys:
+        return 0
+
+    # Per-bundle sum of component quantities, keyed by every identifier a
+    # sample line might carry (tiktok_sku_id or bundle_sku).
+    bundle_expansion: dict[str, int] = {}
+    bundles = db.execute(
+        select(Bundle).where(
+            (Bundle.tiktok_sku_id.in_(keys)) | (Bundle.bundle_sku.in_(keys))
+        )
+    ).scalars().all()
+    if bundles:
+        component_totals = dict(
+            db.execute(
+                select(BundleComponent.bundle_id, func.coalesce(func.sum(BundleComponent.quantity), 0))
+                .where(BundleComponent.bundle_id.in_([b.id for b in bundles]))
+                .group_by(BundleComponent.bundle_id)
+            ).all()
+        )
+        for b in bundles:
+            multiplier = int(component_totals.get(b.id, 0)) or 1
+            for key in (b.tiktok_sku_id, b.bundle_sku):
+                if key:
+                    bundle_expansion[str(key)] = multiplier
+
+    total = 0
+    for key in keys:
+        units = int(order_units.get(key, 0)) + int(sample_units.get(key, 0))
+        total += units * bundle_expansion.get(key, 1)
+    return total
 
 
 def samples_by_sku_shipped(
