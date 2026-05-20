@@ -1,41 +1,38 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}{{ view.title }} · Smashbox{% endblock %}
 
 {% set pnl = view.total %}
 
 {% block content %}
-<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
-  <div>
-    <h1 class="text-2xl font-semibold tracking-tight">
-      {% if view.period_kind.value == "ytd" %}
-        YTD P&amp;L through <span class="text-sky-700">{{ view.title_suffix.replace("YTD through ", "") }}</span>
-      {% else %}
-        P&amp;L for <span class="text-sky-700">{{ view.title_suffix }}</span>
-      {% endif %}
-    </h1>
-    <p class="text-sm text-slate-500">Smashbox TikTok Shop</p>
-  </div>
-  {# Build the query string for the Excel export — same params /reports/pnl
-     was invoked with, so the export reflects exactly what's on screen. #}
-  {% set kind = view.period_kind.value %}
-  {% if kind == "range" and view.monthly_breakdown %}
-    {% set last_m = view.monthly_breakdown[-1].month %}
-    {% set xlsx_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=" ~ (view.month or 1) ~ "&end_year=" ~ last_m.year ~ "&end_month=" ~ last_m.month %}
-  {% else %}
-    {% set xlsx_qs = "?period=" ~ kind ~ "&year=" ~ view.year ~ ("&month=" ~ view.month if view.month else "") %}
-  {% endif %}
-  <div class="flex gap-2 print:hidden">
-    <a href="/export/pnl.xlsx{{ xlsx_qs }}"
-       class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">
-      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-      </svg>
-      Export Excel
-    </a>
-    <button onclick="window.print()"
-       class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">Print</button>
-  </div>
-</div>
+{# Build the query string for the Excel export — same params /reports/pnl
+   was invoked with, so the export reflects exactly what's on screen. #}
+{% set kind = view.period_kind.value %}
+{% if kind == "range" and view.monthly_breakdown %}
+  {% set last_m = view.monthly_breakdown[-1].month %}
+  {% set xlsx_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=" ~ (view.month or 1) ~ "&end_year=" ~ last_m.year ~ "&end_month=" ~ last_m.month %}
+{% else %}
+  {% set xlsx_qs = "?period=" ~ kind ~ "&year=" ~ view.year ~ ("&month=" ~ view.month if view.month else "") %}
+{% endif %}
+
+{% set period_label = view.title_suffix.replace("YTD through ", "") if kind == "ytd" else view.title_suffix %}
+{% set title_label = "YTD P&L" if kind == "ytd" else "Profit & Loss" %}
+
+{% call ui.page_header(
+  eyebrow="Smashbox TikTok Shop",
+  title=title_label,
+  period=period_label,
+) %}
+  <a href="/export/pnl.xlsx{{ xlsx_qs }}"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+    </svg>
+    Export Excel
+  </a>
+  <button onclick="window.print()"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
 
 {% set selector_action = "/reports/pnl" %}
 {% include "partials/period_selector.html" %}
@@ -64,22 +61,17 @@
 </section>
 {% endif %}
 
-<!-- Settlement coverage banner — concise version -->
+<!-- Settlement coverage banner -->
 {% if pnl.orders_count > 0 and pnl.orders_settled < pnl.orders_count %}
 {% set pct = pnl.settlement_coverage_pct %}
 {% set severe = pct < 50 %}
 {% set pending = pnl.orders_count - pnl.orders_settled %}
-<div class="mb-5 flex items-start gap-2 rounded-lg border {{ 'border-rose-200 bg-rose-50' if severe else 'border-amber-200 bg-amber-50' }} px-3 py-2 text-xs leading-snug print:hidden">
-  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ 'text-rose-500' if severe else 'text-amber-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-  </svg>
-  <div class="min-w-0 flex-1 {{ 'text-rose-900' if severe else 'text-amber-900' }}">
-    <span class="font-semibold">Settlement coverage: {{ "%.0f" % pct }}%</span> —
-    {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders have been settled.
-    {% if pending > 0 %}{{ pending }} order{{ '' if pending == 1 else 's' }} still pending,
-    so some fees, commissions, ad costs, and shipping costs may not be fully reflected yet.{% endif %}
-  </div>
-</div>
+{% call ui.banner(tone=('error' if severe else 'warn'),
+                  title="Settlement coverage: " ~ ("%.0f" % pct) ~ "%") %}
+  {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders have been settled.
+  {% if pending > 0 %}{{ pending }} order{{ '' if pending == 1 else 's' }} still pending,
+  so some fees, commissions, ad costs, and shipping costs may not be fully reflected yet.{% endif %}
+{% endcall %}
 {% endif %}
 
 {# -------- single-month statement (redesigned) -------- #}

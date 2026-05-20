@@ -1,16 +1,17 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}{{ view.title }} · Smashbox{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
-  <div>
-    <h1 class="text-2xl font-semibold tracking-tight">
-      Sample Tracking <span class="text-slate-300">·</span> <span class="text-sky-700">{{ view.title_suffix }}</span>
-    </h1>
-    <p class="text-sm text-slate-500">Brand: {{ view.brand }} · {{ view.start.strftime("%Y-%m-%d") }} → {{ view.end.strftime("%Y-%m-%d") }} (end exclusive)</p>
-  </div>
-  <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
-</div>
+{% call ui.page_header(
+  eyebrow="Smashbox TikTok Shop",
+  title="Sample Tracking",
+  period=view.title_suffix,
+  subtitle="Brand: " ~ view.brand ~ " · " ~ view.start.strftime("%Y-%m-%d") ~ " → " ~ view.end.strftime("%Y-%m-%d") ~ " (end exclusive)",
+) %}
+  <button onclick="window.print()"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
 
 <!-- Period selector -->
 {% set kind = view.period_kind.value %}

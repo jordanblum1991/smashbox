@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}Dashboard: {{ view.title_suffix }} · Smashbox{% endblock %}
 
 {% block content %}
@@ -30,31 +31,14 @@
 {% set roas_strong = has_ads and pnl.roas >= 3 %}
 {% set roas_ok = has_ads and pnl.roas >= 1 and pnl.roas < 3 %}
 
-{# ===========================================================================
-   PAGE HEADER
-   =========================================================================== #}
-<header class="mb-6 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600">Smashbox TikTok Shop</p>
-    <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
-      Dashboard <span class="font-normal text-slate-300">·</span>
-      <span class="text-sky-700">{{ view.title_suffix }}</span>
-    </h1>
-    <p class="mt-1.5 text-sm text-slate-500">
-      All figures tie to the
-      <a href="/reports/pnl{{ pnl_qs }}" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">P&amp;L for this period</a>.
-    </p>
-  </div>
-  <div class="flex items-center gap-2 print:hidden">
-    <a href="/reports/pnl{{ pnl_qs }}"
-       class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
-      Open P&amp;L
-      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-      </svg>
-    </a>
-  </div>
-</header>
+{% call ui.page_header(
+  eyebrow="Smashbox TikTok Shop",
+  title="Dashboard",
+  period=view.title_suffix,
+  subtitle="All figures tie to the P&L for this period."
+) %}
+  {{ ui.btn_primary("Open P&L", href="/reports/pnl" ~ pnl_qs) }}
+{% endcall %}
 
 {# ===========================================================================
    PERIOD SELECTOR
@@ -62,39 +46,22 @@
 {% set selector_action = "/" %}
 {% include "partials/period_selector.html" %}
 
-{# ===========================================================================
-   ALERTS — failed import + settlement coverage
-   =========================================================================== #}
+{# ---- Alerts ---- #}
 {% if last_failed %}
-<div class="mb-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
-  <svg class="mt-0.5 h-5 w-5 shrink-0 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-  </svg>
-  <div class="min-w-0 flex-1 text-sm text-rose-900">
-    <div class="font-semibold">Last import failed</div>
-    <p class="mt-0.5 truncate text-rose-800">
-      <span class="font-medium">{{ last_failed.original_filename }}</span>
-      <span class="text-rose-700">· {{ last_failed.kind.value }} · {{ last_failed.uploaded_at.strftime("%Y-%m-%d %H:%M") }}</span>
-    </p>
-  </div>
-  <a href="/uploads" class="shrink-0 self-center rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:bg-rose-100">
-    View imports →
-  </a>
-</div>
+{% call ui.banner(tone="error", title="Last import failed",
+                  action_label="View imports", action_href="/uploads") %}
+  <span class="font-medium">{{ last_failed.original_filename }}</span>
+  <span class="text-rose-700">· {{ last_failed.kind.value }} · {{ last_failed.uploaded_at.strftime("%Y-%m-%d %H:%M") }}</span>
+{% endcall %}
 {% endif %}
 
 {% if has_orders and not coverage_full %}
 {% set pending = pnl.orders_count - pnl.orders_settled %}
-<div class="mb-6 flex items-start gap-2.5 rounded-xl border {{ 'border-rose-200 bg-rose-50' if coverage_severe else 'border-amber-200 bg-amber-50' }} px-4 py-3 text-xs leading-snug">
-  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ 'text-rose-500' if coverage_severe else 'text-amber-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-  </svg>
-  <div class="min-w-0 flex-1 {{ 'text-rose-900' if coverage_severe else 'text-amber-900' }}">
-    <span class="font-semibold">Settlement coverage: {{ "%.0f" % coverage_pct }}%</span> —
-    {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders have been settled.
-    {{ pending }} order{{ '' if pending == 1 else 's' }} still pending, so some fees, commissions, ad costs, and shipping costs may not be fully reflected yet.
-  </div>
-</div>
+{% call ui.banner(tone=('error' if coverage_severe else 'warn'),
+                  title="Settlement coverage: " ~ ("%.0f" % coverage_pct) ~ "%") %}
+  {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders have been settled.
+  {{ pending }} order{{ '' if pending == 1 else 's' }} still pending, so some fees, commissions, ad costs, and shipping costs may not be fully reflected yet.
+{% endcall %}
 {% endif %}
 
 {# ===========================================================================

@@ -1,0 +1,267 @@
+{#
+  Shared UI macros — single source of truth for page chrome.
+
+  Import once at the top of any template that uses these macros:
+      {% import "partials/ui.html" as ui %}
+
+  Then:
+      {{ ui.page_header(eyebrow="P&L", title="Profit & Loss", period="May 2026") }}
+      {{ ui.kpi("Net Profit", pnl.net_profit | money, "After everything", tone="pos") }}
+
+  ---- Design tokens (apply consistently across the app) ----------------------
+
+  Cards:        rounded-2xl  border border-slate-200  shadow-sm
+                hover:shadow-md  (when clickable)
+  Padding:      p-5  inside small cards,  p-6  for major sections
+  Section gap:  mb-6  between sections
+  Eyebrow:      text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600
+                (page-level)
+  Tile label:   text-[11px] font-semibold uppercase tracking-wider text-slate-500
+                (inside KPI cards)
+  H1:           text-3xl font-semibold tracking-tight text-slate-900
+  Money/value:  text-2xl font-semibold tabular-nums text-slate-900
+
+  Semantic tone palette:
+    pos        emerald   positive performance, success, fresh
+    neg        rose      losses, errors, severe coverage
+    warn       amber     warnings, marginal performance
+    info       sky       informational highlights (period names)
+    accent     indigo    brand-y accents (eyebrow, brand chips)
+    neutral    slate     default body text + chrome
+#}
+
+
+{# ==========================================================================
+   PAGE HEADER  —  the top of every reporting page.
+
+   - `eyebrow`  : small caps brand-text above the title (optional)
+   - `title`    : the page name; renders as h1
+   - `period`   : a period string (e.g. "May 2026") rendered in sky-700 chip
+   - `subtitle` : short description below the title (optional)
+   - `caller()` : right-aligned action slot — use for buttons/links
+   ========================================================================== #}
+{% macro page_header(eyebrow="", title="", period=none, subtitle="") -%}
+<header class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    {% if eyebrow %}
+    <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600">{{ eyebrow }}</p>
+    {% endif %}
+    <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
+      {{ title }}{% if period %} <span class="font-normal text-slate-300">·</span> <span class="text-sky-700">{{ period }}</span>{% endif %}
+    </h1>
+    {% if subtitle %}<p class="mt-1.5 text-sm text-slate-500">{{ subtitle }}</p>{% endif %}
+  </div>
+  {% if caller %}<div class="flex items-center gap-2 print:hidden">{{ caller() }}</div>{% endif %}
+</header>
+{%- endmacro %}
+
+
+{# ==========================================================================
+   KPI / METRIC CARD  —  the small tiles used across Dashboard, P&L, Ad Spend.
+
+   - `label`  : the small uppercase label above the value
+   - `value`  : the big number/string. Already formatted (use `| money` etc.).
+   - `hint`   : small grey caption below the value (optional)
+   - `tone`   : pos | neg | warn | info | accent | none  (default none = slate)
+   - `href`   : when set, the card becomes a clickable link with hover lift
+   - `bar`    : when truthy, draws a thin colored bar at the top in the tone color
+   - `size`   : 'sm' (compact) | 'md' (default) | 'lg' (hero — bigger value)
+   ========================================================================== #}
+{% macro kpi(label, value, hint="", tone="none", href=none, bar=false, size="md") -%}
+  {% set tone_text = {
+    'pos':'text-emerald-700', 'neg':'text-rose-700',
+    'warn':'text-amber-700', 'info':'text-sky-700',
+    'accent':'text-indigo-700', 'none':'text-slate-900'
+  }[tone] %}
+  {% set tone_bg = {
+    'pos':'bg-emerald-500', 'neg':'bg-rose-500',
+    'warn':'bg-amber-500', 'info':'bg-sky-500',
+    'accent':'bg-indigo-500', 'none':'bg-slate-300'
+  }[tone] %}
+  {% set value_size = {'sm':'text-xl', 'md':'text-2xl', 'lg':'text-4xl'}[size] %}
+  {% set tag = 'a' if href else 'div' %}
+  <{{ tag }} {% if href %}href="{{ href }}"{% endif %}
+    class="relative block overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm{% if href %} transition hover:-translate-y-0.5 hover:shadow-md{% endif %}">
+    {% if bar %}<span class="absolute inset-x-0 top-0 h-0.5 {{ tone_bg }}"></span>{% endif %}
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
+    <div class="mt-2 {{ value_size }} font-semibold tabular-nums {{ tone_text }}">{{ value }}</div>
+    {% if hint %}<div class="mt-1.5 text-xs text-slate-400">{{ hint }}</div>{% endif %}
+  </{{ tag }}>
+{%- endmacro %}
+
+
+{# ==========================================================================
+   BANNER  —  inline alert/notice strip used for settlement coverage, failed
+   imports, info nudges, etc.
+
+   - `tone`   : 'info' (sky) | 'warn' (amber) | 'error' (rose) | 'success' (emerald)
+   - `title`  : short bold lead-in (optional)
+   - `caller`: long-form copy; use the `caller()` slot so callers can embed strong/links
+   - `action_label`/`action_href`: right-aligned CTA (optional)
+   ========================================================================== #}
+{% macro banner(tone="info", title="", action_label=none, action_href=none) -%}
+  {% set tones = {
+    'info':    {'bg':'bg-sky-50',     'border':'border-sky-200',    'text':'text-sky-900',    'icon':'text-sky-500'},
+    'warn':    {'bg':'bg-amber-50',   'border':'border-amber-200',  'text':'text-amber-900',  'icon':'text-amber-500'},
+    'error':   {'bg':'bg-rose-50',    'border':'border-rose-200',   'text':'text-rose-900',   'icon':'text-rose-500'},
+    'success': {'bg':'bg-emerald-50', 'border':'border-emerald-200','text':'text-emerald-900','icon':'text-emerald-500'},
+  } %}
+  {% set t = tones[tone] %}
+  {% set icon = {
+    'info':    'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+    'warn':    'M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z',
+    'error':   'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+    'success': 'M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  }[tone] %}
+<div class="mb-6 flex items-start gap-3 rounded-xl border {{ t.bg }} {{ t.border }} px-4 py-3 text-sm leading-snug {{ t.text }}">
+  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ t.icon }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon }}"/>
+  </svg>
+  <div class="min-w-0 flex-1">
+    {% if title %}<span class="font-semibold">{{ title }}</span>{% if caller %} — {% endif %}{% endif %}
+    {% if caller %}{{ caller() }}{% endif %}
+  </div>
+  {% if action_label and action_href %}
+  <a href="{{ action_href }}"
+     class="shrink-0 self-start rounded-md border {{ t.border }} bg-white px-3 py-1.5 text-xs font-medium {{ t.text }} hover:bg-slate-50">
+    {{ action_label }} →
+  </a>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+
+{# ==========================================================================
+   SECTION  —  a large content card (replaces the various ad-hoc rounded-lg
+   /rounded-xl /rounded-2xl card chrome scattered throughout the app).
+
+   - `title` / `subtitle` / `meta` are optional header bits
+   - `caller()` is the section body
+   - `padding`: 'tight' (p-4) | 'normal' (p-6) | 'flush' (no padding — for tables)
+   ========================================================================== #}
+{% macro section(title="", subtitle="", meta="", padding="normal") -%}
+  {% set inner_pad = {'tight':'p-4', 'normal':'p-6', 'flush':''}[padding] %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  {% if title or subtitle or meta %}
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      {% if title %}<h2 class="text-base font-semibold text-slate-900">{{ title }}</h2>{% endif %}
+      {% if subtitle %}<p class="mt-0.5 text-xs text-slate-500">{{ subtitle }}</p>{% endif %}
+    </div>
+    {% if meta %}<span class="shrink-0 text-xs text-slate-500">{{ meta }}</span>{% endif %}
+  </header>
+  {% endif %}
+  <div class="{{ inner_pad }}">
+    {{ caller() }}
+  </div>
+</section>
+{%- endmacro %}
+
+
+{# ==========================================================================
+   PILL  —  small inline label/badge.
+
+   - `text` : the label
+   - `tone` : pos | neg | warn | info | accent | neutral
+   - `size` : 'xs' (default, ~10px) | 'sm' (text-xs)
+   ========================================================================== #}
+{% macro pill(text, tone="neutral", size="xs") -%}
+  {% set styles = {
+    'pos':     'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
+    'neg':     'bg-rose-50 text-rose-700 ring-1 ring-rose-200',
+    'warn':    'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
+    'info':    'bg-sky-50 text-sky-700 ring-1 ring-sky-200',
+    'accent':  'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100',
+    'neutral': 'bg-slate-100 text-slate-600',
+  } %}
+  {% set sz = {'xs':'text-[10px] px-1.5 py-0.5', 'sm':'text-xs px-2 py-0.5'}[size] %}
+<span class="inline-flex items-center rounded-full font-semibold uppercase tracking-wider {{ sz }} {{ styles[tone] }}">{{ text }}</span>
+{%- endmacro %}
+
+
+{# ==========================================================================
+   EMPTY STATE  —  dashed placeholder for "no data yet".
+
+   - `title` / `body` : the copy
+   - `action_label` / `action_href` : optional CTA button
+   ========================================================================== #}
+{% macro empty_state(title, body="", action_label=none, action_href=none) -%}
+<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-12 text-center">
+  <p class="text-sm font-medium text-slate-700">{{ title }}</p>
+  {% if body %}<p class="mt-1 text-xs text-slate-500">{{ body }}</p>{% endif %}
+  {% if action_label and action_href %}
+  <a href="{{ action_href }}"
+     class="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800">
+    {{ action_label }}
+  </a>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+
+{# ==========================================================================
+   BUTTON HELPERS  —  consistent button styles for action slots.
+
+   Use as standalone:  {{ ui.btn_primary("Open P&L", href="/reports/pnl") }}
+   ========================================================================== #}
+{% macro btn_primary(label, href=none, type="button") -%}
+  {% if href %}
+  <a href="{{ href }}"
+     class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
+    {{ label }}
+    {% if caller %}{{ caller() }}{% endif %}
+  </a>
+  {% else %}
+  <button type="{{ type }}"
+          class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
+    {{ label }}
+    {% if caller %}{{ caller() }}{% endif %}
+  </button>
+  {% endif %}
+{%- endmacro %}
+
+{% macro btn_secondary(label, href=none, type="button") -%}
+  {% if href %}
+  <a href="{{ href }}"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ label }}
+    {% if caller %}{{ caller() }}{% endif %}
+  </a>
+  {% else %}
+  <button type="{{ type }}"
+          class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ label }}
+    {% if caller %}{{ caller() }}{% endif %}
+  </button>
+  {% endif %}
+{%- endmacro %}
+
+
+{# ==========================================================================
+   TABLE WRAPPER  —  consistent table chrome around an existing <table>.
+
+   Usage:
+       {% call ui.table_card(title="Top SKUs", subtitle="May 2026") %}
+         <table class="...">
+           ...
+         </table>
+       {% endcall %}
+
+   For modules that need collapsibility, use ui.section directly with details.
+   ========================================================================== #}
+{% macro table_card(title="", subtitle="", meta="") -%}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  {% if title or subtitle or meta %}
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      {% if title %}<h2 class="text-base font-semibold text-slate-900">{{ title }}</h2>{% endif %}
+      {% if subtitle %}<p class="mt-0.5 text-xs text-slate-500">{{ subtitle }}</p>{% endif %}
+    </div>
+    {% if meta %}<span class="shrink-0 text-xs text-slate-500">{{ meta }}</span>{% endif %}
+  </header>
+  {% endif %}
+  <div class="overflow-x-auto">
+    {{ caller() }}
+  </div>
+</section>
+{%- endmacro %}

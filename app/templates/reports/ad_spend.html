@@ -1,30 +1,20 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}TikTok Ad Spend · Smashbox{% endblock %}
 
 {% block content %}
-<header class="mb-6 flex flex-wrap items-end justify-between gap-3">
-  <div>
-    <p class="mb-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">TikTok Ads</p>
-    <h1 class="text-2xl font-semibold tracking-tight text-slate-900">
-      Ad Spend Summary{% if summary.period_start %}
-        <span class="text-slate-300">·</span>
-        <span class="text-sky-700">{{ summary.period_start.strftime("%b %d, %Y") }} – {{ summary.period_end.strftime("%b %d, %Y") }}</span>
-      {% endif %}
-    </h1>
-    <p class="mt-1 text-sm text-slate-500">
-      {% if summary.months %}
-        Across {{ summary.months | length }} month{{ "" if summary.months | length == 1 else "s" }}
-      {% else %}
-        No ad spend imported yet — upload a TikTok Ads "Cost" export from the
-        <a class="underline" href="/uploads">Imports</a> page.
-      {% endif %}
-    </p>
-  </div>
+{% set period_label = (summary.period_start.strftime("%b %d, %Y") ~ " – " ~ summary.period_end.strftime("%b %d, %Y")) if summary.period_start else none %}
+{% set subtitle_text = ("Across " ~ summary.months | length ~ (" month" if summary.months | length == 1 else " months")) if summary.months else "No ad spend imported yet." %}
+
+{% call ui.page_header(
+  eyebrow="TikTok Ads",
+  title="Ad Spend Summary",
+  period=period_label,
+  subtitle=subtitle_text,
+) %}
   <button onclick="window.print()"
-          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">
-    Print
-  </button>
-</header>
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
 
 {# Top KPIs — Gross / Credits / Net at a glance. #}
 {% if summary.months %}

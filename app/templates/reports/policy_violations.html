@@ -1,20 +1,17 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}{{ view.title }} · Smashbox{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
-  <div>
-    <h1 class="text-2xl font-semibold tracking-tight">
-      Policy violations <span class="text-slate-300">·</span> <span class="text-sky-700">{{ view.title_suffix }}</span>
-    </h1>
-    <p class="text-sm text-slate-500">
-      Seller-funded discount &gt; {{ (view.policy_cap_pct * 100) | round(0, 'floor') | int }}% of MSRP
-      · {{ view.start.strftime("%Y-%m-%d") }} → {{ view.end.strftime("%Y-%m-%d") }} (end exclusive)
-    </p>
-  </div>
+{% call ui.page_header(
+  eyebrow="Data Health",
+  title="Policy Violations",
+  period=view.title_suffix,
+  subtitle="Seller-funded discount > " ~ ((view.policy_cap_pct * 100) | round(0, 'floor') | int) ~ "% of MSRP · " ~ view.start.strftime("%Y-%m-%d") ~ " → " ~ view.end.strftime("%Y-%m-%d") ~ " (end exclusive)",
+) %}
   <button onclick="window.print()"
-          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
-</div>
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
 
 {# Cross-period heads-up: which months still have unacknowledged violations
    anywhere in the dataset (independent of the selector below). #}

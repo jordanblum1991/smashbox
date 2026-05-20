@@ -1,17 +1,16 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}Unmapped SKUs · Smashbox{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex items-end justify-between">
-  <div>
-    <h1 class="text-2xl font-semibold tracking-tight">Unmapped SKUs</h1>
-    <p class="text-sm text-slate-500">
-      TikTok SKU IDs that appear in your orders but aren't in the Master SKU Sheet or Bundle Mapping yet.
-      Add them to enable product names, MSRP, and COGS — and to fix the P&amp;L gross profit on these lines.
-    </p>
-  </div>
-  <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
-</div>
+{% call ui.page_header(
+  eyebrow="Data Health",
+  title="Unmapped SKUs",
+  subtitle="TikTok SKU IDs that appear in your orders but aren't in the Master SKU Sheet or Bundle Mapping yet. Add them to enable product names, MSRP, and COGS — and to fix the P&L gross profit on these lines.",
+) %}
+  <button onclick="window.print()"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
 
 {% if not rows %}
 <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-6 text-center text-emerald-800">

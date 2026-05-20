@@ -1,16 +1,17 @@
 {% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
 {% block title %}Reconciliation · Smashbox{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex items-end justify-between">
-  <div>
-    <h1 class="text-2xl font-semibold tracking-tight">
-      Reconciliation <span class="text-slate-300">·</span> <span class="text-sky-700">{{ month_label(report.year, report.month) }}</span>
-    </h1>
-    <p class="text-sm text-slate-500">Our P&amp;L vs TikTok settlement</p>
-  </div>
-  <button onclick="window.print()" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 print:hidden">Print</button>
-</div>
+{% call ui.page_header(
+  eyebrow="Data Health",
+  title="Reconciliation",
+  period=month_label(report.year, report.month),
+  subtitle="Our P&L vs TikTok settlement",
+) %}
+  <button onclick="window.print()"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
 
 <!-- Sales reconciliation — TikTok Seller Center "Sales" tile vs our Net Customer Sales -->
 {% set sr = report.sales %}
