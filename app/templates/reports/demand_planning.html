@@ -97,9 +97,15 @@
     <div>
       <h2 class="text-base font-semibold text-slate-900">Replenishment plan</h2>
       <p class="mt-0.5 text-xs text-slate-500">
+        {% if sort_key %}
+        Sorted by <span class="font-medium text-slate-700">{{ sort_key.replace('_', ' ') }}</span> ({{ sort_dir }}).
+        <a href="?{% set non_sort = [] %}{% for k, val in request.query_params.items() if k not in ('sort','dir') %}{% if non_sort.append(k ~ '=' ~ val) %}{% endif %}{% endfor %}{{ non_sort | join('&') }}"
+           class="font-medium text-indigo-600 hover:text-indigo-500">Reset to urgency</a>.
+        {% else %}
         Sorted urgency-first. <span class="text-amber-700">Amber rows</span> = at-risk;
         <span class="text-rose-700">red rows</span> = out of stock;
         <span class="text-indigo-700">indigo rows</span> = reorder now.
+        {% endif %}
       </p>
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ v.rows | length }} SKU{{ "" if v.rows | length == 1 else "s" }}</span>
@@ -110,17 +116,35 @@
         <tr>
           <th class="px-4 py-2.5">SKU</th>
           <th class="px-4 py-2.5">Product</th>
-          <th class="px-3 py-2.5 text-right">On hand</th>
+          <th class="px-3 py-2.5 text-right">
+            <a href="{{ sort_links.on_hand.href }}"
+               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.on_hand.is_active %}text-slate-900{% endif %}">
+              On hand
+              <span class="text-[9px] tabular-nums {% if not sort_links.on_hand.is_active %}text-slate-300{% endif %}">{{ sort_links.on_hand.arrow or '↕' }}</span>
+            </a>
+          </th>
           <th class="px-3 py-2.5 text-right">In transit</th>
           <th class="px-3 py-2.5 text-right">
             14d <span class="font-normal normal-case text-slate-400">/</span> 60d
             <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">units / day</div>
           </th>
-          <th class="px-3 py-2.5 text-right">Days supply</th>
+          <th class="px-3 py-2.5 text-right">
+            <a href="{{ sort_links.days_of_supply.href }}"
+               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.days_of_supply.is_active %}text-slate-900{% endif %}">
+              Days supply
+              <span class="text-[9px] tabular-nums {% if not sort_links.days_of_supply.is_active %}text-slate-300{% endif %}">{{ sort_links.days_of_supply.arrow or '↕' }}</span>
+            </a>
+          </th>
           <th class="px-3 py-2.5 text-right">Stockout</th>
           <th class="px-3 py-2.5 text-right">Lead time</th>
           <th class="px-3 py-2.5 text-right">Reorder pt</th>
-          <th class="px-3 py-2.5 text-right">Suggested qty</th>
+          <th class="px-3 py-2.5 text-right">
+            <a href="{{ sort_links.suggested_qty.href }}"
+               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.suggested_qty.is_active %}text-slate-900{% endif %}">
+              Suggested qty
+              <span class="text-[9px] tabular-nums {% if not sort_links.suggested_qty.is_active %}text-slate-300{% endif %}">{{ sort_links.suggested_qty.arrow or '↕' }}</span>
+            </a>
+          </th>
           <th class="px-3 py-2.5 text-right">Investment</th>
           <th class="px-3 py-2.5">Status</th>
         </tr>

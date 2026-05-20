@@ -246,17 +246,68 @@ def upsert_ad_credit(
     return RedirectResponse("/reports/ad-spend", status_code=303)
 
 
+# Whitelist of columns the planner table can sort by. Anything else falls
+# back to the report's native urgency-first sort.
+_DEMAND_SORT_KEYS = {"on_hand", "days_of_supply", "suggested_qty"}
+
+
+def _apply_planner_sort(rows, sort_key: str, direction: str) -> None:
+    """Sort `rows` in-place by the chosen column. `days_of_supply` nulls go
+    to the bottom regardless of direction (a null = no data, not a value)."""
+    reverse = direction == "desc"
+    if sort_key == "on_hand":
+        rows.sort(key=lambda r: r.on_hand, reverse=reverse)
+    elif sort_key == "suggested_qty":
+        rows.sort(key=lambda r: r.suggested_order_qty, reverse=reverse)
+    elif sort_key == "days_of_supply":
+        rows.sort(key=lambda r: (
+            1 if r.days_of_supply is None else 0,
+            (-r.days_of_supply if reverse else r.days_of_supply)
+            if r.days_of_supply is not None else Decimal("0"),
+        ))
+
+
+def _build_sort_links(request: Request, current_key: str | None, current_dir: str) -> dict:
+    """Return a per-column `{href, is_active, arrow}` map the template uses
+    to render the sortable headers. Preserves any other query params on the
+    URL so safety/cover/receipts overrides survive a sort click."""
+    from urllib.parse import urlencode
+
+    base_params = [
+        (k, v) for k, v in request.query_params.items() if k not in ("sort", "dir")
+    ]
+
+    def link_for(key: str) -> dict:
+        is_active = current_key == key
+        # Toggle direction on re-click; otherwise default to ascending.
+        next_dir = "desc" if (is_active and current_dir == "asc") else "asc"
+        params = base_params + [("sort", key), ("dir", next_dir)]
+        href = "?" + urlencode(params)
+        if not is_active:
+            arrow = ""
+        elif current_dir == "asc":
+            arrow = "▲"
+        else:
+            arrow = "▼"
+        return {"href": href, "is_active": is_active, "arrow": arrow}
+
+    return {k: link_for(k) for k in _DEMAND_SORT_KEYS}
+
+
 @router.get("/reports/demand-planning")
 def demand_planning_view(
     request: Request,
     safety: str | None = None,
     cover: int | None = None,
     overstocked: int | None = None,
+    sort: str | None = None,
+    dir: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Demand planning replenishment view.
 
     Query-string overrides: ?safety=0.10, ?cover=45, ?overstocked=180.
+    Sort overrides: ?sort=on_hand|days_of_supply|suggested_qty, ?dir=asc|desc.
     `safety` is a fraction (0.10 = 10%, not "10"). Future: persistent settings UI.
     """
     safety_dec: Decimal | None = None
@@ -284,10 +335,21 @@ def demand_planning_view(
         overstocked_days=overstocked,
         expected_receipts=expected_receipts or None,
     )
+
+    sort_key = sort if sort in _DEMAND_SORT_KEYS else None
+    sort_dir = "desc" if (dir or "").lower() == "desc" else "asc"
+    if sort_key:
+        _apply_planner_sort(view.rows, sort_key, sort_dir)
+
     return templates.TemplateResponse(
         request,
         "reports/demand_planning.html",
-        {"view": view},
+        {
+            "view": view,
+            "sort_key": sort_key,
+            "sort_dir": sort_dir,
+            "sort_links": _build_sort_links(request, sort_key, sort_dir),
+        },
     )
 
 
@@ -297,6 +359,8 @@ def demand_planning_csv(
     safety: str | None = None,
     cover: int | None = None,
     overstocked: int | None = None,
+    sort: str | None = None,
+    dir: str | None = None,
     db: Session = Depends(get_db),
 ):
     """CSV export of the current replenishment plan — a single-click PO worksheet.
@@ -327,6 +391,11 @@ def demand_planning_csv(
         overstocked_days=overstocked,
         expected_receipts=expected_receipts or None,
     )
+
+    sort_key = sort if sort in _DEMAND_SORT_KEYS else None
+    sort_dir = "desc" if (dir or "").lower() == "desc" else "asc"
+    if sort_key:
+        _apply_planner_sort(view.rows, sort_key, sort_dir)
 
     import csv
     import io
