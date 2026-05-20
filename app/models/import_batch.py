@@ -26,6 +26,7 @@ class ImportFileKind(str, enum.Enum):
     SKU_MASTER = "sku_master"
     BUNDLE_MAPPING = "bundle_mapping"
     SAMPLES = "samples"
+    INVENTORY_SNAPSHOT = "inventory_snapshot"
 
 
 class ImportBatchStatus(str, enum.Enum):

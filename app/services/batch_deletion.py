@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ad_spend import AdSpend
 from app.models.import_batch import ImportBatch, ImportFileKind
+from app.models.inventory_snapshot import InventorySnapshot
 from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.order import Order
 from app.models.payout import Payout
@@ -84,6 +85,8 @@ def delete_batch(db: Session, batch: ImportBatch) -> DeletionResult:
         result = _delete_analytics(db, batch)
     elif batch.kind == ImportFileKind.SAMPLES:
         result = _delete_samples(db, batch)
+    elif batch.kind == ImportFileKind.INVENTORY_SNAPSHOT:
+        result = _delete_inventory_snapshots(db, batch)
     elif batch.kind in (ImportFileKind.SKU_MASTER, ImportFileKind.BUNDLE_MAPPING):
         # Catalog rows don't track batch ownership — see module docstring.
         result = DeletionResult(kind=batch.kind, rows_deleted=0, audit_only=True)
@@ -210,3 +213,19 @@ def _delete_samples(db: Session, batch: ImportBatch) -> DeletionResult:
     for s in samples:
         db.delete(s)
     return DeletionResult(kind=batch.kind, rows_deleted=len(samples))
+
+
+def _delete_inventory_snapshots(db: Session, batch: ImportBatch) -> DeletionResult:
+    """Roll back snapshots imported by THIS batch.
+
+    The importer upserts on (sku, captured_at), so re-uploading a corrected
+    snapshot transfers `import_batch_id` to the latest batch. Deleting that
+    latest batch therefore removes the most recent on-hand reading for those
+    SKUs — the planner falls back to the prior snapshot automatically.
+    """
+    rows = db.execute(
+        select(InventorySnapshot).where(InventorySnapshot.import_batch_id == batch.id)
+    ).scalars().all()
+    for r in rows:
+        db.delete(r)
+    return DeletionResult(kind=batch.kind, rows_deleted=len(rows))

@@ -3,6 +3,7 @@ from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.bundle import Bundle, BundleComponent
 from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.inventory_snapshot import InventorySnapshot
 from app.models.order import Order, OrderLine, OrderType
 from app.models.payout import Payout
 from app.models.sample import Sample
@@ -21,6 +22,7 @@ __all__ = [
     "ImportBatch",
     "ImportBatchStatus",
     "ImportFileKind",
+    "InventorySnapshot",
     "Order",
     "OrderLine",
     "OrderType",

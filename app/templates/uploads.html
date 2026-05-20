@@ -4,10 +4,15 @@
 {% block content %}
 <h1 class="mb-1 text-2xl font-semibold tracking-tight">Imports</h1>
 <p class="mb-2 text-sm text-slate-500">Upload TikTok Shop exports and SKU/bundle/sample reference files.</p>
-<p class="mb-6 text-sm text-slate-500">
+<p class="mb-2 text-sm text-slate-500">
   Off-platform samples use a fixed CSV layout —
   <a class="font-medium text-slate-700 underline hover:text-slate-900"
-     href="/static/templates/samples_template.csv" download>download the template</a>.
+     href="/static/templates/samples_template.csv" download>download the samples template</a>.
+</p>
+<p class="mb-6 text-sm text-slate-500">
+  Inventory snapshots (on-hand counts) use a fixed CSV layout —
+  <a class="font-medium text-slate-700 underline hover:text-slate-900"
+     href="/static/templates/inventory_snapshot_template.csv" download>download the inventory template</a>.
 </p>
 
 <style>
@@ -23,7 +28,7 @@
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
     <label class="sm:col-span-1">
       <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">File kind</span>
-      {% set kind_labels = {"tiktok_ads": "TikTok Ads (GMV Max)", "tiktok_analytics": "TikTok Shop Analytics (Key metrics)"} %}
+      {% set kind_labels = {"tiktok_ads": "TikTok Ads (GMV Max)", "tiktok_analytics": "TikTok Shop Analytics (Key metrics)", "inventory_snapshot": "Inventory Snapshot (on-hand)"} %}
       <select name="kind" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
         {% for k in kinds %}
         <option value="{{ k.value }}">{{ kind_labels.get(k.value) or k.value.replace("_", " ").title() }}</option>
@@ -130,6 +135,7 @@
   "sku_master":         ("SKU Master",          "Internal product catalog"),
   "bundle_mapping":     ("Bundle Mapping",      "Internal bundle components"),
   "samples":            ("Samples",             "Off-platform sample log"),
+  "inventory_snapshot": ("Inventory Snapshot",  "On-hand counts for demand planning"),
 } %}
 
 <div class="space-y-3">

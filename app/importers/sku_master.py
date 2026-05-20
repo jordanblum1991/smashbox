@@ -44,7 +44,19 @@ COL = {
     "active_status": "Active Status",
     "msrp": "MSRP",
     "cogs": "Cost / COGS",
+    # Procurement attributes — optional. When the column is absent from the
+    # uploaded sheet, existing per-SKU values are preserved (not blanked).
+    "lead_time_days": "Lead Time Days",
+    "moq": "MOQ",
+    "case_pack": "Case Pack",
+    "safety_stock_pct": "Safety Stock %",
+    "is_reorderable": "Reorderable",
 }
+
+# Only update these fields when the corresponding column is present in the
+# uploaded sheet — protects manually-entered values from being nulled out
+# by an upload that doesn't carry the procurement columns.
+PROCUREMENT_FIELDS = ("lead_time_days", "moq", "case_pack", "safety_stock_pct", "is_reorderable")
 
 
 class SkuMasterImporter(BaseImporter):
@@ -56,13 +68,17 @@ class SkuMasterImporter(BaseImporter):
         if missing:
             raise ValueError(f"Master SKU sheet missing required columns: {missing}")
 
+        present_procurement = {
+            f for f in PROCUREMENT_FIELDS if COL[f] in df.columns
+        }
+
         for _, row in df.iterrows():
             canonical = _str(row.get(COL["tiktok_shop_sku"]))
             if not canonical:
                 continue  # scratch row — no SKU populated
 
             try:
-                _upsert_sku(db, canonical, row)
+                _upsert_sku(db, canonical, row, present_procurement)
                 result.rows_imported += 1
             except Exception as exc:  # noqa: BLE001
                 result.skip(f"SKU {canonical}: {exc}")
@@ -70,7 +86,12 @@ class SkuMasterImporter(BaseImporter):
         return result
 
 
-def _upsert_sku(db: Session, canonical: str, row: pd.Series) -> None:
+def _upsert_sku(
+    db: Session,
+    canonical: str,
+    row: pd.Series,
+    present_procurement: set[str],
+) -> None:
     tiktok_sku_id = _str(row.get(COL["tiktok_sku_id"]))
 
     payload = dict(
@@ -86,6 +107,20 @@ def _upsert_sku(db: Session, canonical: str, row: pd.Series) -> None:
         is_active=(_str(row.get(COL["active_status"])) or "").strip().lower()
         not in {"no", "inactive", "discontinued"},
     )
+
+    # Procurement fields — only include those whose columns are actually in
+    # the sheet. A blank cell in a present column nulls the value (operator
+    # intent); an absent column leaves the existing value alone.
+    if "lead_time_days" in present_procurement:
+        payload["lead_time_days"] = _int_or_none(row.get(COL["lead_time_days"]))
+    if "moq" in present_procurement:
+        payload["moq"] = _int_or_none(row.get(COL["moq"]))
+    if "case_pack" in present_procurement:
+        payload["case_pack"] = _int_or_none(row.get(COL["case_pack"]))
+    if "safety_stock_pct" in present_procurement:
+        payload["safety_stock_pct"] = _dec_or_none(row.get(COL["safety_stock_pct"]))
+    if "is_reorderable" in present_procurement:
+        payload["is_reorderable"] = _bool(row.get(COL["is_reorderable"]))
 
     # Prefer to upsert by TikTok SKU ID — that's the canonical product
     # identifier and what `sku` (SBX-form) maps to in one-to-many fashion.
@@ -131,3 +166,32 @@ def _dec(v) -> Decimal:
         return Decimal(s)
     except Exception:  # noqa: BLE001
         return Decimal("0")
+
+
+def _int_or_none(v) -> int | None:
+    s = _str(v)
+    if s is None:
+        return None
+    try:
+        n = int(float(s))
+    except (ValueError, TypeError):
+        return None
+    return n if n >= 0 else None
+
+
+def _dec_or_none(v) -> Decimal | None:
+    s = _str(v)
+    if s is None:
+        return None
+    try:
+        return Decimal(s)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _bool(v) -> bool:
+    """Default-True parser: only explicit no/false/0 values flip to False."""
+    s = (_str(v) or "").strip().lower()
+    if s in {"no", "n", "false", "f", "0", "inactive", "discontinued"}:
+        return False
+    return True

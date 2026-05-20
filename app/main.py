@@ -43,7 +43,16 @@ def _ensure_columns() -> None:
         "samples":              [shop_id_col],
         "tiktok_daily_metrics": [shop_id_col],
         "import_batches":       [shop_id_col],
-        "skus":                 [shop_id_col],
+        "skus": [
+            shop_id_col,
+            # Procurement attributes (Phase A of demand planning).
+            # Nullable; effective defaults applied at planner-compute time.
+            ("lead_time_days", "INTEGER"),
+            ("moq", "INTEGER"),
+            ("case_pack", "INTEGER"),
+            ("safety_stock_pct", "NUMERIC(5,2)"),
+            ("is_reorderable", "BOOLEAN NOT NULL DEFAULT 1"),
+        ],
         "bundles":              [shop_id_col],
         "users": [
             shop_id_col,

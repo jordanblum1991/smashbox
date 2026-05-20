@@ -53,3 +53,13 @@ class Sku(Base):
     unit_cogs: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=Decimal("0"))
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Procurement attributes — Phase A of demand planning. Nullable because
+    # they're populated per-SKU by the buyer over time, not all at once.
+    # Effective defaults are applied at planner-compute time, not here, so
+    # changing a global default doesn't require a DB migration.
+    lead_time_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    moq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    case_pack: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    safety_stock_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    is_reorderable: Mapped[bool] = mapped_column(Boolean, default=True)

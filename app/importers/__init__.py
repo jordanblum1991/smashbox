@@ -5,6 +5,7 @@ the upload route can dispatch by kind.
 """
 from app.importers.base import BaseImporter, ImportResult
 from app.importers.bundle_mapping import BundleMappingImporter
+from app.importers.inventory_snapshot import InventorySnapshotImporter
 from app.importers.samples import SamplesImporter
 from app.importers.sku_master import SkuMasterImporter
 from app.importers.tiktok_ads import TikTokAdsImporter
@@ -23,6 +24,7 @@ IMPORTERS: dict[ImportFileKind, type[BaseImporter]] = {
     ImportFileKind.SKU_MASTER: SkuMasterImporter,
     ImportFileKind.BUNDLE_MAPPING: BundleMappingImporter,
     ImportFileKind.SAMPLES: SamplesImporter,
+    ImportFileKind.INVENTORY_SNAPSHOT: InventorySnapshotImporter,
 }
 
 __all__ = ["BaseImporter", "ImportResult", "IMPORTERS"]
