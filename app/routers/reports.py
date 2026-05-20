@@ -17,7 +17,7 @@ from app.models.ad_credit import AdCredit
 from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
 from app.reports.ad_spend import compute_ad_spend_summary
-from app.reports.demand_planning import compute_demand_planning_view
+from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
 from app.reports.policy_violations import (
@@ -286,6 +286,42 @@ def demand_planning_view(
     return templates.TemplateResponse(
         request,
         "reports/demand_planning.html",
+        {"view": view},
+    )
+
+
+@router.get("/reports/demand-planning/sku/{component_sku}")
+def demand_planning_sku_detail(
+    component_sku: str,
+    request: Request,
+    safety: str | None = None,
+    cover: int | None = None,
+    receipts: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Per-SKU drill-down for the demand planner: weekly velocity, inventory
+    history, bundle relationships, and a math walkthrough explaining the
+    suggested quantity.
+    """
+    safety_dec: Decimal | None = None
+    if safety:
+        try:
+            safety_dec = Decimal(safety)
+        except InvalidOperation:
+            safety_dec = None
+
+    view = compute_sku_detail_view(
+        db, component_sku,
+        safety_stock_pct=safety_dec,
+        cover_days=cover,
+        expected_receipts=int(receipts) if receipts else 0,
+    )
+    if view is None:
+        raise HTTPException(status_code=404, detail=f"No data for SKU {component_sku}")
+
+    return templates.TemplateResponse(
+        request,
+        "reports/demand_planning_sku.html",
         {"view": view},
     )
 

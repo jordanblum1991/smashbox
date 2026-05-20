@@ -133,7 +133,10 @@
         }[r.status.value] %}
         <tr class="{{ row_bg }} hover:bg-slate-50/60">
           <td class="px-4 py-2.5 font-medium text-slate-900">
-            {{ r.sku_code or "—" }}
+            <a href="/reports/demand-planning/sku/{{ r.component_sku }}"
+               class="hover:text-indigo-700 hover:underline">
+              {{ r.sku_code or "—" }}
+            </a>
             <div class="font-mono text-[10px] text-slate-400">{{ r.component_sku }}</div>
           </td>
           <td class="px-4 py-2.5 text-slate-700 max-w-[18rem] truncate" title="{{ r.name or '' }}">{{ r.name or "—" }}</td>

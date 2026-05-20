@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}{{ view.row.sku_code or view.row.component_sku }} · Demand Planning · Smashbox{% endblock %}
+
+{% block content %}
+{% set v = view %}
+{% set r = v.row %}
+
+{% set status_meta = {
+  'out_of_stock':  ('Out of stock',  'neg'),
+  'at_risk':       ('At risk',       'warn'),
+  'reorder_now':   ('Reorder now',   'accent'),
+  'healthy':       ('Healthy',       'pos'),
+  'overstocked':   ('Overstocked',   'info'),
+  'no_velocity':   ('No velocity',   'neutral'),
+  'discontinued':  ('Discontinued',  'neutral'),
+} %}
+{% set status_label, status_tone = status_meta.get(r.status.value, (r.status.value, 'neutral')) %}
+
+{% call ui.page_header(
+  eyebrow="Demand Planning",
+  title=(r.sku_code or r.component_sku),
+  subtitle=(r.name or 'Unmapped SKU'),
+) %}
+  <a href="/reports/demand-planning"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+    </svg>
+    Back to planner
+  </a>
+{% endcall %}
+
+{# Status + key-metric tiles #}
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+  {{ ui.kpi("Status", status_label, "current state", tone=status_tone) }}
+  {{ ui.kpi("On hand", "{:,}".format(r.on_hand),
+            ("Last counted " ~ v.inventory_history[0].captured_at.strftime("%b %d, %Y")) if v.inventory_history else "No snapshot yet") }}
+  {{ ui.kpi("Days of supply", (r.days_of_supply | string) if r.days_of_supply is not none else "—",
+            ("Stocks out " ~ r.stockout_date.strftime("%b %d")) if r.stockout_date else "no data") }}
+  {{ ui.kpi("Suggested order", "{:,}".format(r.suggested_order_qty) if r.suggested_order_qty > 0 else "—",
+            (r.investment | money) if r.investment > 0 else "nothing to PO", tone=("accent" if r.suggested_order_qty > 0 else "none")) }}
+  {{ ui.kpi("Trend (14d / 60d)", (r.daily_velocity_14d | string) ~ " / " ~ (r.daily_velocity | string),
+            ("up " ~ ((r.trend_ratio - 1) * 100) | round | int | string ~ "%") if r.trend_ratio > 1 else
+            (("down " ~ ((1 - r.trend_ratio) * 100) | round | int | string ~ "%") if r.trend_ratio < 1 else "stable"),
+            tone=("pos" if r.trend_ratio > 1.5 else ("neg" if r.trend_ratio < 0.5 and r.daily_velocity > 0 else "none"))) }}
+</section>
+
+{# Math walkthrough #}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">How the suggestion was computed</h2>
+    <p class="mt-0.5 text-xs text-slate-500">Every input, multiplied step by step. Adjust safety stock / cover days at the top of the parent page to see different numbers.</p>
+  </header>
+  <div class="grid grid-cols-1 gap-x-8 gap-y-4 p-6 text-sm md:grid-cols-2">
+    <div>
+      <h3 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Reorder point</h3>
+      <ol class="mt-2 space-y-1 text-slate-700">
+        <li><span class="text-slate-500">Daily velocity (60d):</span>
+          <strong class="float-right tabular-nums">{{ r.daily_velocity }} units</strong></li>
+        <li><span class="text-slate-500">× Lead time:</span>
+          <strong class="float-right tabular-nums">{{ r.lead_time_days }} days</strong></li>
+        <li><span class="text-slate-500">= Lead-time demand:</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(v.lead_time_demand) }} units</strong></li>
+        <li><span class="text-slate-500">+ Safety stock ({{ (v.safety_stock_pct * 100) | round(0, 'floor') | int }}%):</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(v.safety_buffer) }} units</strong></li>
+        <li class="border-t border-slate-200 pt-1.5">
+          <span class="font-semibold text-slate-900">= Reorder point:</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(r.reorder_point) }} units</strong>
+        </li>
+      </ol>
+      <p class="mt-3 text-xs text-slate-500">When available drops below this number, we suggest placing a PO.</p>
+    </div>
+
+    <div>
+      <h3 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Suggested quantity</h3>
+      <ol class="mt-2 space-y-1 text-slate-700">
+        <li><span class="text-slate-500">Daily velocity × (lead time + cover {{ v.cover_days }} d):</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(v.target_units) }} units</strong></li>
+        <li><span class="text-slate-500">− On hand:</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(r.on_hand) }} units</strong></li>
+        <li><span class="text-slate-500">− In-transit:</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(r.expected_receipts) }} units</strong></li>
+        <li><span class="text-slate-500">= Raw target:</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(v.target_units - v.available if v.target_units > v.available else 0) }} units</strong></li>
+        {% if v.sku and v.sku.moq %}
+        <li><span class="text-slate-500">MOQ floor:</span>
+          <strong class="float-right tabular-nums">{{ "{:,}".format(v.sku.moq) }} units</strong></li>
+        {% endif %}
+        {% if v.sku and v.sku.case_pack and v.sku.case_pack > 1 %}
+        <li><span class="text-slate-500">Round up to case pack ({{ v.sku.case_pack }}):</span>
+          <strong class="float-right tabular-nums">—</strong></li>
+        {% endif %}
+        <li class="border-t border-slate-200 pt-1.5">
+          <span class="font-semibold text-slate-900">= Suggested PO quantity:</span>
+          <strong class="float-right tabular-nums {% if r.suggested_order_qty > 0 %}text-indigo-700{% endif %}">{{ "{:,}".format(r.suggested_order_qty) }} units</strong>
+        </li>
+        {% if r.investment > 0 %}
+        <li><span class="text-slate-500">Investment ({{ r.suggested_order_qty }} × {{ v.sku.unit_cogs | money if v.sku and v.sku.unit_cogs else "$0.00" }}):</span>
+          <strong class="float-right tabular-nums">{{ r.investment | money }}</strong></li>
+        {% endif %}
+      </ol>
+    </div>
+  </div>
+</section>
+
+{# Weekly velocity chart #}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Weekly sales velocity</h2>
+    <p class="mt-0.5 text-xs text-slate-500">Last 12 weeks of shipped/completed PAID demand. Bundle sales counted at the component level.</p>
+  </header>
+  {% set max_units = (v.weekly_velocity | map(attribute='units') | max) or 1 %}
+  <div class="p-6">
+    <div class="flex items-end justify-between gap-2" style="height: 160px;">
+      {% for wk in v.weekly_velocity %}
+      {% set h = ((wk.units / max_units) * 140) | round(1) %}
+      <div class="flex flex-1 flex-col items-center gap-1.5">
+        <div class="text-[10px] font-medium tabular-nums text-slate-700">{{ wk.units }}</div>
+        <div class="w-full rounded-t-md {% if wk.units == 0 %}bg-slate-100{% else %}bg-sky-500/80{% endif %}" style="height: {{ h }}px;"></div>
+        <div class="text-[10px] tabular-nums text-slate-400">{{ wk.week_start.strftime("%b %d") }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{# Inventory history #}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Inventory snapshots</h2>
+    <p class="mt-0.5 text-xs text-slate-500">{{ v.inventory_history | length }} snapshot{{ "" if v.inventory_history | length == 1 else "s" }} on file. Most recent first.</p>
+  </header>
+  {% if v.inventory_history %}
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-6 py-2.5">Captured at (UTC)</th>
+          <th class="px-3 py-2.5 text-right">On hand</th>
+          <th class="px-3 py-2.5 text-right">Δ vs previous</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for snap in v.inventory_history %}
+        {% set prev = v.inventory_history[loop.index] if loop.index < (v.inventory_history | length) else None %}
+        {% set delta = (snap.on_hand - prev.on_hand) if prev else None %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-6 py-2.5 text-slate-700">{{ snap.captured_at.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ "{:,}".format(snap.on_hand) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums {% if delta is none %}text-slate-300{% elif delta > 0 %}text-emerald-700{% elif delta < 0 %}text-rose-700{% else %}text-slate-400{% endif %}">
+            {% if delta is none %}—{% elif delta > 0 %}+{{ "{:,}".format(delta) }}{% elif delta < 0 %}{{ "{:,}".format(delta) }}{% else %}0{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-6 py-8 text-center text-sm text-slate-500">No inventory snapshots uploaded for this SKU yet.</div>
+  {% endif %}
+</section>
+
+{# Procurement settings (read-only for now) #}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Procurement settings</h2>
+      <p class="mt-0.5 text-xs text-slate-500">Updated via the SKU Master CSV today. Inline editing coming in a future round.</p>
+    </div>
+  </header>
+  <dl class="grid grid-cols-1 gap-x-8 gap-y-2 p-6 text-sm sm:grid-cols-2">
+    <div class="flex justify-between"><dt class="text-slate-600">Lead time</dt><dd class="font-medium tabular-nums">{{ r.lead_time_days }} days</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Safety stock</dt><dd class="font-medium tabular-nums">{{ (v.safety_stock_pct * 100) | round(1) }}%</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">MOQ</dt><dd class="font-medium tabular-nums">{% if v.sku and v.sku.moq %}{{ "{:,}".format(v.sku.moq) }}{% else %}<span class="text-slate-400">none</span>{% endif %}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Case pack</dt><dd class="font-medium tabular-nums">{% if v.sku and v.sku.case_pack %}{{ v.sku.case_pack }}{% else %}<span class="text-slate-400">1 (no rounding)</span>{% endif %}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Reorderable</dt>
+      <dd class="font-medium {% if r.status.value == 'discontinued' %}text-rose-700{% else %}text-emerald-700{% endif %}">
+        {{ "No (discontinued)" if r.status.value == 'discontinued' else "Yes" }}
+      </dd></div>
+    <div class="flex justify-between"><dt class="text-slate-600">Unit COGS</dt><dd class="font-medium tabular-nums">{% if v.sku and v.sku.unit_cogs %}{{ v.sku.unit_cogs | money }}{% else %}<span class="text-slate-400">—</span>{% endif %}</dd></div>
+  </dl>
+</section>
+
+{# Bundle relationships #}
+{% if v.bundle_parents or v.bundle_components %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Bundle relationships</h2>
+  </header>
+  <div class="grid grid-cols-1 gap-6 p-6 md:grid-cols-2">
+    {% if v.bundle_parents %}
+    <div>
+      <h3 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">This SKU is a component of</h3>
+      <ul class="mt-2 space-y-1.5 text-sm">
+        {% for b in v.bundle_parents %}
+        <li class="flex items-baseline justify-between gap-3">
+          <span class="text-slate-700">{{ b.name }}{% if b.bundle_sku %} <span class="ml-1 font-mono text-[11px] text-slate-400">{{ b.bundle_sku }}</span>{% endif %}</span>
+          <span class="shrink-0 tabular-nums text-slate-500">×{{ b.qty }} per bundle</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if v.bundle_components %}
+    <div>
+      <h3 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">This SKU is a bundle of</h3>
+      <ul class="mt-2 space-y-1.5 text-sm">
+        {% for c in v.bundle_components %}
+        <li class="flex items-baseline justify-between gap-3">
+          <span class="text-slate-700">{{ c.name }}{% if c.bundle_sku %} <span class="ml-1 font-mono text-[11px] text-slate-400">{{ c.bundle_sku }}</span>{% endif %}</span>
+          <span class="shrink-0 tabular-nums text-slate-500">×{{ c.qty }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

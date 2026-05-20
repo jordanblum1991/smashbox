@@ -13,7 +13,7 @@ Reads only — no writes. Buyer-side "expected receipts" overrides come in as
 a `{component_sku: int}` dict (URL form params from the planner page); not
 persisted in v1.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -21,8 +21,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.models.bundle import Bundle, BundleComponent
 from app.models.inventory_snapshot import InventorySnapshot
+from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
+from app.services.demand.bundle_expansion import bundle_component_breakdown
 from app.services.demand.replenishment import (
     STATUS_PRIORITY,
     ReplenishmentInputs,
@@ -30,7 +33,7 @@ from app.services.demand.replenishment import (
     ReplenishmentStatus,
     compute_one,
 )
-from app.services.demand.velocity import compute_velocity
+from app.services.demand.velocity import COUNTED_STATUSES, compute_velocity
 
 
 @dataclass
@@ -259,4 +262,288 @@ def compute_demand_planning_view(
         investment_60d=_investment_window(60),
         investment_90d=_investment_window(90),
         investment_180d=_investment_window(180),
+    )
+
+
+# =============================================================================
+# Per-SKU drill-down
+# =============================================================================
+
+@dataclass
+class WeeklyVelocityBucket:
+    """One bar in the weekly velocity chart. `week_start` is Monday of the week."""
+    week_start: date
+    units: int
+
+
+@dataclass
+class InventorySnapshotRow:
+    """One row in the inventory history table."""
+    captured_at: datetime
+    on_hand: int
+
+
+@dataclass
+class BundleRelationship:
+    """Either a bundle this SKU is a component of, OR — if this SKU is itself
+    a bundle — the components inside it."""
+    bundle_sku: str | None
+    tiktok_sku_id: str | None
+    name: str
+    qty: int   # qty of THIS sku inside the bundle
+
+
+@dataclass
+class SkuDetailView:
+    # The replenishment row (same shape as on the main table).
+    row: ReplenishmentResult
+
+    # Settings actually used.
+    safety_stock_pct: Decimal
+    cover_days: int
+
+    # Source data.
+    sku: Sku | None
+    weekly_velocity: list[WeeklyVelocityBucket]  # last 12 weeks
+    inventory_history: list[InventorySnapshotRow]  # all snapshots, newest first
+    bundle_parents: list[BundleRelationship]      # bundles this SKU is INSIDE
+    bundle_components: list[BundleRelationship]   # if THIS SKU is a bundle, its parts
+
+    # Math walkthrough — pre-computed so the template can render the formula clearly.
+    lead_time_demand: int       # velocity × lead_time_days
+    safety_buffer: int          # lead_time_demand × safety_pct
+    target_units: int           # velocity × (lead_time + cover_days)
+    available: int              # on_hand + expected_receipts
+
+
+def _weekly_velocity(
+    db: Session, component_sku: str, *, as_of: datetime, weeks: int = 12
+) -> list[WeeklyVelocityBucket]:
+    """Bundle-expanded units shipped per ISO week for the trailing `weeks` weeks.
+
+    Walks back from this week's Monday. Returns weeks oldest-first so the
+    chart reads left-to-right chronologically.
+    """
+    # Snap `as_of` back to the current week's Monday (ISO day-of-week = 1).
+    monday = (as_of - timedelta(days=as_of.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    start = monday - timedelta(weeks=weeks - 1)
+    end = monday + timedelta(weeks=1)
+
+    # Raw `{order_line.sku: units_per_week}` — we need per-week bucketing.
+    # SQLite doesn't have date_trunc, but func.date() can be combined with
+    # arithmetic. Cleanest portable approach: fetch raw rows, bucket in Python.
+    rows = db.execute(
+        select(OrderLine.sku, OrderLine.quantity, Order.placed_at)
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.PAID, OrderType.PAID_SAMPLE]))
+        .where(Order.status.in_(COUNTED_STATUSES))
+    ).all()
+
+    # Build {order_sku: {week_start: units}} so bundle expansion runs once.
+    sku_week_units: dict[str, dict[date, int]] = {}
+    for sku, qty, placed_at in rows:
+        wk_start = (placed_at - timedelta(days=placed_at.weekday())).date()
+        sku_week_units.setdefault(sku, {}).setdefault(wk_start, 0)
+        sku_week_units[sku][wk_start] += int(qty or 0)
+
+    # Bundle expansion: for each order SKU, map its weekly units to the
+    # component_sku we care about (might be the same SKU, or one of the
+    # components inside a bundle).
+    bundle_map = bundle_component_breakdown(db, set(sku_week_units))
+
+    component_weekly: dict[date, int] = {}
+    for order_sku, week_units in sku_week_units.items():
+        components = bundle_map.get(order_sku)
+        if components is None:
+            # Non-bundle: only matters if this IS the component we want.
+            if order_sku != component_sku:
+                continue
+            for wk, n in week_units.items():
+                component_weekly[wk] = component_weekly.get(wk, 0) + n
+        else:
+            # Bundle: pick out our component, if any.
+            for cs, qty_per in components:
+                if cs != component_sku:
+                    continue
+                for wk, n in week_units.items():
+                    component_weekly[wk] = component_weekly.get(wk, 0) + n * qty_per
+
+    # Render every week in the window, even if zero, so the chart has uniform bars.
+    out = []
+    for i in range(weeks):
+        wk_start = (monday - timedelta(weeks=weeks - 1 - i)).date()
+        out.append(WeeklyVelocityBucket(week_start=wk_start,
+                                        units=component_weekly.get(wk_start, 0)))
+    return out
+
+
+def _inventory_history(db: Session, component_sku: str) -> list[InventorySnapshotRow]:
+    """All snapshots for this SKU, newest first. Used for the drill-down's
+    "Inventory history" table — usually <= a few rows at the current cadence."""
+    rows = db.execute(
+        select(InventorySnapshot.captured_at, InventorySnapshot.on_hand)
+        .where(InventorySnapshot.sku == component_sku)
+        .order_by(InventorySnapshot.captured_at.desc())
+    ).all()
+    return [InventorySnapshotRow(captured_at=ca, on_hand=int(oh or 0))
+            for ca, oh in rows]
+
+
+def _bundle_relationships(
+    db: Session, sku_obj: Sku | None, component_sku: str
+) -> tuple[list[BundleRelationship], list[BundleRelationship]]:
+    """Find:
+       (a) bundles this SKU is a component INSIDE of (parents)
+       (b) if this component_sku is itself a bundle key, its child components.
+    """
+    parents: list[BundleRelationship] = []
+    children: list[BundleRelationship] = []
+
+    # Parents: BundleComponent rows where component_sku matches this SKU
+    # by any of its identifiers (SBX form, TikTok SKU ID, alt SKU).
+    candidate_keys: set[str] = {component_sku}
+    if sku_obj:
+        for k in (sku_obj.sku, sku_obj.tiktok_sku_id, sku_obj.tiktok_alt_sku):
+            if k:
+                candidate_keys.add(str(k))
+
+    component_rows = db.execute(
+        select(BundleComponent).where(BundleComponent.component_sku.in_(candidate_keys))
+    ).scalars().all()
+    if component_rows:
+        bundle_ids = {c.bundle_id for c in component_rows}
+        bundles_by_id = {
+            b.id: b for b in db.execute(
+                select(Bundle).where(Bundle.id.in_(bundle_ids))
+            ).scalars()
+        }
+        for c in component_rows:
+            b = bundles_by_id.get(c.bundle_id)
+            if not b:
+                continue
+            parents.append(BundleRelationship(
+                bundle_sku=b.bundle_sku,
+                tiktok_sku_id=b.tiktok_sku_id,
+                name=b.name or "—",
+                qty=int(c.quantity or 0),
+            ))
+
+    # Children: if this SKU is itself a bundle, list its components.
+    bundle = db.execute(
+        select(Bundle).where(
+            (Bundle.tiktok_sku_id == component_sku)
+            | (Bundle.bundle_sku == component_sku)
+        )
+    ).scalar_one_or_none()
+    if bundle:
+        for c in db.execute(
+            select(BundleComponent).where(BundleComponent.bundle_id == bundle.id)
+        ).scalars():
+            children.append(BundleRelationship(
+                bundle_sku=c.component_sku,
+                tiktok_sku_id=None,
+                name=c.component_name or "—",
+                qty=int(c.quantity or 0),
+            ))
+
+    return parents, children
+
+
+def compute_sku_detail_view(
+    db: Session,
+    component_sku: str,
+    *,
+    safety_stock_pct: Decimal | None = None,
+    cover_days: int | None = None,
+    overstocked_days: int | None = None,
+    expected_receipts: int = 0,
+    as_of: datetime | None = None,
+) -> SkuDetailView | None:
+    """Drill-down for one component SKU. Returns None when the SKU has no
+    velocity AND no inventory snapshot — i.e. we have no data on it at all."""
+    safety = safety_stock_pct if safety_stock_pct is not None else settings.demand_safety_stock_pct
+    cover = cover_days if cover_days is not None else settings.demand_cover_days
+    overstocked = overstocked_days if overstocked_days is not None else settings.demand_overstocked_days
+    now = as_of or datetime.now()
+
+    # Pull just this SKU's signals.
+    velocities = compute_velocity(db, as_of=now)
+    v = velocities.get(component_sku)
+
+    on_hand_rows = db.execute(
+        select(InventorySnapshot.captured_at, InventorySnapshot.on_hand)
+        .where(InventorySnapshot.sku == component_sku)
+        .order_by(InventorySnapshot.captured_at.desc())
+        .limit(1)
+    ).first()
+    on_hand = int(on_hand_rows.on_hand) if on_hand_rows else 0
+
+    if v is None and not on_hand_rows:
+        return None
+
+    sku = _sku_by_component(db, {component_sku}).get(component_sku)
+
+    # Effective procurement attrs.
+    lead_time = (sku.lead_time_days if sku and sku.lead_time_days
+                 else settings.demand_lead_time_default_days)
+    moq = (sku.moq or 0) if sku else 0
+    case_pack = (sku.case_pack or 0) if sku else 0
+    sku_safety_pct = None
+    if sku and sku.safety_stock_pct is not None:
+        try:
+            sku_safety_pct = Decimal(str(sku.safety_stock_pct)) / Decimal("100")
+        except Exception:  # noqa: BLE001
+            sku_safety_pct = None
+    effective_safety = sku_safety_pct if sku_safety_pct is not None else safety
+    is_reorderable = True if not sku else (
+        sku.is_reorderable if sku.is_reorderable is not None else True
+    )
+    unit_cogs = Decimal(str(sku.unit_cogs)) if (sku and sku.unit_cogs) else Decimal("0")
+
+    inputs = ReplenishmentInputs(
+        sku_code=(sku.sku if sku else None),
+        component_sku=component_sku,
+        name=(sku.name if sku else None),
+        on_hand=on_hand,
+        expected_receipts=expected_receipts,
+        daily_velocity=v.daily_60d if v else Decimal("0"),
+        daily_velocity_14d=v.daily_14d if v else Decimal("0"),
+        lead_time_days=lead_time,
+        safety_stock_pct=effective_safety,
+        cover_days=cover,
+        overstocked_threshold_days=overstocked,
+        moq=moq,
+        case_pack=case_pack,
+        is_reorderable=is_reorderable,
+        unit_cogs=unit_cogs,
+    )
+    row = compute_one(inputs, as_of=now.date())
+
+    # Math breakdown — recompute the intermediate values for display.
+    lead_time_demand = int((inputs.daily_velocity * Decimal(inputs.lead_time_days))
+                           .to_integral_value(rounding="ROUND_HALF_UP"))
+    safety_buffer = int((Decimal(lead_time_demand) * inputs.safety_stock_pct)
+                        .to_integral_value(rounding="ROUND_HALF_UP"))
+    target_units = int((inputs.daily_velocity * Decimal(inputs.lead_time_days + inputs.cover_days))
+                       .to_integral_value(rounding="ROUND_HALF_UP"))
+    available = on_hand + expected_receipts
+
+    parents, children = _bundle_relationships(db, sku, component_sku)
+
+    return SkuDetailView(
+        row=row,
+        safety_stock_pct=effective_safety,
+        cover_days=cover,
+        sku=sku,
+        weekly_velocity=_weekly_velocity(db, component_sku, as_of=now),
+        inventory_history=_inventory_history(db, component_sku),
+        bundle_parents=parents,
+        bundle_components=children,
+        lead_time_demand=lead_time_demand,
+        safety_buffer=safety_buffer,
+        target_units=target_units,
+        available=available,
     )
