@@ -80,11 +80,18 @@ class DemandPlanningView:
         return [r for r in self.rows if r.status == ReplenishmentStatus.OVERSTOCKED]
 
 
-def _latest_on_hand_per_sku(db: Session) -> tuple[dict[str, int], datetime | None]:
+def _latest_on_hand_per_sku(
+    db: Session, *, alias_map: dict[str, str] | None = None,
+) -> tuple[dict[str, int], datetime | None]:
     """Most-recent `on_hand` for every SKU we've ever snapshotted, plus the
     global latest `captured_at` (used for the "stale data" warning).
-    """
-    # Find the latest captured_at per SKU.
+
+    When `alias_map` is provided, aliased SKUs collapse to their canonical:
+    among all snapshots whose `sku` (alias or canonical) point to the same
+    canonical, the most-recently-captured one wins. This matches the
+    "re-coded product" model — the new code's latest snapshot reflects the
+    physical truth; the old code's snapshot is stale by definition."""
+    # Find the latest captured_at per raw SKU (alias collapse happens below).
     latest_dt_per_sku = dict(
         db.execute(
             select(InventorySnapshot.sku, func.max(InventorySnapshot.captured_at))
@@ -100,9 +107,16 @@ def _latest_on_hand_per_sku(db: Session) -> tuple[dict[str, int], datetime | Non
         .where(InventorySnapshot.sku.in_(latest_dt_per_sku.keys()))
     ).all()
     on_hand: dict[str, int] = {}
+    latest_per_canonical: dict[str, datetime] = {}
+    alias_map = alias_map or {}
     for sku, oh, captured_at in rows:
-        if latest_dt_per_sku[sku] == captured_at:
-            on_hand[sku] = int(oh or 0)
+        if latest_dt_per_sku[sku] != captured_at:
+            continue
+        canonical = alias_map.get(sku, sku)
+        prev = latest_per_canonical.get(canonical)
+        if prev is None or captured_at > prev:
+            latest_per_canonical[canonical] = captured_at
+            on_hand[canonical] = int(oh or 0)
 
     global_latest = max(latest_dt_per_sku.values()) if latest_dt_per_sku else None
     return on_hand, global_latest
@@ -149,11 +163,16 @@ def compute_demand_planning_view(
     now = as_of or datetime.now()
     expected_receipts = expected_receipts or {}
 
-    # Velocity per component SKU (bundle-expanded).
-    velocities = compute_velocity(db, as_of=now)
+    # Load the alias map once and thread it through both signals so a
+    # re-coded SKU's demand AND on-hand history collapse into one signal.
+    from app.services.sku_alias import load_alias_map
+    alias_map = load_alias_map(db)
 
-    # On-hand per inventory snapshot SKU.
-    on_hand_by_sku, latest_snapshot_at = _latest_on_hand_per_sku(db)
+    # Velocity per component SKU (bundle-expanded, alias-collapsed).
+    velocities = compute_velocity(db, as_of=now, alias_map=alias_map)
+
+    # On-hand per inventory snapshot SKU (alias-collapsed to canonical).
+    on_hand_by_sku, latest_snapshot_at = _latest_on_hand_per_sku(db, alias_map=alias_map)
 
     # Union of all SKUs we have ANY signal for. Skip empties.
     all_skus = set(velocities) | set(on_hand_by_sku)
@@ -355,13 +374,19 @@ class SkuDetailView:
 
 
 def _weekly_velocity(
-    db: Session, component_sku: str, *, as_of: datetime, weeks: int = 12
+    db: Session, component_sku: str, *, as_of: datetime, weeks: int = 12,
+    alias_map: dict[str, str] | None = None,
 ) -> list[WeeklyVelocityBucket]:
     """Bundle-expanded units shipped per ISO week for the trailing `weeks` weeks.
 
     Walks back from this week's Monday. Returns weeks oldest-first so the
     chart reads left-to-right chronologically.
+
+    `alias_map` rolls aliased SKUs into their canonical at the order_sku
+    AND component_sku levels — so a legacy code's pre-rename sales show
+    up under the canonical SKU's chart.
     """
+    alias_map = alias_map or {}
     # Snap `as_of` back to the current week's Monday (ISO day-of-week = 1).
     monday = (as_of - timedelta(days=as_of.weekday())).replace(
         hour=0, minute=0, second=0, microsecond=0
@@ -381,15 +406,18 @@ def _weekly_velocity(
     ).all()
 
     # Build {order_sku: {week_start: units}} so bundle expansion runs once.
+    # Alias-collapse the order_sku as we bucket so a re-coded product's pre-
+    # and post-rename weeks merge cleanly.
     sku_week_units: dict[str, dict[date, int]] = {}
     for sku, qty, placed_at in rows:
+        canonical_order_sku = alias_map.get(sku, sku)
         wk_start = (placed_at - timedelta(days=placed_at.weekday())).date()
-        sku_week_units.setdefault(sku, {}).setdefault(wk_start, 0)
-        sku_week_units[sku][wk_start] += int(qty or 0)
+        sku_week_units.setdefault(canonical_order_sku, {}).setdefault(wk_start, 0)
+        sku_week_units[canonical_order_sku][wk_start] += int(qty or 0)
 
     # Bundle expansion: for each order SKU, map its weekly units to the
     # component_sku we care about (might be the same SKU, or one of the
-    # components inside a bundle).
+    # components inside a bundle). Apply alias_map to the component side too.
     bundle_map = bundle_component_breakdown(db, set(sku_week_units))
 
     component_weekly: dict[date, int] = {}
@@ -404,7 +432,7 @@ def _weekly_velocity(
         else:
             # Bundle: pick out our component, if any.
             for cs, qty_per in components:
-                if cs != component_sku:
+                if alias_map.get(cs, cs) != component_sku:
                     continue
                 for wk, n in week_units.items():
                     component_weekly[wk] = component_weekly.get(wk, 0) + n * qty_per
@@ -419,23 +447,29 @@ def _weekly_velocity(
 
 
 def _demand_breakdown(
-    db: Session, component_sku: str, *, as_of: datetime
+    db: Session, component_sku: str, *, as_of: datetime,
+    alias_map: dict[str, str] | None = None,
 ) -> SkuDemandBreakdown:
     """60-day order-line mix for `component_sku`. Buckets every line by what
     the planner does with it: counted as demand, treated as a free sample,
     cancelled, pending, or other. Useful for cross-checking against TikTok
-    Seller Center's raw line view."""
+    Seller Center's raw line view.
+
+    When `alias_map` is supplied, aliases of `component_sku` are included
+    so a re-coded product's old-code lines show up in the canonical's mix."""
+    alias_map = alias_map or {}
     end_date = as_of.date()
     start_date = end_date - timedelta(days=60)
     start_dt = datetime(start_date.year, start_date.month, start_date.day)
     end_dt = datetime(end_date.year, end_date.month, end_date.day)
 
+    aliases_of = {component_sku} | {a for a, c in alias_map.items() if c == component_sku}
     rows = db.execute(
         select(Order.status, Order.order_type,
                func.count(OrderLine.id),
                func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(OrderLine.sku == component_sku)
+        .where(OrderLine.sku.in_(aliases_of))
         .where(Order.placed_at >= start_dt, Order.placed_at < end_dt)
         .group_by(Order.status, Order.order_type)
     ).all()
@@ -474,12 +508,20 @@ def _demand_breakdown(
     )
 
 
-def _inventory_history(db: Session, component_sku: str) -> list[InventorySnapshotRow]:
+def _inventory_history(
+    db: Session, component_sku: str,
+    *, alias_map: dict[str, str] | None = None,
+) -> list[InventorySnapshotRow]:
     """All snapshots for this SKU, newest first. Used for the drill-down's
-    "Inventory history" table — usually <= a few rows at the current cadence."""
+    "Inventory history" table — usually <= a few rows at the current cadence.
+
+    Includes aliases of the canonical SKU when `alias_map` is provided so
+    snapshots taken under the legacy code show in the canonical's history."""
+    alias_map = alias_map or {}
+    aliases_of = {component_sku} | {a for a, c in alias_map.items() if c == component_sku}
     rows = db.execute(
         select(InventorySnapshot.captured_at, InventorySnapshot.on_hand)
-        .where(InventorySnapshot.sku == component_sku)
+        .where(InventorySnapshot.sku.in_(aliases_of))
         .order_by(InventorySnapshot.captured_at.desc())
     ).all()
     return [InventorySnapshotRow(captured_at=ca, on_hand=int(oh or 0))
@@ -563,13 +605,24 @@ def compute_sku_detail_view(
     overstocked = overstocked_days if overstocked_days is not None else settings.demand_overstocked_days
     now = as_of or datetime.now()
 
-    # Pull just this SKU's signals.
-    velocities = compute_velocity(db, as_of=now)
+    # Load the alias map and resolve the requested SKU to its canonical
+    # form — drilling into a legacy code should land on the canonical SKU's
+    # combined history, not a half-empty view of the pre-rename window.
+    from app.services.sku_alias import load_alias_map
+    alias_map = load_alias_map(db)
+    component_sku = alias_map.get(component_sku, component_sku)
+
+    velocities = compute_velocity(db, as_of=now, alias_map=alias_map)
     v = velocities.get(component_sku)
 
+    # Inventory: pull every snapshot whose alias collapses to this canonical,
+    # then take the most-recent one (latest captured_at wins among aliases).
+    aliases_of_canonical = {component_sku} | {
+        a for a, c in alias_map.items() if c == component_sku
+    }
     on_hand_rows = db.execute(
-        select(InventorySnapshot.captured_at, InventorySnapshot.on_hand)
-        .where(InventorySnapshot.sku == component_sku)
+        select(InventorySnapshot.sku, InventorySnapshot.captured_at, InventorySnapshot.on_hand)
+        .where(InventorySnapshot.sku.in_(aliases_of_canonical))
         .order_by(InventorySnapshot.captured_at.desc())
         .limit(1)
     ).first()
@@ -633,8 +686,8 @@ def compute_sku_detail_view(
         safety_stock_pct=effective_safety,
         cover_days=cover,
         sku=sku,
-        weekly_velocity=_weekly_velocity(db, component_sku, as_of=now),
-        inventory_history=_inventory_history(db, component_sku),
+        weekly_velocity=_weekly_velocity(db, component_sku, as_of=now, alias_map=alias_map),
+        inventory_history=_inventory_history(db, component_sku, alias_map=alias_map),
         bundle_parents=parents,
         bundle_components=children,
         lead_time_demand=lead_time_demand,
@@ -643,5 +696,5 @@ def compute_sku_detail_view(
         available=available,
         default_lead_time_days=settings.demand_lead_time_default_days,
         default_safety_stock_pct=settings.demand_safety_stock_pct,
-        demand_breakdown=_demand_breakdown(db, component_sku, as_of=now),
+        demand_breakdown=_demand_breakdown(db, component_sku, as_of=now, alias_map=alias_map),
     )

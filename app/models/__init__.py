@@ -10,6 +10,7 @@ from app.models.sample import Sample
 from app.models.settlement import Adjustment, Settlement
 from app.models.shop import Shop
 from app.models.sku import Sku
+from app.models.sku_alias import SkuAlias
 from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.user import User, UserRole
 
@@ -31,6 +32,7 @@ __all__ = [
     "Settlement",
     "Shop",
     "Sku",
+    "SkuAlias",
     "TikTokDailyMetric",
     "User",
     "UserRole",

@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.order import Order, OrderLine, OrderType
 from app.services.demand.bundle_expansion import bundle_component_breakdown
+from app.services.sku_alias import load_alias_map
 
 
 # Order statuses that count as "actual demand shipped/about-to-ship". Anything
@@ -141,10 +142,15 @@ class SkuVelocity:
 
 
 def _daily_units_by_sku(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime,
+    *, alias_map: dict[str, str] | None = None,
 ) -> dict[str, dict[date, int]]:
     """Per-SKU per-day units for shipped/completed PAID orders in [start, end).
-    Pre-bundle-expansion. Returns `{order_line.sku: {date: units}}`."""
+    Pre-bundle-expansion. Returns `{order_line.sku: {date: units}}`.
+
+    When `alias_map` is provided, aliased SKUs collapse to their canonical
+    BEFORE the daily series is built — so demand history for a re-coded
+    product (e.g. `C09D01` and `SBX-C09D01`) combines into one signal."""
     rows = db.execute(
         select(OrderLine.sku, OrderLine.quantity, Order.placed_at)
         .join(Order, Order.id == OrderLine.order_id)
@@ -153,23 +159,31 @@ def _daily_units_by_sku(
         .where(Order.status.in_(COUNTED_STATUSES))
     ).all()
     out: dict[str, dict[date, int]] = defaultdict(lambda: defaultdict(int))
+    alias_map = alias_map or {}
     for sku, qty, placed_at in rows:
-        out[sku][placed_at.date()] += int(qty or 0)
+        canonical = alias_map.get(sku, sku)
+        out[canonical][placed_at.date()] += int(qty or 0)
     return {k: dict(v) for k, v in out.items()}
 
 
 def _expand_daily_to_components(
-    db: Session, daily_by_sku: dict[str, dict[date, int]]
+    db: Session, daily_by_sku: dict[str, dict[date, int]],
+    *, alias_map: dict[str, str] | None = None,
 ) -> dict[str, dict[date, int]]:
     """Translate `{order_line.sku: {date: units}}` into
     `{component_sku: {date: units}}` by exploding bundle SKUs into their
     constituent component SKUs. A bundle sale of "Kit A" (qty=N) with
     components 1× Foo + 1× Bar adds N units of demand to Foo AND N units
     of demand to Bar on that day. A single-SKU sale passes through to its
-    own component bucket."""
+    own component bucket.
+
+    `alias_map` is also applied to bundle COMPONENTS after expansion — so a
+    legacy component code in the bundle catalog still rolls up into the
+    canonical SKU's daily series."""
     if not daily_by_sku:
         return {}
 
+    alias_map = alias_map or {}
     bundle_map = bundle_component_breakdown(db, set(daily_by_sku))
 
     out: dict[str, dict[date, int]] = defaultdict(lambda: defaultdict(int))
@@ -177,30 +191,42 @@ def _expand_daily_to_components(
         components = bundle_map.get(sku_key)
         if components:
             for component_sku, qty_per_bundle in components:
+                canonical_component = alias_map.get(component_sku, component_sku)
                 for d, units in by_day.items():
-                    out[component_sku][d] += units * qty_per_bundle
+                    out[canonical_component][d] += units * qty_per_bundle
         else:
             for d, units in by_day.items():
                 out[sku_key][d] += units
     return {k: dict(v) for k, v in out.items()}
 
 
-def compute_velocity(db: Session, *, as_of: datetime) -> dict[str, SkuVelocity]:
+def compute_velocity(
+    db: Session, *, as_of: datetime,
+    alias_map: dict[str, str] | None = None,
+) -> dict[str, SkuVelocity]:
     """Per-component daily velocity over trailing 60d as of `as_of`, with
     a 14d sub-window derived from the same series.
 
     Window is anchored to midnight so the daily series has clean date
     boundaries — a query at 14:00 still slots events into whole-day buckets.
 
+    `alias_map` (default: lazy-loaded from `sku_aliases` table) collapses
+    re-coded SKUs to their canonical before daily bucketing, so demand
+    history for a renamed product isn't split across two codes. Pass an
+    explicit `{}` to disable for tests or one-off analyses.
+
     Returns a dict keyed by the component SKU (the SKU you reorder against).
     """
+    if alias_map is None:
+        alias_map = load_alias_map(db)
+
     end_date = as_of.date()
     start_date = end_date - timedelta(days=WINDOW_DAYS)
     start_dt = datetime(start_date.year, start_date.month, start_date.day)
     end_dt = datetime(end_date.year, end_date.month, end_date.day)
 
-    raw_daily = _daily_units_by_sku(db, start_dt, end_dt)
-    comp_daily = _expand_daily_to_components(db, raw_daily)
+    raw_daily = _daily_units_by_sku(db, start_dt, end_dt, alias_map=alias_map)
+    comp_daily = _expand_daily_to_components(db, raw_daily, alias_map=alias_map)
 
     out: dict[str, SkuVelocity] = {}
     for component_sku, by_day in comp_daily.items():
