@@ -161,25 +161,88 @@
   {% endif %}
 </section>
 
-{# Procurement settings (read-only for now) #}
+{# Procurement settings — inline editor #}
 <section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">Procurement settings</h2>
-      <p class="mt-0.5 text-xs text-slate-500">Updated via the SKU Master CSV today. Inline editing coming in a future round.</p>
+      <p class="mt-0.5 text-xs text-slate-500">Changes take effect immediately. Blank fields fall back to global defaults from settings.</p>
     </div>
+    {% if request.query_params.get('saved') %}
+    <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+      Saved
+    </span>
+    {% endif %}
   </header>
-  <dl class="grid grid-cols-1 gap-x-8 gap-y-2 p-6 text-sm sm:grid-cols-2">
-    <div class="flex justify-between"><dt class="text-slate-600">Lead time</dt><dd class="font-medium tabular-nums">{{ r.lead_time_days }} days</dd></div>
-    <div class="flex justify-between"><dt class="text-slate-600">Safety stock</dt><dd class="font-medium tabular-nums">{{ (v.safety_stock_pct * 100) | round(1) }}%</dd></div>
-    <div class="flex justify-between"><dt class="text-slate-600">MOQ</dt><dd class="font-medium tabular-nums">{% if v.sku and v.sku.moq %}{{ "{:,}".format(v.sku.moq) }}{% else %}<span class="text-slate-400">none</span>{% endif %}</dd></div>
-    <div class="flex justify-between"><dt class="text-slate-600">Case pack</dt><dd class="font-medium tabular-nums">{% if v.sku and v.sku.case_pack %}{{ v.sku.case_pack }}{% else %}<span class="text-slate-400">1 (no rounding)</span>{% endif %}</dd></div>
-    <div class="flex justify-between"><dt class="text-slate-600">Reorderable</dt>
-      <dd class="font-medium {% if r.status.value == 'discontinued' %}text-rose-700{% else %}text-emerald-700{% endif %}">
-        {{ "No (discontinued)" if r.status.value == 'discontinued' else "Yes" }}
-      </dd></div>
-    <div class="flex justify-between"><dt class="text-slate-600">Unit COGS</dt><dd class="font-medium tabular-nums">{% if v.sku and v.sku.unit_cogs %}{{ v.sku.unit_cogs | money }}{% else %}<span class="text-slate-400">—</span>{% endif %}</dd></div>
-  </dl>
+  {% if v.sku %}
+  <form method="post" action="/reports/demand-planning/sku/{{ r.component_sku }}/procurement" class="p-6">
+    <div class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+      <label class="block">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Lead time (days)</span>
+        <input type="number" name="lead_time_days" min="0" step="1"
+               value="{% if v.sku.lead_time_days is not none %}{{ v.sku.lead_time_days }}{% endif %}"
+               placeholder="default {{ v.default_lead_time_days }}"
+               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        <span class="mt-1 block text-[11px] text-slate-400">How long from PO to receipt at our warehouse.</span>
+      </label>
+      <label class="block">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Safety stock (%)</span>
+        <input type="number" name="safety_stock_pct" min="0" max="100" step="0.1"
+               value="{% if v.sku.safety_stock_pct is not none %}{{ v.sku.safety_stock_pct }}{% endif %}"
+               placeholder="default {{ (v.default_safety_stock_pct * 100) | round(1) }}"
+               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        <span class="mt-1 block text-[11px] text-slate-400">Cushion on the reorder point. Higher = order earlier.</span>
+      </label>
+      <label class="block">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">MOQ (units)</span>
+        <input type="number" name="moq" min="0" step="1"
+               value="{% if v.sku.moq %}{{ v.sku.moq }}{% endif %}"
+               placeholder="none"
+               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        <span class="mt-1 block text-[11px] text-slate-400">Minimum order quantity the supplier accepts.</span>
+      </label>
+      <label class="block">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Case pack (units)</span>
+        <input type="number" name="case_pack" min="0" step="1"
+               value="{% if v.sku.case_pack %}{{ v.sku.case_pack }}{% endif %}"
+               placeholder="1 (no rounding)"
+               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        <span class="mt-1 block text-[11px] text-slate-400">PO qty rounds up to a multiple of this.</span>
+      </label>
+      <label class="block">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Unit COGS ($)</span>
+        <input type="number" name="unit_cogs" min="0" step="0.0001"
+               value="{% if v.sku.unit_cogs %}{{ v.sku.unit_cogs }}{% endif %}"
+               placeholder="0.00"
+               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        <span class="mt-1 block text-[11px] text-slate-400">Drives the investment column on the planner.</span>
+      </label>
+      <label class="flex items-start gap-2 pt-5">
+        <input type="checkbox" name="is_reorderable" value="on" {% if v.sku.is_reorderable %}checked{% endif %}
+               class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+        <span>
+          <span class="block text-sm font-medium text-slate-900">Reorderable</span>
+          <span class="block text-[11px] text-slate-400">Uncheck to mark as discontinued — the planner stops suggesting orders.</span>
+        </span>
+      </label>
+    </div>
+    <div class="mt-5 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+      <a href="/reports/demand-planning/sku/{{ r.component_sku }}"
+         class="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</a>
+      <button type="submit"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+        Save changes
+      </button>
+    </div>
+  </form>
+  {% else %}
+  <div class="px-6 py-8 text-center text-sm text-slate-500">
+    This SKU isn't in the catalog yet — add it via a
+    <a href="/uploads" class="font-medium text-indigo-600 hover:text-indigo-500">SKU Master upload</a>
+    before editing procurement settings.
+  </div>
+  {% endif %}
 </section>
 
 {# Bundle relationships #}

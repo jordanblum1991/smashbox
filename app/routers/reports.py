@@ -8,7 +8,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from app.db import get_db
 from app.models.ad_credit import AdCredit
 from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
+from app.models.sku import Sku
 from app.reports.ad_spend import compute_ad_spend_summary
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
 from app.reports.monthly_pnl import compute_monthly_pnl
@@ -290,6 +291,150 @@ def demand_planning_view(
     )
 
 
+@router.get("/reports/demand-planning.csv")
+def demand_planning_csv(
+    request: Request,
+    safety: str | None = None,
+    cover: int | None = None,
+    overstocked: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """CSV export of the current replenishment plan — a single-click PO worksheet.
+
+    Mirrors the columns the buyer sees on screen, with the addition of plain
+    numeric versions of money/percent fields so the export drops cleanly into
+    Excel/Sheets without quoting tricks.
+    """
+    safety_dec: Decimal | None = None
+    if safety:
+        try:
+            safety_dec = Decimal(safety)
+        except InvalidOperation:
+            safety_dec = None
+
+    expected_receipts: dict[str, int] = {}
+    for k, val in request.query_params.items():
+        if k.startswith("receipts_") and val.strip():
+            try:
+                expected_receipts[k[len("receipts_"):]] = int(val)
+            except ValueError:
+                pass
+
+    view = compute_demand_planning_view(
+        db,
+        safety_stock_pct=safety_dec,
+        cover_days=cover,
+        overstocked_days=overstocked,
+        expected_receipts=expected_receipts or None,
+    )
+
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "status", "sku", "component_sku", "product",
+        "on_hand", "in_transit", "available",
+        "daily_velocity_14d", "daily_velocity_60d", "trend_ratio",
+        "days_of_supply", "stockout_date",
+        "lead_time_days", "reorder_point",
+        "suggested_order_qty", "investment_usd",
+    ])
+    for r in view.rows:
+        writer.writerow([
+            r.status.value,
+            r.sku_code or "",
+            r.component_sku,
+            r.name or "",
+            r.on_hand,
+            r.expected_receipts,
+            r.available,
+            str(r.daily_velocity_14d),
+            str(r.daily_velocity),
+            str(r.trend_ratio),
+            "" if r.days_of_supply is None else str(r.days_of_supply),
+            r.stockout_date.isoformat() if r.stockout_date else "",
+            r.lead_time_days,
+            r.reorder_point,
+            r.suggested_order_qty,
+            str(r.investment.quantize(Decimal("0.01"))),
+        ])
+
+    filename = f"demand-planning-{view.as_of.isoformat()}.csv"
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/reports/demand-planning/sku/{component_sku}/procurement")
+def demand_planning_update_procurement(
+    component_sku: str,
+    request: Request,
+    lead_time_days: str = Form(default=""),
+    safety_stock_pct: str = Form(default=""),
+    moq: str = Form(default=""),
+    case_pack: str = Form(default=""),
+    unit_cogs: str = Form(default=""),
+    is_reorderable: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    """Update procurement attrs on the matching Sku row. Empty strings clear
+    the field (falls back to global default at planner-compute time). 404 if
+    the SKU isn't yet in the catalog — must be added via SKU Master first."""
+    sku = db.execute(
+        select(Sku).where(
+            (Sku.tiktok_sku_id == component_sku)
+            | (Sku.sku == component_sku)
+            | (Sku.tiktok_alt_sku == component_sku)
+        )
+    ).scalar_one_or_none()
+    if sku is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"SKU {component_sku} is not in the catalog. Add it via the SKU Master upload first.",
+        )
+
+    def _int_or_none(s: str) -> int | None:
+        s = (s or "").strip()
+        if not s:
+            return None
+        try:
+            v = int(s)
+            return v if v >= 0 else None
+        except ValueError:
+            return None
+
+    def _dec_or_none(s: str) -> Decimal | None:
+        s = (s or "").strip()
+        if not s:
+            return None
+        try:
+            return Decimal(s)
+        except InvalidOperation:
+            return None
+
+    sku.lead_time_days = _int_or_none(lead_time_days)
+    sku.moq = _int_or_none(moq)
+    sku.case_pack = _int_or_none(case_pack)
+    safety = _dec_or_none(safety_stock_pct)
+    sku.safety_stock_pct = safety if (safety is not None and 0 <= safety <= 100) else None
+    cogs = _dec_or_none(unit_cogs)
+    if cogs is not None and cogs >= 0:
+        sku.unit_cogs = cogs
+    # Checkbox: present="on" → True; absent → False. NULL is forbidden here
+    # because the column is non-null with a True default.
+    sku.is_reorderable = (is_reorderable is not None)
+    db.commit()
+
+    return RedirectResponse(
+        url=f"/reports/demand-planning/sku/{component_sku}?saved=1",
+        status_code=303,
+    )
+
+
 @router.get("/reports/demand-planning/sku/{component_sku}")
 def demand_planning_sku_detail(
     component_sku: str,
@@ -297,6 +442,7 @@ def demand_planning_sku_detail(
     safety: str | None = None,
     cover: int | None = None,
     receipts: int = 0,
+    saved: int = 0,
     db: Session = Depends(get_db),
 ):
     """Per-SKU drill-down for the demand planner: weekly velocity, inventory

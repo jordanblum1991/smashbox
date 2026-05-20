@@ -315,6 +315,11 @@ class SkuDetailView:
     target_units: int           # velocity × (lead_time + cover_days)
     available: int              # on_hand + expected_receipts
 
+    # Global defaults — shown as placeholders in the procurement editor so the
+    # buyer knows what value applies when a per-SKU override is blank.
+    default_lead_time_days: int
+    default_safety_stock_pct: Decimal
+
 
 def _weekly_velocity(
     db: Session, component_sku: str, *, as_of: datetime, weeks: int = 12
@@ -546,4 +551,6 @@ def compute_sku_detail_view(
         safety_buffer=safety_buffer,
         target_units=target_units,
         available=available,
+        default_lead_time_days=settings.demand_lead_time_default_days,
+        default_safety_stock_pct=settings.demand_safety_stock_pct,
     )
