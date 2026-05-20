@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Demand Planning · Smashbox{% endblock %}
+
+{% block content %}
+{% set v = view %}
+
+{% call ui.page_header(
+  eyebrow="Operations",
+  title="Demand Planning",
+  subtitle="Per-SKU replenishment recommendations from trailing sales velocity, current on-hand inventory, and your procurement settings.",
+) %}
+  <form method="get" action="/reports/demand-planning" class="flex flex-wrap items-end gap-2">
+    <label class="block">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Safety stock</span>
+      <select name="safety" onchange="this.form.submit()"
+              class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm">
+        {% for opt, label in [('0.05', '5%'), ('0.10', '10%'), ('0.15', '15%'), ('0.20', '20%'), ('0.25', '25%')] %}
+        <option value="{{ opt }}" {% if (v.safety_stock_pct|string|float)|round(2) == (opt|float)|round(2) %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Cover days</span>
+      <select name="cover" onchange="this.form.submit()"
+              class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm">
+        {% for opt in [15, 30, 45, 60, 90, 120] %}
+        <option value="{{ opt }}" {% if v.cover_days == opt %}selected{% endif %}>{{ opt }} d</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button onclick="window.print()" type="button"
+            class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+  </form>
+{% endcall %}
+
+{# Stale snapshot warning #}
+{% if v.snapshot_is_stale %}
+{% call ui.banner(tone="warn",
+                  title=("Inventory snapshot is " ~ v.snapshot_age_days ~ " days old"),
+                  action_label="Upload a fresh snapshot", action_href="/uploads") %}
+  Days-of-supply and reorder-now flags drift further from reality with each day. Upload a fresh inventory snapshot to recompute.
+{% endcall %}
+{% elif not v.latest_snapshot_at %}
+{% call ui.banner(tone="error",
+                  title="No inventory snapshot uploaded yet",
+                  action_label="Upload inventory", action_href="/uploads") %}
+  We can compute sales velocity from the orders file, but we need at least one inventory snapshot before days-of-supply and reorder math become meaningful.
+{% endcall %}
+{% endif %}
+
+{# Investment outlook tiles #}
+<section aria-label="Investment outlook" class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+  {{ ui.kpi("Reorder Now", v.investment_total | money,
+            (v.counts_by_status.get('reorder_now', 0) ~ " SKU" ~ ("" if v.counts_by_status.get('reorder_now', 0) == 1 else "s")) ~ " ready to PO",
+            tone=("accent" if v.investment_total > 0 else "none")) }}
+  {{ ui.kpi("30-day spend", v.investment_30d | money, "Projected through " ~ (v.as_of|string)) }}
+  {{ ui.kpi("60-day spend", v.investment_60d | money, "Projected through next 60 days") }}
+  {{ ui.kpi("90-day spend", v.investment_90d | money, "Projected through next 90 days") }}
+</section>
+
+{# Status counts row #}
+{% set sc = v.counts_by_status %}
+<section aria-label="Status mix" class="mb-6 flex flex-wrap gap-2 text-xs">
+  {% set status_meta = [
+    ('out_of_stock',  'Out of stock',   'neg'),
+    ('at_risk',       'At risk',        'warn'),
+    ('reorder_now',   'Reorder now',    'accent'),
+    ('healthy',       'Healthy',        'pos'),
+    ('overstocked',   'Overstocked',    'info'),
+    ('no_velocity',   'No velocity',    'neutral'),
+    ('discontinued',  'Discontinued',   'neutral'),
+  ] %}
+  {% for key, label, tone in status_meta %}
+  {% if sc.get(key, 0) > 0 %}
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs ring-1 ring-slate-200">
+    <span class="font-medium text-slate-900">{{ sc.get(key) }}</span>
+    <span class="text-slate-500">{{ label }}</span>
+  </span>
+  {% endif %}
+  {% endfor %}
+</section>
+
+{# Main replenishment table #}
+{% if not v.rows %}
+{% call ui.banner(tone="info", title="Nothing to plan yet") %}
+  Upload an orders file and an inventory snapshot to populate the planner.
+{% endcall %}
+{% else %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Replenishment plan</h2>
+      <p class="mt-0.5 text-xs text-slate-500">
+        Sorted urgency-first. <span class="text-amber-700">Amber rows</span> = at-risk;
+        <span class="text-rose-700">red rows</span> = out of stock;
+        <span class="text-indigo-700">indigo rows</span> = reorder now.
+      </p>
+    </div>
+    <span class="shrink-0 text-xs text-slate-500">{{ v.rows | length }} SKU{{ "" if v.rows | length == 1 else "s" }}</span>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">SKU</th>
+          <th class="px-4 py-2.5">Product</th>
+          <th class="px-3 py-2.5 text-right">On hand</th>
+          <th class="px-3 py-2.5 text-right">In transit</th>
+          <th class="px-3 py-2.5 text-right">
+            14d <span class="font-normal normal-case text-slate-400">/</span> 60d
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">units / day</div>
+          </th>
+          <th class="px-3 py-2.5 text-right">Days supply</th>
+          <th class="px-3 py-2.5 text-right">Stockout</th>
+          <th class="px-3 py-2.5 text-right">Lead time</th>
+          <th class="px-3 py-2.5 text-right">Reorder pt</th>
+          <th class="px-3 py-2.5 text-right">Suggested qty</th>
+          <th class="px-3 py-2.5 text-right">Investment</th>
+          <th class="px-3 py-2.5">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in v.rows %}
+        {% set row_bg = {
+          'out_of_stock':  'bg-rose-50/40',
+          'at_risk':       'bg-amber-50/40',
+          'reorder_now':   'bg-indigo-50/30',
+          'healthy':       '',
+          'overstocked':   'bg-sky-50/30',
+          'no_velocity':   'bg-slate-50/40',
+          'discontinued':  'bg-slate-50/60 opacity-60',
+        }[r.status.value] %}
+        <tr class="{{ row_bg }} hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900">
+            {{ r.sku_code or "—" }}
+            <div class="font-mono text-[10px] text-slate-400">{{ r.component_sku }}</div>
+          </td>
+          <td class="px-4 py-2.5 text-slate-700 max-w-[18rem] truncate" title="{{ r.name or '' }}">{{ r.name or "—" }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums">{{ "{:,}".format(r.on_hand) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums {% if r.expected_receipts > 0 %}text-emerald-700{% else %}text-slate-300{% endif %}">
+            {% if r.expected_receipts > 0 %}+{{ "{:,}".format(r.expected_receipts) }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums">
+            <span class="{% if r.trend_ratio > 1.5 %}text-emerald-700 font-semibold{% elif r.trend_ratio < 0.5 and r.daily_velocity > 0 %}text-rose-700 font-semibold{% else %}text-slate-700{% endif %}">{{ r.daily_velocity_14d }}</span>
+            <span class="text-slate-300"> / </span>
+            <span class="text-slate-500">{{ r.daily_velocity }}</span>
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums {% if r.days_of_supply is none %}text-slate-300{% elif r.days_of_supply < r.lead_time_days %}text-rose-700 font-semibold{% else %}text-slate-700{% endif %}">
+            {% if r.days_of_supply is not none %}{{ r.days_of_supply }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">
+            {% if r.stockout_date %}{{ r.stockout_date.strftime("%b %d") }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ r.lead_time_days }} d</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ "{:,}".format(r.reorder_point) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-semibold {% if r.suggested_order_qty > 0 %}text-slate-900{% else %}text-slate-300{% endif %}">
+            {% if r.suggested_order_qty > 0 %}{{ "{:,}".format(r.suggested_order_qty) }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums {% if r.investment > 0 %}text-slate-900{% else %}text-slate-300{% endif %}">
+            {% if r.investment > 0 %}{{ r.investment | money }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5">
+            {% set pill_tone = {
+              'out_of_stock': 'neg', 'at_risk': 'warn', 'reorder_now': 'accent',
+              'healthy': 'pos', 'overstocked': 'info',
+              'no_velocity': 'neutral', 'discontinued': 'neutral',
+            }[r.status.value] %}
+            {{ ui.pill(r.status.value.replace('_', ' '), tone=pill_tone) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <footer class="border-t border-slate-200 bg-slate-50/40 px-6 py-3 text-xs text-slate-500">
+    Velocity uses trailing 14-day and 60-day rates across shipped/completed PAID orders, with bundle SKUs expanded into their components.
+    Reorder point = velocity × lead time × (1 + {{ (v.safety_stock_pct * 100) | round(0, 'floor') | int }}% safety). Suggested qty covers lead time + {{ v.cover_days }} days of forward demand,
+    rounded up to MOQ + case-pack when set.
+  </footer>
+</section>
+{% endif %}
+{% endblock %}

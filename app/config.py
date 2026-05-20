@@ -57,6 +57,16 @@ class Settings(BaseSettings):
     # so the exact-sum invariant holds) but flagged as a policy violation.
     seller_funded_policy_cap_pct: Decimal = Decimal("0.30")
 
+    # ---- Demand planning defaults ----------------------------------------
+    # Tunable on the planner page via query-string overrides (?safety, ?cover);
+    # a Phase D settings UI will make these per-shop persistent. Per the
+    # 2026-05 product brief: 10% safety, 14-day default lead time, 45-day
+    # cover, 180-day overstock threshold.
+    demand_safety_stock_pct: Decimal = Decimal("0.10")
+    demand_lead_time_default_days: int = 14
+    demand_cover_days: int = 45
+    demand_overstocked_days: int = 180
+
 
 settings = Settings()
 

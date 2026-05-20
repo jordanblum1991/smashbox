@@ -17,6 +17,7 @@ from app.models.ad_credit import AdCredit
 from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
 from app.reports.ad_spend import compute_ad_spend_summary
+from app.reports.demand_planning import compute_demand_planning_view
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
 from app.reports.policy_violations import (
@@ -242,6 +243,51 @@ def upsert_ad_credit(
         existing.note = note_clean
     db.commit()
     return RedirectResponse("/reports/ad-spend", status_code=303)
+
+
+@router.get("/reports/demand-planning")
+def demand_planning_view(
+    request: Request,
+    safety: str | None = None,
+    cover: int | None = None,
+    overstocked: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Demand planning replenishment view.
+
+    Query-string overrides: ?safety=0.10, ?cover=45, ?overstocked=180.
+    `safety` is a fraction (0.10 = 10%, not "10"). Future: persistent settings UI.
+    """
+    safety_dec: Decimal | None = None
+    if safety:
+        try:
+            safety_dec = Decimal(safety)
+        except InvalidOperation:
+            safety_dec = None
+
+    # Buyer-supplied in-transit overrides come in as `receipts_<sku>=<n>` form
+    # params on a POST; for the GET render we read from query string so links
+    # can preserve them.
+    expected_receipts: dict[str, int] = {}
+    for k, v in request.query_params.items():
+        if k.startswith("receipts_") and v.strip():
+            try:
+                expected_receipts[k[len("receipts_"):]] = int(v)
+            except ValueError:
+                pass
+
+    view = compute_demand_planning_view(
+        db,
+        safety_stock_pct=safety_dec,
+        cover_days=cover,
+        overstocked_days=overstocked,
+        expected_receipts=expected_receipts or None,
+    )
+    return templates.TemplateResponse(
+        request,
+        "reports/demand_planning.html",
+        {"view": view},
+    )
 
 
 @router.get("/reports/ad-spend")
