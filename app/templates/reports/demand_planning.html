@@ -19,6 +19,11 @@
         <option value="{{ opt }}" {% if (v.service_level|float) == (opt|float) %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
+      <span class="mt-1 block max-w-xs text-[11px] leading-snug text-slate-500">
+        Sizes the safety buffer (<code class="text-[10px] text-slate-600">z × σ × √lead_time</code>).
+        Higher % = bigger buffer, fewer stockouts, more capital tied up.
+        Lower % = leaner inventory, more stockout risk.
+      </span>
     </label>
     <label class="block">
       <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Cover days</span>
