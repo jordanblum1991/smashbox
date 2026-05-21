@@ -36,6 +36,7 @@ from app.models.bundle import Bundle, BundleComponent
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
 from app.models.sku import Sku
+from app.services.sku_alias import load_alias_map
 from app.templating import month_label
 
 
@@ -197,6 +198,10 @@ def compute_sample_view(
         period, year, month, start_year, start_month, end_year, end_month
     )
 
+    # Load the alias map once and pass it to every aggregator so the same
+    # re-coded SKU collapses identically across all sections of the report.
+    alias_map = load_alias_map(db)
+
     # 1. Manually-recorded samples
     free_units_table = db.execute(
         select(func.coalesce(func.sum(Sample.quantity), 0))
@@ -255,8 +260,8 @@ def compute_sample_view(
         for r in drill_rows
     ]
 
-    by_sku = samples_vs_sales_by_sku(db, start, end)
-    total_sku_units = count_sku_units_shipped(db, start, end)
+    by_sku = samples_vs_sales_by_sku(db, start, end, alias_map=alias_map)
+    total_sku_units = count_sku_units_shipped(db, start, end, alias_map=alias_map)
 
     return SampleView(
         brand=brand,
@@ -273,7 +278,10 @@ def compute_sample_view(
     )
 
 
-def count_sku_units_shipped(db: Session, start: datetime, end: datetime) -> int:
+def count_sku_units_shipped(
+    db: Session, start: datetime, end: datetime,
+    *, alias_map: dict[str, str] | None = None,
+) -> int:
     """Total physical SKU units shipped as samples in [start, end), with bundles
     EXPANDED into their component counts.
 
@@ -283,23 +291,36 @@ def count_sku_units_shipped(db: Session, start: datetime, end: datetime) -> int:
 
     Matches the scope of "Total Samples Shipped" — any status, SAMPLE or
     PAID_SAMPLE order types, plus the manual Sample table.
+
+    `alias_map` (default: lazy-loaded from `sku_aliases`) collapses aliased
+    keys to canonical BEFORE the bundle lookup so a re-coded bundle's
+    pre-rename units expand correctly.
     """
-    order_units = dict(
-        db.execute(
-            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
-            .join(Order, Order.id == OrderLine.order_id)
-            .where(Order.placed_at >= start, Order.placed_at < end)
-            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
-            .group_by(OrderLine.sku)
-        ).all()
-    )
-    sample_units = dict(
-        db.execute(
-            select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
-            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
-            .group_by(Sample.sku)
-        ).all()
-    )
+    if alias_map is None:
+        alias_map = load_alias_map(db)
+
+    raw_order_rows = db.execute(
+        select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        .group_by(OrderLine.sku)
+    ).all()
+    raw_sample_rows = db.execute(
+        select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
+        .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+        .group_by(Sample.sku)
+    ).all()
+
+    # Re-aggregate post-alias-collapse so a re-coded SKU's split rows merge.
+    order_units: dict[str, int] = {}
+    for sku, qty in raw_order_rows:
+        canonical = alias_map.get(sku, sku)
+        order_units[canonical] = order_units.get(canonical, 0) + int(qty or 0)
+    sample_units: dict[str, int] = {}
+    for sku, qty in raw_sample_rows:
+        canonical = alias_map.get(sku, sku)
+        sample_units[canonical] = sample_units.get(canonical, 0) + int(qty or 0)
 
     keys = set(order_units) | set(sample_units)
     if not keys:
@@ -335,7 +356,8 @@ def count_sku_units_shipped(db: Session, start: datetime, end: datetime) -> int:
 
 
 def samples_by_sku_shipped(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime,
+    *, alias_map: dict[str, str] | None = None,
 ) -> list[ShippedSamplesBySkuRow]:
     """Per-SKU rollup of ACTUALLY SHIPPED samples in [start, end), with paid units
     sold over the same window for ratio analysis.
@@ -345,50 +367,54 @@ def samples_by_sku_shipped(
     Manual Sample-table rows always count (each row is a recorded ship event).
     Only SKUs with at least one shipped sample appear — pure-sales SKUs aren't
     listed (this section is about samples).
+
+    `alias_map` (default: lazy-loaded from `sku_aliases`) collapses aliased
+    keys to canonical at aggregation time, so a re-coded SKU's pre- and
+    post-rename sample units merge into one row.
     """
-    samples_table_units = dict(
-        db.execute(
-            select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
-            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
-            .group_by(Sample.sku)
-        ).all()
-    )
-    samples_table_orders = dict(
-        db.execute(
-            select(Sample.sku, func.count(Sample.id))
-            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
-            .group_by(Sample.sku)
-        ).all()
-    )
-    samples_orders_units = dict(
-        db.execute(
-            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
-            .join(Order, Order.id == OrderLine.order_id)
-            .where(Order.placed_at >= start, Order.placed_at < end)
-            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
-            .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
-            .group_by(OrderLine.sku)
-        ).all()
-    )
-    samples_orders_count = dict(
-        db.execute(
-            select(OrderLine.sku, func.count(func.distinct(Order.id)))
-            .join(Order, Order.id == OrderLine.order_id)
-            .where(Order.placed_at >= start, Order.placed_at < end)
-            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
-            .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
-            .group_by(OrderLine.sku)
-        ).all()
-    )
-    sales = dict(
-        db.execute(
-            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
-            .join(Order, Order.id == OrderLine.order_id)
-            .where(Order.order_type == OrderType.PAID)
-            .where(Order.placed_at >= start, Order.placed_at < end)
-            .group_by(OrderLine.sku)
-        ).all()
-    )
+    if alias_map is None:
+        alias_map = load_alias_map(db)
+
+    def _by_canonical(rows) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for sku, val in rows:
+            canonical = alias_map.get(sku, sku)
+            out[canonical] = out.get(canonical, 0) + int(val or 0)
+        return out
+
+    samples_table_units = _by_canonical(db.execute(
+        select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
+        .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+        .group_by(Sample.sku)
+    ).all())
+    samples_table_orders = _by_canonical(db.execute(
+        select(Sample.sku, func.count(Sample.id))
+        .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+        .group_by(Sample.sku)
+    ).all())
+    samples_orders_units = _by_canonical(db.execute(
+        select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
+        .group_by(OrderLine.sku)
+    ).all())
+    samples_orders_count = _by_canonical(db.execute(
+        select(OrderLine.sku, func.count(func.distinct(Order.id)))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
+        .group_by(OrderLine.sku)
+    ).all())
+    sales = _by_canonical(db.execute(
+        select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.order_type == OrderType.PAID)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .group_by(OrderLine.sku)
+    ).all())
 
     skus = sorted(set(samples_table_units) | set(samples_orders_units))
     if not skus:
@@ -455,7 +481,10 @@ def count_samples_shipped(db: Session, start: datetime, end: datetime) -> int:
     return int(from_sample_table) + int(from_orders)
 
 
-def samples_vs_sales_by_sku(db: Session, start: datetime, end: datetime) -> list[SampleVsSalesRow]:
+def samples_vs_sales_by_sku(
+    db: Session, start: datetime, end: datetime,
+    *, alias_map: dict[str, str] | None = None,
+) -> list[SampleVsSalesRow]:
     """Aggregate samples sent + units sold per SKU across [start, end).
 
     GROUP BY OrderLine.sku ensures each (order, SKU) line contributes exactly
@@ -465,32 +494,40 @@ def samples_vs_sales_by_sku(db: Session, start: datetime, end: datetime) -> list
     Each output row is enriched with the catalog SKU code and product name
     (Sku table first, Bundle table fallback). Unmapped rows return sku_code
     and name as None so the template can render "Missing …" labels.
+
+    `alias_map` (default: lazy-loaded from `sku_aliases`) collapses aliased
+    keys to canonical at aggregation time, so a re-coded SKU's pre- and
+    post-rename units merge into one row instead of appearing as duplicates.
     """
-    samples_table = dict(
-        db.execute(
-            select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
-            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
-            .group_by(Sample.sku)
-        ).all()
-    )
-    samples_orders = dict(
-        db.execute(
-            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
-            .join(Order, Order.id == OrderLine.order_id)
-            .where(Order.placed_at >= start, Order.placed_at < end)
-            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
-            .group_by(OrderLine.sku)
-        ).all()
-    )
-    sales = dict(
-        db.execute(
-            select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
-            .join(Order, Order.id == OrderLine.order_id)
-            .where(Order.order_type == OrderType.PAID)
-            .where(Order.placed_at >= start, Order.placed_at < end)
-            .group_by(OrderLine.sku)
-        ).all()
-    )
+    if alias_map is None:
+        alias_map = load_alias_map(db)
+
+    def _by_canonical(rows) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for sku, qty in rows:
+            canonical = alias_map.get(sku, sku)
+            out[canonical] = out.get(canonical, 0) + int(qty or 0)
+        return out
+
+    samples_table = _by_canonical(db.execute(
+        select(Sample.sku, func.coalesce(func.sum(Sample.quantity), 0))
+        .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+        .group_by(Sample.sku)
+    ).all())
+    samples_orders = _by_canonical(db.execute(
+        select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        .group_by(OrderLine.sku)
+    ).all())
+    sales = _by_canonical(db.execute(
+        select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.order_type == OrderType.PAID)
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .group_by(OrderLine.sku)
+    ).all())
 
     skus = sorted(set(samples_table) | set(samples_orders) | set(sales))
     if not skus:
