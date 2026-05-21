@@ -37,6 +37,70 @@ from app.services.demand.velocity import COUNTED_STATUSES, compute_velocity
 
 
 @dataclass
+class PipelineItem:
+    """One projected purchase order in the next-90-day pipeline.
+
+    For SKUs already at/below reorder point (out_of_stock, at_risk,
+    reorder_now): order_by_date is today (or earlier), qty/investment
+    come straight from compute_one.
+
+    For SKUs currently healthy/overstocked: we project when on_hand will
+    cross reorder_point at current velocity, and compute the order
+    quantity as if we caught the SKU exactly at the crossing
+    (target = v × (lead_time + cover_days), available = reorder_point)."""
+    sku_code: str | None
+    component_sku: str
+    name: str | None
+    status: ReplenishmentStatus
+    on_hand: int
+    in_transit: int
+    daily_velocity: Decimal
+    lead_time_days: int
+    reorder_point: int
+    days_until_reorder: int
+    order_by_date: date
+    suggested_qty: int
+    investment: Decimal
+
+
+@dataclass
+class PurchasePipeline:
+    """Bucketed forward-looking PO calendar. Buckets are mutually exclusive:
+    each PipelineItem appears in exactly one of overdue / next_30 / next_60 / next_90."""
+    overdue: list[PipelineItem] = field(default_factory=list)
+    next_30: list[PipelineItem] = field(default_factory=list)
+    next_60: list[PipelineItem] = field(default_factory=list)
+    next_90: list[PipelineItem] = field(default_factory=list)
+
+    @property
+    def overdue_investment(self) -> Decimal:
+        return sum((i.investment for i in self.overdue), Decimal("0"))
+
+    @property
+    def next_30_investment(self) -> Decimal:
+        return sum((i.investment for i in self.next_30), Decimal("0"))
+
+    @property
+    def next_60_investment(self) -> Decimal:
+        return sum((i.investment for i in self.next_60), Decimal("0"))
+
+    @property
+    def next_90_investment(self) -> Decimal:
+        return sum((i.investment for i in self.next_90), Decimal("0"))
+
+    @property
+    def total_investment(self) -> Decimal:
+        return (self.overdue_investment + self.next_30_investment
+                + self.next_60_investment + self.next_90_investment)
+
+    @property
+    def all_items_sorted(self) -> list[PipelineItem]:
+        """Flat list across all buckets, sorted by order_by_date ascending."""
+        flat = self.overdue + self.next_30 + self.next_60 + self.next_90
+        return sorted(flat, key=lambda i: (i.order_by_date, -float(i.investment)))
+
+
+@dataclass
 class DemandPlanningView:
     rows: list[ReplenishmentResult]
     as_of: date
@@ -57,6 +121,9 @@ class DemandPlanningView:
     investment_60d: Decimal
     investment_90d: Decimal
     investment_180d: Decimal
+
+    # Forward-looking PO calendar — see compute_purchase_pipeline.
+    pipeline: PurchasePipeline = field(default_factory=PurchasePipeline)
 
     @property
     def snapshot_freshness_state(self) -> str:
@@ -309,6 +376,10 @@ def compute_demand_planning_view(
             total += (shortfall * unit_cogs).quantize(Decimal("0.01"))
         return total
 
+    pipeline = compute_purchase_pipeline(
+        results, sku_meta, today=now.date(), cover_days=cover,
+    )
+
     return DemandPlanningView(
         rows=results, as_of=now.date(),
         latest_snapshot_at=latest_snapshot_at,
@@ -320,7 +391,107 @@ def compute_demand_planning_view(
         investment_60d=_investment_window(60),
         investment_90d=_investment_window(90),
         investment_180d=_investment_window(180),
+        pipeline=pipeline,
     )
+
+
+def compute_purchase_pipeline(
+    results: list[ReplenishmentResult],
+    sku_meta: dict[str, Sku],
+    *,
+    today: date,
+    cover_days: int,
+) -> PurchasePipeline:
+    """Forward-looking PO calendar for the next 90 days.
+
+    For each reorderable SKU with non-zero velocity, project the date at
+    which on_hand will cross the reorder point. SKUs already at/below the
+    reorder point land in `overdue`; everything else buckets into 30/60/90
+    by `days_until_reorder`. SKUs whose projected crossing is >90 days out
+    are excluded (they're shown on the regular planner table; they don't
+    need pipeline visibility yet).
+
+    Quantity logic:
+      - status is OUT_OF_STOCK / AT_RISK / REORDER_NOW → use compute_one's
+        existing suggested_order_qty + investment (already MOQ/case-pack
+        adjusted, already reflects current on_hand).
+      - status is HEALTHY / OVERSTOCKED → project: PO must cover
+        (lead_time + cover_days) of forward demand starting from
+        on_hand = reorder_point, so target = v × (lead+cover); quantity
+        = target − reorder_point. Doesn't apply MOQ/case-pack rounding
+        because we don't know the SKU's procurement attrs from
+        ReplenishmentResult — close enough for a forecast.
+    """
+    pipeline = PurchasePipeline()
+    horizon_days = 90
+
+    for r in results:
+        if r.status in (ReplenishmentStatus.DISCONTINUED,
+                        ReplenishmentStatus.NO_VELOCITY):
+            continue
+        if r.daily_velocity <= 0:
+            continue
+
+        v = r.daily_velocity
+        available_now = Decimal(r.on_hand + r.expected_receipts)
+        reorder_pt = Decimal(r.reorder_point)
+
+        # Days until on_hand drops to the reorder point at current velocity.
+        if available_now <= reorder_pt:
+            days_until = 0
+        else:
+            days_until = int(((available_now - reorder_pt) / v)
+                             .to_integral_value(rounding="ROUND_DOWN"))
+
+        if days_until > horizon_days:
+            continue   # outside the 90-day pipeline view
+
+        order_by_date = today + timedelta(days=days_until)
+
+        # Quantity + investment.
+        if r.suggested_order_qty > 0:
+            qty = r.suggested_order_qty
+            investment = r.investment
+        else:
+            target = v * Decimal(r.lead_time_days + cover_days)
+            raw_qty = (target - reorder_pt).to_integral_value(rounding="ROUND_HALF_UP")
+            qty = max(int(raw_qty), 0)
+            sku = sku_meta.get(r.component_sku)
+            unit_cogs = (Decimal(str(sku.unit_cogs))
+                         if (sku and sku.unit_cogs) else Decimal("0"))
+            investment = (Decimal(qty) * unit_cogs).quantize(Decimal("0.01"))
+
+        item = PipelineItem(
+            sku_code=r.sku_code,
+            component_sku=r.component_sku,
+            name=r.name,
+            status=r.status,
+            on_hand=r.on_hand,
+            in_transit=r.expected_receipts,
+            daily_velocity=v,
+            lead_time_days=r.lead_time_days,
+            reorder_point=r.reorder_point,
+            days_until_reorder=days_until,
+            order_by_date=order_by_date,
+            suggested_qty=qty,
+            investment=investment,
+        )
+
+        if days_until <= 0:
+            pipeline.overdue.append(item)
+        elif days_until <= 30:
+            pipeline.next_30.append(item)
+        elif days_until <= 60:
+            pipeline.next_60.append(item)
+        else:
+            pipeline.next_90.append(item)
+
+    # Within each bucket, soonest first; tie-break by larger investment.
+    for bucket in (pipeline.overdue, pipeline.next_30,
+                   pipeline.next_60, pipeline.next_90):
+        bucket.sort(key=lambda i: (i.order_by_date, -float(i.investment)))
+
+    return pipeline
 
 
 # =============================================================================

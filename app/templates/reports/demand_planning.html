@@ -146,6 +146,120 @@
   {% endfor %}
 </section>
 
+{# Upcoming Purchase Pipeline — forward-looking PO calendar for the next 90 days.
+   Includes both currently-overdue SKUs AND healthy SKUs projected to cross
+   reorder-point within the window. Replaces eyeballing the table to figure out
+   what to actually buy and when. #}
+{% set p = v.pipeline %}
+{% if p.overdue or p.next_30 or p.next_60 or p.next_90 %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Upcoming purchase pipeline</h2>
+      <p class="mt-0.5 text-xs text-slate-500">
+        Forward-looking PO calendar for the next 90 days. Includes SKUs currently
+        below reorder point <span class="text-slate-400">AND</span> healthy SKUs projected to cross the
+        reorder point within the window.
+      </p>
+    </div>
+    <span class="shrink-0 text-xs text-slate-500">
+      Total committed: <span class="font-semibold tabular-nums text-slate-900">{{ p.total_investment | money }}</span>
+    </span>
+  </header>
+
+  {# Bucket tiles. #}
+  <div class="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4">
+    {% for label, items, total, tone in [
+       ('Order today',     p.overdue, p.overdue_investment, 'rose'),
+       ('Within 30 days',  p.next_30, p.next_30_investment, 'amber'),
+       ('Within 60 days',  p.next_60, p.next_60_investment, 'sky'),
+       ('Within 90 days',  p.next_90, p.next_90_investment, 'slate'),
+    ] %}
+    {% set tone_classes = {
+       'rose':  {'bg':'bg-rose-50/40',    'label':'text-rose-700',   'value':'text-rose-900'},
+       'amber': {'bg':'bg-amber-50/40',   'label':'text-amber-700',  'value':'text-amber-900'},
+       'sky':   {'bg':'bg-sky-50/40',     'label':'text-sky-700',    'value':'text-sky-900'},
+       'slate': {'bg':'bg-slate-50/60',   'label':'text-slate-600',  'value':'text-slate-900'},
+    }[tone] %}
+    <div class="{{ tone_classes.bg }} px-5 py-4">
+      <div class="text-[10px] font-semibold uppercase tracking-wider {{ tone_classes.label }}">{{ label }}</div>
+      <div class="mt-1.5 text-2xl font-semibold tabular-nums {{ tone_classes.value }}">{{ total | money }}</div>
+      <div class="mt-0.5 text-xs text-slate-500">
+        {{ items | length }} SKU{{ "" if (items | length) == 1 else "s" }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# Detail table — every PO in the next 90 days, sorted by order-by date. #}
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-6 py-2.5">Order by</th>
+          <th class="px-4 py-2.5">SKU</th>
+          <th class="px-4 py-2.5">Product</th>
+          <th class="px-3 py-2.5">Status</th>
+          <th class="px-3 py-2.5 text-right">On hand</th>
+          <th class="px-3 py-2.5 text-right">Velocity / day</th>
+          <th class="px-3 py-2.5 text-right">Reorder qty</th>
+          <th class="px-3 py-2.5 text-right">Investment</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for item in p.all_items_sorted %}
+        {% set row_tone = {
+          'out_of_stock':  'bg-rose-50/30',
+          'at_risk':       'bg-amber-50/30',
+          'reorder_now':   'bg-indigo-50/20',
+          'healthy':       '',
+          'overstocked':   '',
+        }.get(item.status.value, '') %}
+        <tr class="{{ row_tone }} hover:bg-slate-50/60">
+          <td class="px-6 py-2.5 whitespace-nowrap tabular-nums text-slate-700">
+            {% if item.days_until_reorder == 0 %}
+            <span class="font-semibold text-rose-700">Today</span>
+            {% else %}
+            {{ item.order_by_date.strftime("%b %d") }}
+            <span class="ml-1 text-[10px] text-slate-400">(+{{ item.days_until_reorder }}d)</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5 font-medium text-slate-900">
+            <a href="/reports/demand-planning/sku/{{ item.component_sku }}"
+               class="hover:text-indigo-700 hover:underline">
+              {{ item.sku_code or "—" }}
+            </a>
+          </td>
+          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ item.name or "—" }}</td>
+          <td class="px-3 py-2.5">
+            {% set pill_tone = {
+              'out_of_stock': 'bg-rose-50 text-rose-700 ring-rose-200',
+              'at_risk': 'bg-amber-50 text-amber-700 ring-amber-200',
+              'reorder_now': 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+              'healthy': 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+              'overstocked': 'bg-sky-50 text-sky-700 ring-sky-200',
+            }.get(item.status.value, 'bg-slate-50 text-slate-600 ring-slate-200') %}
+            <span class="inline-flex items-center rounded-full font-semibold uppercase tracking-wider text-[10px] px-1.5 py-0.5 ring-1 {{ pill_tone }}">{{ item.status.value.replace('_', ' ') }}</span>
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(item.on_hand) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ item.daily_velocity }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">{{ "{:,}".format(item.suggested_qty) }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums {% if item.investment > 0 %}font-semibold text-slate-900{% else %}text-slate-300{% endif %}">
+            {% if item.investment > 0 %}{{ item.investment | money }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <footer class="border-t border-slate-200 bg-slate-50/40 px-6 py-3 text-xs text-slate-500">
+    Order-by date = today + (on_hand − reorder_point) / daily_velocity. For currently-healthy SKUs, the reorder quantity
+    is projected assuming on_hand has just crossed the reorder point; MOQ and case-pack rounding are NOT applied to forecast rows.
+    SKUs whose projected crossing is &gt; 90 days out are excluded from this section (see the full table below).
+  </footer>
+</section>
+{% endif %}
+
 {# Plain-language explainer — collapsed by default so it doesn't dominate
    the page, but always one click away. #}
 <details class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
