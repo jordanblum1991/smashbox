@@ -27,10 +27,38 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from sqlalchemy import or_, select  # noqa: E402
+
 from app.config import settings  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
+from app.models.sku import Sku  # noqa: E402
 from app.reports.demand_planning import compute_demand_planning_view  # noqa: E402
 from app.services.demand.replenishment import ReplenishmentStatus  # noqa: E402
+
+
+def _unit_cogs_lookup(db, codes: set[str]) -> dict[str, Decimal]:
+    """Fetch unit_cogs from the Sku catalog for a batch of identifiers.
+    Needed because ReplenishmentResult only exposes investment = qty × cogs,
+    which collapses to zero when suggested_qty is 0 (healthy/overstocked).
+    For future POs we still want the cogs to project investment $."""
+    if not codes:
+        return {}
+    rows = db.execute(
+        select(Sku).where(
+            or_(
+                Sku.tiktok_sku_id.in_(codes),
+                Sku.sku.in_(codes),
+                Sku.tiktok_alt_sku.in_(codes),
+            )
+        )
+    ).scalars().all()
+    out: dict[str, Decimal] = {}
+    for s in rows:
+        cogs = Decimal(str(s.unit_cogs or 0))
+        for key in (s.tiktok_sku_id, s.sku, s.tiktok_alt_sku):
+            if key and key in codes:
+                out[str(key)] = cogs
+    return out
 
 
 def main() -> int:
@@ -39,6 +67,9 @@ def main() -> int:
     with SessionLocal() as db:
         view = compute_demand_planning_view(db)
         cover_days = view.cover_days
+        cogs_by_code = _unit_cogs_lookup(
+            db, {r.component_sku for r in view.rows}
+        )
 
     plan = []
     for r in view.rows:
@@ -78,9 +109,8 @@ def main() -> int:
             qty_d = (target - reorder_pt).to_integral_value(rounding="ROUND_HALF_UP")
             qty = max(int(qty_d), 0)
 
-        unit_cogs = (r.investment / Decimal(r.suggested_order_qty)
-                     if r.suggested_order_qty > 0 else Decimal("0"))
-        investment = Decimal(qty) * unit_cogs if unit_cogs > 0 else Decimal("0")
+        unit_cogs = cogs_by_code.get(r.component_sku, Decimal("0"))
+        investment = (Decimal(qty) * unit_cogs).quantize(Decimal("0.01"))
 
         plan.append({
             "sku": r.sku_code or r.component_sku,
