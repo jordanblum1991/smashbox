@@ -21,6 +21,7 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 COPY app ./app
+COPY scripts ./scripts
 
 # Persistent volume on Fly mounts at /data — these env vars steer the app
 # away from baking-in repo-relative paths.
