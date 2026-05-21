@@ -59,6 +59,28 @@ class DemandPlanningView:
     investment_180d: Decimal
 
     @property
+    def snapshot_freshness_state(self) -> str:
+        """Day-bucket for the snapshot-age banner on the planner.
+
+        Mapping (per the dashboard reminder spec):
+          None        → 'missing'   No snapshot ever uploaded.
+          15+ days    → 'stale'     Reorder math unreliable.
+          8–14 days   → 'aging'     Upload soon.
+          0–7 days    → 'fresh'     Subtle confirmation.
+
+        The legacy `snapshot_is_stale` field (>10-day threshold) is kept
+        for backward compat with any other readers but the planner banner
+        now keys off this property's four-tier state.
+        """
+        if self.snapshot_age_days is None:
+            return "missing"
+        if self.snapshot_age_days >= 15:
+            return "stale"
+        if self.snapshot_age_days >= 8:
+            return "aging"
+        return "fresh"
+
+    @property
     def counts_by_status(self) -> dict[str, int]:
         out: dict[str, int] = {}
         for r in self.rows:
