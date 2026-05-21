@@ -15,13 +15,20 @@ Run on production via:
 
 Idempotent — bails out if the bundle row already exists.
 """
+import sys
 from decimal import Decimal
+from pathlib import Path
 
-from sqlalchemy import select
+# Repo root on sys.path so `app.*` imports resolve when this is run as a
+# script from the scripts/ directory (otherwise Python only adds scripts/
+# to sys.path, which doesn't contain the `app` package).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.db import SessionLocal
-from app.models.bundle import Bundle, BundleComponent
-from app.models.sku import Sku
+from sqlalchemy import select  # noqa: E402
+
+from app.db import SessionLocal  # noqa: E402
+from app.models.bundle import Bundle, BundleComponent  # noqa: E402
+from app.models.sku import Sku  # noqa: E402
 
 
 BUNDLE_TIKTOK_SKU_ID = "1729503708543358123"
