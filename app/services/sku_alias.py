@@ -237,7 +237,12 @@ def suggest_aliases(
         for alias in codes:
             if alias == canonical:
                 continue
-            if existing.get(alias) == canonical:
+            # Skip the alias entirely if it's already mapped — even to a
+            # different canonical. Re-proposing with a new canonical would
+            # silently overwrite the existing mapping on upsert; we want
+            # the buyer to delete the prior alias first if they really
+            # want to repoint it.
+            if alias in existing:
                 continue
             a_w = eligible[alias]
             c_w = eligible[canonical]
@@ -289,7 +294,9 @@ def suggest_aliases(
         for tt_id in tt_ids:
             if tt_id == canonical_id:
                 continue
-            if existing.get(tt_id) == canonical_id:
+            # Skip if this alias is already mapped (regardless of canonical).
+            # See same-stem heuristic for rationale.
+            if tt_id in existing:
                 continue
             a_w = windows.get(tt_id)
             c_w = windows.get(canonical_id)
@@ -330,7 +337,8 @@ def suggest_aliases(
                 # Handoff window: B can start a few days before A's last
                 # sale (overlap) or up to max_handoff_gap_days after.
                 continue
-            if existing.get(a.sku) == c.sku:
+            # Skip if this alias is already mapped (regardless of canonical).
+            if a.sku in existing:
                 continue
             # Skip if we already have it from the stem heuristic — upgrade
             # the reason but don't duplicate.
@@ -391,7 +399,12 @@ def _format_suggestions_verbose(
     code to its catalog row (sku + name) so the buyer can identify what
     products are being suggested without a separate DB lookup. Useful when
     the codes are opaque numeric IDs (which they are after the order-import
-    SKU resolver canonicalises everything to TikTok IDs)."""
+    SKU resolver canonicalises everything to TikTok IDs).
+
+    Resolves against BOTH the Sku table and the Bundle table — a code that
+    isn't a single SKU may still be a registered bundle, and labelling it
+    as "(not in catalog)" when it's really a bundle is misleading."""
+    from app.models.bundle import Bundle
     from app.models.sku import Sku
     from sqlalchemy import or_
 
@@ -403,7 +416,7 @@ def _format_suggestions_verbose(
     for s in suggestions:
         all_codes.add(s.alias_sku)
         all_codes.add(s.canonical_sku)
-    rows = db.execute(
+    sku_rows = db.execute(
         select(Sku).where(
             or_(
                 Sku.tiktok_sku_id.in_(all_codes),
@@ -413,17 +426,39 @@ def _format_suggestions_verbose(
         )
     ).scalars().all()
     by_code: dict[str, Sku] = {}
-    for sku_row in rows:
+    for sku_row in sku_rows:
         for key in (sku_row.tiktok_sku_id, sku_row.sku, sku_row.tiktok_alt_sku):
             if key and key in all_codes:
                 by_code[str(key)] = sku_row
 
+    # Bundle fallback for any code not matched in the Sku table — bundles
+    # carry their own catalog rows and shouldn't display as "(not in catalog)".
+    unmatched = all_codes - set(by_code)
+    by_code_bundle: dict[str, Bundle] = {}
+    if unmatched:
+        bundle_rows = db.execute(
+            select(Bundle).where(
+                or_(
+                    Bundle.tiktok_sku_id.in_(unmatched),
+                    Bundle.bundle_sku.in_(unmatched),
+                )
+            )
+        ).scalars().all()
+        for b in bundle_rows:
+            for key in (b.tiktok_sku_id, b.bundle_sku):
+                if key and key in unmatched:
+                    by_code_bundle[str(key)] = b
+
     def _label(code: str) -> str:
         s = by_code.get(code)
-        if s is None:
-            return "(not in catalog)"
-        name = (s.name or "").strip()
-        return f"{s.sku} — {name[:60]}"
+        if s is not None:
+            name = (s.name or "").strip()
+            return f"{s.sku} — {name[:60]}"
+        b = by_code_bundle.get(code)
+        if b is not None:
+            name = (b.name or "").strip()
+            return f"[BUNDLE] {b.bundle_sku or '?'} — {name[:60]}"
+        return "(not in catalog)"
 
     lines: list[str] = [""]
     for s in suggestions:

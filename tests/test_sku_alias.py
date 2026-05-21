@@ -22,7 +22,9 @@ from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
 from app.models.sku_alias import SkuAlias
 from app.services.demand.velocity import compute_velocity
+from app.models.bundle import Bundle, BundleComponent
 from app.services.sku_alias import (
+    _format_suggestions_verbose,
     canonicalize,
     load_alias_map,
     suggest_aliases,
@@ -340,3 +342,82 @@ def test_latest_on_hand_collapses_aliases_to_canonical():
         # Without: two entries, one per code.
         m_raw, _ = _latest_on_hand_per_sku(db)
         assert set(m_raw.keys()) == {"LEGACY", "SBX-LEGACY"}
+
+
+# ---- Issue 1 fix: verbose formatter resolves Bundle catalog --------------
+
+def test_verbose_formatter_labels_bundle_codes():
+    """A code that's in the Bundle table but not Sku must NOT be labelled
+    "(not in catalog)" — bundles are real catalog entries; the verbose
+    formatter was only checking Sku."""
+    from app.services.sku_alias import AliasSuggestion
+    from datetime import date
+
+    with SessionLocal() as db:
+        b = _batch(db)
+        # Bundle entry only — no Sku row for this tiktok_sku_id.
+        bundle = Bundle(
+            bundle_sku="SBX-FAKE-BUNDLE",
+            tiktok_sku_id="9999999999999999",
+            name="A Fake Test Bundle",
+            brand="smashbox",
+        )
+        db.add(bundle)
+        db.commit()
+
+        # Make a synthetic suggestion whose canonical is the bundle.
+        suggestion = AliasSuggestion(
+            alias_sku="LEGACY-XYZ",
+            canonical_sku="9999999999999999",
+            reason="temporal_handoff",
+            confidence="medium",
+            alias_last_sale=date(2026, 1, 1),
+            canonical_first_sale=date(2026, 2, 1),
+            alias_total_units=10,
+            canonical_total_units=20,
+            days_gap=5,
+        )
+        out = _format_suggestions_verbose(db, [suggestion])
+        # The bundle must be labelled with [BUNDLE] prefix, NOT "(not in catalog)".
+        assert "[BUNDLE]" in out
+        assert "SBX-FAKE-BUNDLE" in out
+        assert "A Fake Test Bundle" in out
+        # The non-existent LEGACY-XYZ should still show as "(not in catalog)".
+        assert "(not in catalog)" in out  # for LEGACY-XYZ side
+
+
+# ---- Issue 2 fix: skip aliases already mapped to ANY canonical -----------
+
+def test_suggest_skips_already_aliased_regardless_of_canonical():
+    """Pre-fix bug: if A → B was registered and the heuristic computed
+    A → C (different canonical), suggest still proposed it. Applying the
+    new pair would silently overwrite the existing alias on upsert.
+
+    Post-fix: an alias_sku already in the map is skipped entirely,
+    regardless of what canonical the suggest is computing."""
+    today = datetime.now()
+    with SessionLocal() as db:
+        b = _batch(db)
+        # Three SKU codes with sales: OLDCODE went dormant, NEW1 and NEW2
+        # both came alive recently. Without registration, temporal_handoff
+        # might propose OLDCODE → NEW1 and OLDCODE → NEW2.
+        _orders_daily(db, b.id, "OLDCODE",
+                      start=today - timedelta(days=59), days=14, qty_per_day=2)
+        _orders_daily(db, b.id, "NEW1",
+                      start=today - timedelta(days=42), days=20, qty_per_day=2)
+        _orders_daily(db, b.id, "NEW2",
+                      start=today - timedelta(days=40), days=20, qty_per_day=2)
+
+        # Register OLDCODE → NEW1 first.
+        upsert_alias(db, alias_sku="OLDCODE", canonical_sku="NEW1")
+        db.commit()
+
+        # Suggest should NOT propose OLDCODE → NEW2.
+        suggestions = suggest_aliases(
+            db, min_units=5, max_handoff_gap_days=21, quiet_window_days=30,
+        )
+        oldcode_proposals = [s for s in suggestions if s.alias_sku == "OLDCODE"]
+        assert oldcode_proposals == [], (
+            f"OLDCODE is already aliased to NEW1; suggest should not propose "
+            f"it again. Got: {[(s.alias_sku, s.canonical_sku) for s in oldcode_proposals]}"
+        )
