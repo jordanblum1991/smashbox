@@ -11,12 +11,12 @@
   subtitle="Per-SKU replenishment recommendations from trailing sales velocity, current on-hand inventory, and your procurement settings.",
 ) %}
   <form method="get" action="/reports/demand-planning" class="flex flex-wrap items-end gap-2">
-    <label class="block">
-      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Safety stock</span>
-      <select name="safety" onchange="this.form.submit()"
+    <label class="block" title="Drives z in the variance-based safety-stock formula z × σ × √lead_time">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Service level</span>
+      <select name="service_level" onchange="this.form.submit()"
               class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm">
-        {% for opt, label in [('0.05', '5%'), ('0.10', '10%'), ('0.15', '15%'), ('0.20', '20%'), ('0.25', '25%')] %}
-        <option value="{{ opt }}" {% if (v.safety_stock_pct|string|float)|round(2) == (opt|float)|round(2) %}selected{% endif %}>{{ label }}</option>
+        {% for opt, label in [('0.90', '90% (z=1.28)'), ('0.95', '95% (z=1.65)'), ('0.975', '97.5% (z=1.96)')] %}
+        <option value="{{ opt }}" {% if (v.service_level|float) == (opt|float) %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -303,12 +303,16 @@
       <p>
         The on-hand level at which a PO must be placed to avoid a stockout
         before it arrives. Formula:
-        <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">velocity × lead time × (1 + safety stock %)</code>.
+        <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">(velocity × lead time) + safety stock</code>,
+        where <strong>safety stock = z × σ × √lead_time</strong> for any SKU with non-zero
+        daily-demand variation.
       </p>
       <p class="mt-1.5 text-xs text-slate-500">
-        With the defaults (14-day lead time, 10% safety): a SKU selling 5 units/day
-        needs a reorder point of <code class="rounded bg-slate-100 px-1 py-0.5">5 × 14 × 1.10 ≈ 77 units</code>.
-        Drop below 77 → time to PO. Lead time and safety stock can both be overridden per SKU.
+        <strong>z</strong> comes from the page-level <em>Service level</em> dropdown
+        (90% → z=1.28, 95% → z=1.65, 97.5% → z=1.96). Higher service level = bigger buffer = fewer stockouts.
+        <strong>σ</strong> is the standard deviation of the trailing 60-day daily demand series
+        (uncapped — using the spike-dampened series would under-buffer the very volatility we're insuring against).
+        SKUs with σ=0 (no recent sales) fall back to a flat-percentage buffer, but the bulk of the catalog uses the variance formula.
       </p>
     </div>
 
@@ -349,9 +353,9 @@
     </div>
 
     <p class="text-xs italic text-slate-500">
-      Defaults: lead time 14 days, safety stock {{ (v.safety_stock_pct * 100) | round(0, 'floor') | int }}%,
-      cover {{ v.cover_days }} days. All are tweakable per SKU on the drill-down page,
-      and the page-wide safety / cover dropdowns above let you run what-ifs.
+      Defaults: lead time 14 days, service level {{ (v.service_level * 100) | round(1) }}%,
+      cover {{ v.cover_days }} days. Lead time is tweakable per SKU on the drill-down page;
+      the page-wide service-level and cover dropdowns above let you run what-ifs across the catalog.
     </p>
   </div>
 </details>
@@ -484,8 +488,10 @@
   </div>
   <footer class="border-t border-slate-200 bg-slate-50/40 px-6 py-3 text-xs text-slate-500">
     Velocity uses trailing 14-day and 60-day rates across shipped/completed PAID orders, with bundle SKUs expanded into their components.
-    Reorder point = velocity × lead time × (1 + {{ (v.safety_stock_pct * 100) | round(0, 'floor') | int }}% safety). Suggested qty covers lead time + {{ v.cover_days }} days of forward demand,
-    rounded up to MOQ + case-pack when set.
+    Reorder point = (velocity × lead time) + safety stock, where safety stock is <code class="rounded bg-slate-100 px-1 py-0.5 text-[11px]">z × σ × √lead_time</code> for SKUs with non-zero σ
+    (z={{ {'0.90': '1.28', '0.95': '1.65', '0.975': '1.96'}[v.service_level | string] | default('1.65') }} at the current {{ (v.service_level * 100) | round(1) }}% service level),
+    falling back to {{ (v.safety_stock_pct * 100) | round(0, 'floor') | int }}% of lead-time demand only for low-signal SKUs.
+    Suggested qty covers lead time + {{ v.cover_days }} days of forward demand, rounded up to MOQ + case-pack when set.
   </footer>
 </section>
 {% endif %}

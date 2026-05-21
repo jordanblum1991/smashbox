@@ -305,7 +305,7 @@ def _build_sort_links(request: Request, current_key: str | None, current_dir: st
 @router.get("/reports/demand-planning")
 def demand_planning_view(
     request: Request,
-    safety: str | None = None,
+    service_level: str | None = None,
     cover: int | None = None,
     overstocked: int | None = None,
     sort: str | None = None,
@@ -314,16 +314,21 @@ def demand_planning_view(
 ):
     """Demand planning replenishment view.
 
-    Query-string overrides: ?safety=0.10, ?cover=45, ?overstocked=180.
-    Sort overrides: ?sort=on_hand|days_of_supply|suggested_qty, ?dir=asc|desc.
-    `safety` is a fraction (0.10 = 10%, not "10"). Future: persistent settings UI.
+    Query-string overrides:
+      ?service_level=0.90|0.95|0.975  — drives the z in z × σ × √L (variance method)
+      ?cover=45                        — forward-cover days
+      ?overstocked=180                 — days_of_supply threshold for OVERSTOCKED
+    Sort: ?sort=on_hand|days_of_supply|stockout_date|suggested_qty, ?dir=asc|desc.
     """
-    safety_dec: Decimal | None = None
-    if safety:
+    sl_dec: Decimal | None = None
+    if service_level:
+        from app.config import SERVICE_LEVEL_Z_TABLE
         try:
-            safety_dec = Decimal(safety)
+            cand = Decimal(service_level)
+            if cand in SERVICE_LEVEL_Z_TABLE:
+                sl_dec = cand
         except InvalidOperation:
-            safety_dec = None
+            sl_dec = None
 
     # Buyer-supplied in-transit overrides come in as `receipts_<sku>=<n>` form
     # params on a POST; for the GET render we read from query string so links
@@ -338,7 +343,7 @@ def demand_planning_view(
 
     view = compute_demand_planning_view(
         db,
-        safety_stock_pct=safety_dec,
+        service_level_override=sl_dec,
         cover_days=cover,
         overstocked_days=overstocked,
         expected_receipts=expected_receipts or None,
@@ -364,7 +369,7 @@ def demand_planning_view(
 @router.get("/reports/demand-planning.csv")
 def demand_planning_csv(
     request: Request,
-    safety: str | None = None,
+    service_level: str | None = None,
     cover: int | None = None,
     overstocked: int | None = None,
     sort: str | None = None,
@@ -375,14 +380,18 @@ def demand_planning_csv(
 
     Mirrors the columns the buyer sees on screen, with the addition of plain
     numeric versions of money/percent fields so the export drops cleanly into
-    Excel/Sheets without quoting tricks.
+    Excel/Sheets without quoting tricks. Honors the same query params as
+    the HTML view so 'what you see is what you export'.
     """
-    safety_dec: Decimal | None = None
-    if safety:
+    sl_dec: Decimal | None = None
+    if service_level:
+        from app.config import SERVICE_LEVEL_Z_TABLE
         try:
-            safety_dec = Decimal(safety)
+            cand = Decimal(service_level)
+            if cand in SERVICE_LEVEL_Z_TABLE:
+                sl_dec = cand
         except InvalidOperation:
-            safety_dec = None
+            sl_dec = None
 
     expected_receipts: dict[str, int] = {}
     for k, val in request.query_params.items():
@@ -394,7 +403,7 @@ def demand_planning_csv(
 
     view = compute_demand_planning_view(
         db,
-        safety_stock_pct=safety_dec,
+        service_level_override=sl_dec,
         cover_days=cover,
         overstocked_days=overstocked,
         expected_receipts=expected_receipts or None,

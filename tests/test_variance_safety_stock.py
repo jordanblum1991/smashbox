@@ -251,3 +251,71 @@ def test_z_table_contains_only_three_supported_tiers():
     assert set(SERVICE_LEVEL_Z_TABLE.keys()) == {
         Decimal("0.90"), Decimal("0.95"), Decimal("0.975"),
     }
+
+
+# ---- Page-level service_level_override plumbing -------------------------
+
+def test_service_level_override_changes_safety_stock_in_view():
+    """Passing service_level_override into compute_demand_planning_view must
+    actually change z (and therefore safety_stock_units) for SKUs that go
+    through the variance branch."""
+    from datetime import datetime, timedelta
+    from app.db import Base, SessionLocal, engine
+    from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
+    from app.models.inventory_snapshot import InventorySnapshot
+    from app.models.order import Order, OrderLine, OrderType
+    from app.models.sku import Sku
+    from app.reports.demand_planning import compute_demand_planning_view
+
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    try:
+        today = datetime.now()
+        with SessionLocal() as db:
+            batch = ImportBatch(
+                kind=ImportFileKind.TIKTOK_ORDERS,
+                status=ImportBatchStatus.COMPLETED,
+                original_filename="seed.csv", stored_path="/tmp/seed.csv",
+            )
+            db.add(batch); db.flush()
+            db.add(Sku(
+                sku="SBX-X", tiktok_sku_id="999", brand="smashbox", name="Test",
+                unit_cogs=Decimal("10"), lead_time_days=14, is_reorderable=True,
+            ))
+            # Lumpy series → σ > 0 so variance branch fires.
+            for i in range(60):
+                qty = 5 if i % 2 == 0 else 1
+                placed = today - timedelta(days=60 - i)
+                o = Order(import_batch_id=batch.id,
+                          tiktok_order_id=f"o-{i}",
+                          placed_at=placed,
+                          order_type=OrderType.PAID, status="Shipped",
+                          brand="smashbox")
+                db.add(o); db.flush()
+                db.add(OrderLine(order_id=o.id, sku="999", quantity=qty,
+                                 unit_cogs_snapshot=Decimal("10")))
+            db.add(InventorySnapshot(import_batch_id=batch.id, sku="999",
+                                     on_hand=200, captured_at=today))
+            db.commit()
+
+            view_90 = compute_demand_planning_view(
+                db, service_level_override=Decimal("0.90"))
+            view_975 = compute_demand_planning_view(
+                db, service_level_override=Decimal("0.975"))
+
+            sku_90 = next(r for r in view_90.rows if r.component_sku == "999")
+            sku_975 = next(r for r in view_975.rows if r.component_sku == "999")
+
+            # The variance method must be active for this SKU.
+            assert sku_90.safety_method == "variance"
+            assert sku_975.safety_method == "variance"
+
+            # Higher service level → larger z (1.96 vs 1.28) → bigger buffer.
+            assert sku_975.safety_stock_units > sku_90.safety_stock_units
+
+            # The view must echo back what was used so the dropdown stays in sync.
+            assert view_90.service_level == Decimal("0.90")
+            assert view_975.service_level == Decimal("0.975")
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)

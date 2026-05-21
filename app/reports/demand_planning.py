@@ -125,6 +125,10 @@ class DemandPlanningView:
     # Forward-looking PO calendar — see compute_purchase_pipeline.
     pipeline: PurchasePipeline = field(default_factory=PurchasePipeline)
 
+    # Effective global service level for this view (after page-level override).
+    # Surfaced so the Service Level dropdown can echo the active setting.
+    service_level: Decimal = Decimal("0.95")
+
     @property
     def snapshot_freshness_state(self) -> str:
         """Day-bucket for the snapshot-age banner on the planner.
@@ -235,6 +239,7 @@ def compute_demand_planning_view(
     db: Session,
     *,
     safety_stock_pct: Decimal | None = None,
+    service_level_override: Decimal | None = None,
     cover_days: int | None = None,
     overstocked_days: int | None = None,
     expected_receipts: dict[str, int] | None = None,
@@ -245,10 +250,19 @@ def compute_demand_planning_view(
     All tunables fall back to settings.py defaults when None. `expected_receipts`
     is a `{component_sku: in_transit_units}` dict supplied by the planner page
     (buyer overrides); not persisted.
+
+    `service_level_override`, when set, overrides the global default service
+    level for the variance-based safety stock z lookup. Per-SKU
+    `Sku.service_level` still wins above this override for individual SKUs.
+    Must be one of the three supported tiers (0.90 / 0.95 / 0.975);
+    otherwise the global default applies.
     """
     safety = safety_stock_pct if safety_stock_pct is not None else settings.demand_safety_stock_pct
     cover = cover_days if cover_days is not None else settings.demand_cover_days
     overstocked = overstocked_days if overstocked_days is not None else settings.demand_overstocked_days
+    effective_global_service_level = (service_level_override
+                                       if service_level_override is not None
+                                       else settings.demand_service_level_default)
     now = as_of or datetime.now()
     expected_receipts = expected_receipts or {}
 
@@ -273,6 +287,7 @@ def compute_demand_planning_view(
             snapshot_is_stale=False,
             snapshot_age_days=None,
             safety_stock_pct=safety, cover_days=cover, overstocked_days=overstocked,
+            service_level=effective_global_service_level,
             investment_total=Decimal("0"),
             investment_30d=Decimal("0"), investment_60d=Decimal("0"),
             investment_90d=Decimal("0"), investment_180d=Decimal("0"),
@@ -313,12 +328,15 @@ def compute_demand_planning_view(
         from app.config import z_for_service_level
         sigma_daily = v.sigma_daily_raw if v else None
         sku_service_level = s.service_level if (s and s.service_level is not None) else None
-        effective_service_level = sku_service_level or settings.demand_service_level_default
+        # Per-SKU service_level wins over the page-level override; the page-level
+        # override wins over settings.demand_service_level_default.
+        effective_service_level = sku_service_level or effective_global_service_level
         try:
             z_value = z_for_service_level(Decimal(str(effective_service_level)))
         except KeyError:
-            # Unsupported per-SKU service level — fall back to global default.
-            z_value = z_for_service_level(settings.demand_service_level_default)
+            # Unsupported per-SKU service level — fall back to page-level
+            # (which is itself the global default when no override is set).
+            z_value = z_for_service_level(effective_global_service_level)
 
         inputs = ReplenishmentInputs(
             sku_code=(s.sku if s else None),
@@ -386,6 +404,7 @@ def compute_demand_planning_view(
         snapshot_is_stale=snapshot_is_stale,
         snapshot_age_days=snapshot_age_days,
         safety_stock_pct=safety, cover_days=cover, overstocked_days=overstocked,
+        service_level=effective_global_service_level,
         investment_total=investment_total,
         investment_30d=_investment_window(30),
         investment_60d=_investment_window(60),
