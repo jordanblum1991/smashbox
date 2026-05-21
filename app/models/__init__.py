@@ -2,11 +2,13 @@
 from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.bundle import Bundle, BundleComponent
+from app.models.creator import Creator
 from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.inventory_snapshot import InventorySnapshot
 from app.models.order import Order, OrderLine, OrderType
 from app.models.payout import Payout
 from app.models.sample import Sample
+from app.models.sample_inventory_movement import SampleInventoryMovement, SampleMovementType
 from app.models.settlement import Adjustment, Settlement
 from app.models.shop import Shop
 from app.models.sku import Sku
@@ -20,6 +22,7 @@ __all__ = [
     "Adjustment",
     "Bundle",
     "BundleComponent",
+    "Creator",
     "ImportBatch",
     "ImportBatchStatus",
     "ImportFileKind",
@@ -29,6 +32,8 @@ __all__ = [
     "OrderType",
     "Payout",
     "Sample",
+    "SampleInventoryMovement",
+    "SampleMovementType",
     "Settlement",
     "Shop",
     "Sku",
