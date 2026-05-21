@@ -322,6 +322,63 @@ def _format_suggestions(suggestions: list[AliasSuggestion]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _format_suggestions_verbose(
+    db: Session, suggestions: list[AliasSuggestion],
+) -> str:
+    """Same as `_format_suggestions` but also resolves each TikTok-ID SKU
+    code to its catalog row (sku + name) so the buyer can identify what
+    products are being suggested without a separate DB lookup. Useful when
+    the codes are opaque numeric IDs (which they are after the order-import
+    SKU resolver canonicalises everything to TikTok IDs)."""
+    from app.models.sku import Sku
+    from sqlalchemy import or_
+
+    if not suggestions:
+        return "No alias candidates found.\n"
+
+    # Bulk-fetch all SKU codes referenced by the suggestions in one query.
+    all_codes = set()
+    for s in suggestions:
+        all_codes.add(s.alias_sku)
+        all_codes.add(s.canonical_sku)
+    rows = db.execute(
+        select(Sku).where(
+            or_(
+                Sku.tiktok_sku_id.in_(all_codes),
+                Sku.sku.in_(all_codes),
+                Sku.tiktok_alt_sku.in_(all_codes),
+            )
+        )
+    ).scalars().all()
+    by_code: dict[str, Sku] = {}
+    for sku_row in rows:
+        for key in (sku_row.tiktok_sku_id, sku_row.sku, sku_row.tiktok_alt_sku):
+            if key and key in all_codes:
+                by_code[str(key)] = sku_row
+
+    def _label(code: str) -> str:
+        s = by_code.get(code)
+        if s is None:
+            return "(not in catalog)"
+        name = (s.name or "").strip()
+        return f"{s.sku} — {name[:60]}"
+
+    lines: list[str] = [""]
+    for s in suggestions:
+        gap = f"{s.days_gap}d" if s.days_gap is not None else "n/a"
+        lines.append(f"  {s.reason:18} {s.confidence:6}  "
+                     f"alias_units={s.alias_total_units:>5}  "
+                     f"canon_units={s.canonical_total_units:>5}  gap={gap}")
+        lines.append(f"    alias     {s.alias_sku}")
+        lines.append(f"              {_label(s.alias_sku)}")
+        lines.append(f"    canonical {s.canonical_sku}")
+        lines.append(f"              {_label(s.canonical_sku)}")
+        lines.append("")
+    lines.append(f"  {len(suggestions)} candidate pair(s). Review and run "
+                 "`apply <alias> <canonical>` for each one to keep.")
+    return "\n".join(lines) + "\n"
+
+
 def _format_list(aliases: list[SkuAlias]) -> str:
     if not aliases:
         return "No aliases registered.\n"
@@ -350,7 +407,10 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sku_alias")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("suggest", help="Print candidate alias pairs from current data.")
+    suggest_p = sub.add_parser("suggest", help="Print candidate alias pairs from current data.")
+    suggest_p.add_argument("--verbose", "-v", action="store_true",
+                           help="Resolve each TikTok-ID code to its catalog row "
+                                "(sku + name) so the buyer can identify products.")
     sub.add_parser("list", help="Print all currently-registered aliases.")
     apply = sub.add_parser("apply", help="Register one alias mapping.")
     apply.add_argument("alias")
@@ -363,7 +423,11 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     with SessionLocal() as db:
         if args.cmd == "suggest":
-            print(_format_suggestions(suggest_aliases(db)), end="", flush=True)
+            suggestions = suggest_aliases(db)
+            if args.verbose:
+                print(_format_suggestions_verbose(db, suggestions), end="", flush=True)
+            else:
+                print(_format_suggestions(suggestions), end="", flush=True)
         elif args.cmd == "list":
             rows = db.execute(select(SkuAlias).order_by(SkuAlias.alias_sku)).scalars().all()
             print(_format_list(rows), end="", flush=True)
