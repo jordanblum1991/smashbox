@@ -82,6 +82,15 @@ class SkuScorecard:
     stockout_at_60d: bool             # actual_60d > on_hand + recommended_qty
     overstock: bool                   # recommended > overstock_multiple × actual_30d
 
+    # True when on_hand was 0 at as_of: any actual demand we observe in the
+    # post-window is necessarily bounded (customers who tried to buy were
+    # turned away and don't show up in OrderLine). Stockouts on these SKUs
+    # are stockout-censored — safety stock can't fix them, the SKU needs
+    # to land inventory before the next cycle. Most useful for
+    # interpreting lead-time stockout rates: a "stockout" on a censored
+    # SKU isn't a planning failure, it's a measurement artifact.
+    suspected_censored: bool = False
+
     @property
     def available_after_po(self) -> int:
         return self.on_hand_at_as_of + self.recommended_qty
@@ -122,9 +131,29 @@ class CatalogScorecard:
 
     per_sku: list[SkuScorecard] = field(default_factory=list)
 
+    # Stockout breakdown by censoring status. A "censored" stockout means the
+    # SKU was already at 0 at as_of — any post-window demand we observe is
+    # bounded by what could be shipped from incoming POs, and the customers
+    # who actually tried to buy and were turned away don't show up. Those
+    # aren't planning failures; the variance method can't fix them.
+    stockout_lead_count_censored: int = 0
+    stockout_lead_count_uncensored: int = 0
+    stockout_30d_count_censored: int = 0
+    stockout_30d_count_uncensored: int = 0
+    stockout_60d_count_censored: int = 0
+    stockout_60d_count_uncensored: int = 0
+
     @property
     def stockout_lead_rate(self) -> Decimal:
         return _rate(self.stockout_lead_count, self.skus_scored)
+
+    @property
+    def stockout_lead_rate_uncensored(self) -> Decimal:
+        """Lead-time stockouts only for SKUs that had inventory at as_of —
+        i.e., the planner could plausibly have prevented them with better
+        sizing. Excludes the artifact stockouts on censored (on_hand=0) SKUs."""
+        denom = sum(1 for r in self.per_sku if not r.suspected_censored)
+        return _rate(self.stockout_lead_count_uncensored, denom)
 
     @property
     def stockout_30d_rate(self) -> Decimal:
@@ -310,6 +339,9 @@ def score_at(
     per_sku: list[SkuScorecard] = []
     skus_with_rec = 0
     stockout_lead = stockout_30d = stockout_60d = overstock = 0
+    stockout_lead_cens = stockout_lead_unc = 0
+    stockout_30d_cens = stockout_30d_unc = 0
+    stockout_60d_cens = stockout_60d_unc = 0
     total_recommended = Decimal("0")
     total_actual_30d = Decimal("0")
     total_actual_60d = Decimal("0")
@@ -333,6 +365,7 @@ def score_at(
             elif Decimal(r.suggested_order_qty) > overstock_multiple * Decimal(d30):
                 overstock_b = True
 
+        censored = r.on_hand <= 0
         sc = SkuScorecard(
             component_sku=component_sku,
             sku_code=r.sku_code,
@@ -350,6 +383,7 @@ def score_at(
             stockout_at_30d=stockout_30_b,
             stockout_at_60d=stockout_60_b,
             overstock=overstock_b,
+            suspected_censored=censored,
         )
         per_sku.append(sc)
 
@@ -357,10 +391,22 @@ def score_at(
             skus_with_rec += 1
         if stockout_lead_b:
             stockout_lead += 1
+            if censored:
+                stockout_lead_cens += 1
+            else:
+                stockout_lead_unc += 1
         if stockout_30_b:
             stockout_30d += 1
+            if censored:
+                stockout_30d_cens += 1
+            else:
+                stockout_30d_unc += 1
         if stockout_60_b:
             stockout_60d += 1
+            if censored:
+                stockout_60d_cens += 1
+            else:
+                stockout_60d_unc += 1
         if overstock_b:
             overstock += 1
         total_recommended += sc.recommended_investment
@@ -375,6 +421,12 @@ def score_at(
         stockout_30d_count=stockout_30d,
         stockout_60d_count=stockout_60d,
         overstock_count=overstock,
+        stockout_lead_count_censored=stockout_lead_cens,
+        stockout_lead_count_uncensored=stockout_lead_unc,
+        stockout_30d_count_censored=stockout_30d_cens,
+        stockout_30d_count_uncensored=stockout_30d_unc,
+        stockout_60d_count_censored=stockout_60d_cens,
+        stockout_60d_count_uncensored=stockout_60d_unc,
         total_recommended_investment=total_recommended,
         total_actual_demand_value_30d=total_actual_30d,
         total_actual_demand_value_60d=total_actual_60d,
@@ -447,9 +499,19 @@ def _format_scorecard(sc: CatalogScorecard, *, top_n: int = 5) -> str:
     lines.append(f"  SKUs scored:                  {sc.skus_scored}")
     lines.append(f"  SKUs with recommendation:     {sc.skus_with_recommendation}")
     lines.append("")
+    n_censored = sum(1 for r in sc.per_sku if r.suspected_censored)
+    n_uncensored = sc.skus_scored - n_censored
+    lines.append(f"  SKUs suspected_censored (on_hand=0 at as_of): {n_censored} of {sc.skus_scored}")
+    lines.append("")
     lines.append(f"  Stockout during lead time:    {sc.stockout_lead_count:>4} ({sc.stockout_lead_rate}% of all scored SKUs)")
+    lines.append(f"    ├─ on censored SKUs:        {sc.stockout_lead_count_censored:>4}  (stockout-censored — variance/safety can't fix)")
+    lines.append(f"    └─ on stocked SKUs:         {sc.stockout_lead_count_uncensored:>4} ({sc.stockout_lead_rate_uncensored}% of {n_uncensored} stocked SKUs) ← real planning failures")
     lines.append(f"  Stockout at 30d:              {sc.stockout_30d_count:>4} ({sc.stockout_30d_rate}% of SKUs with a PO)")
+    lines.append(f"    ├─ on censored SKUs:        {sc.stockout_30d_count_censored:>4}")
+    lines.append(f"    └─ on stocked SKUs:         {sc.stockout_30d_count_uncensored:>4}")
     lines.append(f"  Stockout at 60d:              {sc.stockout_60d_count:>4} ({sc.stockout_60d_rate}% of SKUs with a PO)")
+    lines.append(f"    ├─ on censored SKUs:        {sc.stockout_60d_count_censored:>4}")
+    lines.append(f"    └─ on stocked SKUs:         {sc.stockout_60d_count_uncensored:>4}")
     lines.append(f"  Overstock (qty > 2× 30d):     {sc.overstock_count:>4} ({sc.overstock_rate}% of SKUs with a PO)")
     lines.append("")
     lines.append(f"  Total recommended investment: {_format_money(sc.total_recommended_investment)}")
@@ -466,13 +528,37 @@ def _format_scorecard(sc: CatalogScorecard, *, top_n: int = 5) -> str:
     if stockout_offenders:
         lines.append("")
         lines.append(f"  Top {len(stockout_offenders)} stockout offenders (during lead time):")
-        lines.append(f"    {'sku':14} {'on_hand':>8} {'rec_qty':>8} {'lead_d':>8} {'gap':>8}")
+        lines.append(f"    {'sku':14} {'on_hand':>8} {'rec_qty':>8} {'lead_d':>8} {'gap':>8} {'censored':>9}")
         for r in stockout_offenders:
             gap = r.actual_demand_lead - r.on_hand_at_as_of
+            cens = "yes" if r.suspected_censored else "no"
             lines.append(
                 f"    {(r.sku_code or r.component_sku)[:14]:14} "
                 f"{r.on_hand_at_as_of:>8} {r.recommended_qty:>8} "
-                f"{r.actual_demand_lead:>8} {gap:>+8}"
+                f"{r.actual_demand_lead:>8} {gap:>+8} {cens:>9}"
+            )
+
+    # Repeat-offender check: SKUs flagged as BOTH stockout AND overstock.
+    # Pre-alias-merge this was where the split-history SKUs (C01101 / SBX-C01101,
+    # C6R801, C09D01) showed up as duplicate rows — one row stockout, one row
+    # overstock. After the merge each physical SKU is one row, so a SKU on
+    # both lists is genuinely both: it stocked out AND the recommendation
+    # was excessive (usually because demand was censored — the planner can't
+    # see what didn't sell while we were out).
+    repeat_offenders = [
+        r for r in sc.per_sku
+        if r.stockout_during_lead_time and r.overstock
+    ]
+    if repeat_offenders:
+        lines.append("")
+        lines.append(f"  Repeat offenders ({len(repeat_offenders)}): SKUs on BOTH stockout AND overstock lists")
+        lines.append(f"    {'sku':14} {'on_hand':>8} {'rec_qty':>8} {'lead':>6} {'act_30d':>8} {'censored':>9}")
+        for r in repeat_offenders[:top_n]:
+            cens = "yes" if r.suspected_censored else "no"
+            lines.append(
+                f"    {(r.sku_code or r.component_sku)[:14]:14} "
+                f"{r.on_hand_at_as_of:>8} {r.recommended_qty:>8} "
+                f"{r.actual_demand_lead:>6} {r.actual_demand_30d:>8} {cens:>9}"
             )
 
     overstock_offenders = sorted(
