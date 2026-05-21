@@ -34,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.order import Order, OrderLine, OrderType
+from app.models.sku import Sku
 from app.models.sku_alias import SkuAlias
 
 
@@ -252,6 +253,67 @@ def suggest_aliases(
                 canonical_total_units=c_w.total_units,
                 days_gap=gap,
             )
+
+    # ---- Heuristic 3: catalog-level same SKU code ----------------------
+    # After the order-import resolver runs, OrderLines reference opaque
+    # TikTok numeric IDs — the human-readable rename (C09D01 → SBX-C09D01)
+    # is invisible at the order layer. But the Sku CATALOG still has it:
+    # if two Sku rows share `Sku.sku` (the human-readable code) but have
+    # different `tiktok_sku_id`, TikTok almost certainly re-listed the
+    # product under a new ID, splitting demand across two TikTok identifiers.
+    #
+    # MEDIUM confidence because this also catches genuine TikTok variations
+    # (e.g. one Sku.sku with separate color rows). The buyer reviews. The
+    # canonical guess is "Sku row with the more recent last_sale" — the
+    # newer listing is the current source of truth.
+    catalog_rows = db.execute(
+        select(Sku.sku, Sku.tiktok_sku_id)
+        .where(Sku.tiktok_sku_id.is_not(None))
+        .where(Sku.sku.is_not(None))
+    ).all()
+    catalog_by_sku: dict[str, list[str]] = defaultdict(list)
+    for sku_code, tt_id in catalog_rows:
+        catalog_by_sku[sku_code].append(str(tt_id))
+
+    for sku_code, tt_ids in catalog_by_sku.items():
+        if len(tt_ids) < 2:
+            continue
+        # Pick canonical = the one whose sales are most recent. If only one
+        # side has sales, that side is canonical (the other is dormant).
+        # If neither has sales, skip — nothing useful to align.
+        with_sales = [(tt, windows[tt]) for tt in tt_ids if tt in windows]
+        if not with_sales:
+            continue
+        with_sales.sort(key=lambda p: p[1].last_sale, reverse=True)
+        canonical_id = with_sales[0][0]
+        for tt_id in tt_ids:
+            if tt_id == canonical_id:
+                continue
+            if existing.get(tt_id) == canonical_id:
+                continue
+            a_w = windows.get(tt_id)
+            c_w = windows.get(canonical_id)
+            gap = ((c_w.first_sale - a_w.last_sale).days
+                   if (a_w and c_w and a_w.last_sale and c_w.first_sale)
+                   else None)
+            key = (tt_id, canonical_id)
+            if key in suggestions:
+                # Upgrade an earlier suggestion's reason — catalog match is
+                # the strongest signal we have.
+                suggestions[key].reason = "catalog_same_sku_code+other"
+                suggestions[key].confidence = "high"
+            else:
+                suggestions[key] = AliasSuggestion(
+                    alias_sku=tt_id,
+                    canonical_sku=canonical_id,
+                    reason="catalog_same_sku_code",
+                    confidence="medium",
+                    alias_last_sale=a_w.last_sale if a_w else None,
+                    canonical_first_sale=c_w.first_sale if c_w else None,
+                    alias_total_units=a_w.total_units if a_w else 0,
+                    canonical_total_units=c_w.total_units if c_w else 0,
+                    days_gap=gap,
+                )
 
     # ---- Heuristic 2: temporal handoff ---------------------------------
     today = datetime.now().date()

@@ -197,6 +197,37 @@ def test_suggest_aliases_respects_min_units_floor():
         assert suggestions == []
 
 
+def test_suggest_aliases_flags_catalog_same_sku_code():
+    """Two Sku rows share `Sku.sku` (the human-readable code) but have
+    different `tiktok_sku_id` values → almost certainly a TikTok re-listing.
+    Demand for each sits under different TikTok IDs at the order layer."""
+    today = datetime.now()
+    with SessionLocal() as db:
+        b = _batch(db)
+        # Two catalog rows, same human SKU "SBX-C6R801", different TikTok IDs.
+        db.add(Sku(
+            sku="SBX-C6R801", tiktok_sku_id="OLD-TT-ID",
+            name="Travel Primer", brand="smashbox", unit_cogs=Decimal("8.00"),
+        ))
+        db.add(Sku(
+            sku="SBX-C6R801", tiktok_sku_id="NEW-TT-ID",
+            name="Travel Primer", brand="smashbox", unit_cogs=Decimal("8.00"),
+        ))
+        # Some sales under each TikTok ID so the candidate clears noise floor.
+        _orders_daily(db, b.id, "OLD-TT-ID",
+                      start=today - timedelta(days=60), days=14, qty_per_day=1)
+        _orders_daily(db, b.id, "NEW-TT-ID",
+                      start=today - timedelta(days=20), days=14, qty_per_day=1)
+        db.commit()
+
+        suggestions = suggest_aliases(db, min_units=5)
+        catalog_hits = [s for s in suggestions if "catalog_same_sku_code" in s.reason]
+        assert len(catalog_hits) == 1
+        # Canonical = the listing with the more recent last sale (NEW-TT-ID).
+        assert catalog_hits[0].canonical_sku == "NEW-TT-ID"
+        assert catalog_hits[0].alias_sku == "OLD-TT-ID"
+
+
 def test_suggest_aliases_flags_temporal_handoff_without_stem_match():
     """A's sales stop while B's begin → flag as temporal_handoff. Reflect
     that the user might have re-coded a product to an unrelated-looking
