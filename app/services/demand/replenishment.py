@@ -25,6 +25,7 @@ Order quantity math:
 in-transit or known-incoming inventory (the planner UI lets you type it in).
 Defaults to 0.
 """
+import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -73,6 +74,18 @@ class ReplenishmentInputs:
     is_reorderable: bool = True
     unit_cogs: Decimal = Decimal("0")  # for investment $$ math
 
+    # Variance-based safety stock inputs. When `sigma_daily` is provided and
+    # non-zero, safety_stock = z × σ × √lead_time (the demand-variability
+    # model). Otherwise we fall back to the flat `safety_stock_pct` method
+    # (legacy behaviour, preserved so the unit tests and any caller that
+    # doesn't supply σ keep working).
+    #
+    # `sigma_daily` MUST be the σ of the RAW (uncapped) daily series — the
+    # spike cap shrinks σ and would under-buffer the spikes we're insuring
+    # against. The caller in demand_planning.py reads SkuVelocity.sigma_daily_raw.
+    sigma_daily: Decimal | None = None
+    z_value: Decimal | None = None
+
 
 @dataclass
 class ReplenishmentResult:
@@ -98,6 +111,13 @@ class ReplenishmentResult:
     investment: Decimal
 
     status: ReplenishmentStatus
+
+    # How the safety buffer was actually computed for this row — visible on
+    # the drill-down "How the suggestion was computed" panel so the buyer
+    # can see whether variance or the flat % fallback applied. `method` is
+    # either "variance" (z × σ × √L) or "flat" (lead_demand × pct).
+    safety_stock_units: int = 0
+    safety_method: str = "flat"
 
 
 def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult:
@@ -135,10 +155,21 @@ def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult
     days_of_supply = (Decimal(available) / v_raw).quantize(Decimal("0.1"))
     stockout_date = as_of + timedelta(days=int(days_of_supply))
 
-    # Reorder point + order quantity: ROBUST. Conservative on buying —
+    # Reorder point + order quantity: ROBUST velocity. Conservative on buying —
     # outlier days don't inflate the projection for two months.
     lead_demand = v * Decimal(inp.lead_time_days)
-    safety_buffer = lead_demand * inp.safety_stock_pct
+
+    # Safety stock: prefer variance-based (z × σ × √L) when σ is available.
+    # Falls back to the legacy flat-percent method otherwise so callers
+    # that don't supply σ (older tests, one-off analyses) keep working.
+    if inp.sigma_daily is not None and inp.sigma_daily > 0 and inp.z_value is not None:
+        sqrt_lead = Decimal(str(math.sqrt(inp.lead_time_days)))
+        safety_buffer = inp.z_value * inp.sigma_daily * sqrt_lead
+        safety_method = "variance"
+    else:
+        safety_buffer = lead_demand * inp.safety_stock_pct
+        safety_method = "flat"
+    safety_stock_units = int(safety_buffer.to_integral_value(rounding="ROUND_HALF_UP"))
     reorder_point = int((lead_demand + safety_buffer).to_integral_value(rounding="ROUND_HALF_UP"))
 
     target_units = v * Decimal(inp.lead_time_days + inp.cover_days)
@@ -186,6 +217,8 @@ def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult
         suggested_order_qty=suggested,
         investment=investment,
         status=status,
+        safety_stock_units=safety_stock_units,
+        safety_method=safety_method,
     )
 
 

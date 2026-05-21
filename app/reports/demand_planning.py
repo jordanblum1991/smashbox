@@ -217,6 +217,20 @@ def compute_demand_planning_view(
         is_reorderable = True if not s else (s.is_reorderable if s.is_reorderable is not None else True)
         unit_cogs = Decimal(str(s.unit_cogs)) if (s and s.unit_cogs) else Decimal("0")
 
+        # Variance-based safety stock inputs: σ from the RAW daily series
+        # (NOT the spike-capped one — capping shrinks σ and under-buffers
+        # the very volatility we're insuring against). Service level falls
+        # back to the global default when the per-SKU value is null.
+        from app.config import z_for_service_level
+        sigma_daily = v.sigma_daily_raw if v else None
+        sku_service_level = s.service_level if (s and s.service_level is not None) else None
+        effective_service_level = sku_service_level or settings.demand_service_level_default
+        try:
+            z_value = z_for_service_level(Decimal(str(effective_service_level)))
+        except KeyError:
+            # Unsupported per-SKU service level — fall back to global default.
+            z_value = z_for_service_level(settings.demand_service_level_default)
+
         inputs = ReplenishmentInputs(
             sku_code=(s.sku if s else None),
             component_sku=component_sku,
@@ -228,6 +242,8 @@ def compute_demand_planning_view(
             daily_velocity_14d=v.daily_14d if v else Decimal("0"),
             lead_time_days=lead_time,
             safety_stock_pct=effective_safety,
+            sigma_daily=sigma_daily,
+            z_value=z_value,
             cover_days=cover,
             overstocked_threshold_days=overstocked,
             moq=moq,
@@ -650,6 +666,16 @@ def compute_sku_detail_view(
     )
     unit_cogs = Decimal(str(sku.unit_cogs)) if (sku and sku.unit_cogs) else Decimal("0")
 
+    # Variance-based safety stock inputs (same logic as compute_demand_planning_view).
+    from app.config import z_for_service_level
+    sigma_daily = v.sigma_daily_raw if v else None
+    sku_service_level = sku.service_level if (sku and sku.service_level is not None) else None
+    effective_service_level = sku_service_level or settings.demand_service_level_default
+    try:
+        z_value = z_for_service_level(Decimal(str(effective_service_level)))
+    except KeyError:
+        z_value = z_for_service_level(settings.demand_service_level_default)
+
     inputs = ReplenishmentInputs(
         sku_code=(sku.sku if sku else None),
         component_sku=component_sku,
@@ -661,6 +687,8 @@ def compute_sku_detail_view(
         daily_velocity_14d=v.daily_14d if v else Decimal("0"),
         lead_time_days=lead_time,
         safety_stock_pct=effective_safety,
+        sigma_daily=sigma_daily,
+        z_value=z_value,
         cover_days=cover,
         overstocked_threshold_days=overstocked,
         moq=moq,
@@ -670,11 +698,12 @@ def compute_sku_detail_view(
     )
     row = compute_one(inputs, as_of=now.date())
 
-    # Math breakdown — recompute the intermediate values for display.
+    # Math breakdown — reuse the value compute_one actually used (handles
+    # both variance and flat-fallback paths so the walkthrough matches the
+    # reorder_point math 1:1).
     lead_time_demand = int((inputs.daily_velocity * Decimal(inputs.lead_time_days))
                            .to_integral_value(rounding="ROUND_HALF_UP"))
-    safety_buffer = int((Decimal(lead_time_demand) * inputs.safety_stock_pct)
-                        .to_integral_value(rounding="ROUND_HALF_UP"))
+    safety_buffer = row.safety_stock_units
     target_units = int((inputs.daily_velocity * Decimal(inputs.lead_time_days + inputs.cover_days))
                        .to_integral_value(rounding="ROUND_HALF_UP"))
     available = on_hand + expected_receipts

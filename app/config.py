@@ -77,8 +77,43 @@ class Settings(BaseSettings):
     velocity_raw_mean_mult: Decimal = Decimal("5.0")
     velocity_min_units_for_dampening: int = 5
 
+    # ---- Variance-based safety stock -------------------------------------
+    # Replaces the flat-percentage method. safety_stock = z × σ_daily × √L,
+    # where σ_daily comes from the RAW (uncapped) 60-day daily series so the
+    # buffer reflects real volatility — capping σ would under-buffer the
+    # exact spikes safety stock is meant to absorb.
+    # Service level → z-score mapping is in SERVICE_LEVEL_Z_TABLE below.
+    demand_service_level_default: Decimal = Decimal("0.95")
+
 
 settings = Settings()
+
+
+# Z-score lookup for the normal distribution at common service levels.
+# Defined here (not as a Setting) because the math is fixed: a 95% one-sided
+# service level always maps to ~1.65 standard deviations above the mean.
+# Add more tiers only if business genuinely wants finer-grained tiering;
+# rough levels exist deliberately so buyers think in 90 / 95 / 97.5 tiers.
+SERVICE_LEVEL_Z_TABLE: dict[Decimal, Decimal] = {
+    Decimal("0.90"): Decimal("1.28"),
+    Decimal("0.95"): Decimal("1.65"),
+    Decimal("0.975"): Decimal("1.96"),
+}
+
+
+def z_for_service_level(sl: Decimal) -> Decimal:
+    """Return the z-score for a given service level. Decimal equality is
+    value-based, so 0.95 == 0.950 == 0.9500 all match the table entry.
+    Raises KeyError for unsupported levels — pad the table rather than
+    guessing an interpolated z."""
+    for level, z in SERVICE_LEVEL_Z_TABLE.items():
+        if sl == level:
+            return z
+    supported = sorted(SERVICE_LEVEL_Z_TABLE.keys())
+    raise KeyError(
+        f"No z-score defined for service level {sl}; "
+        f"supported levels: {[str(s) for s in supported]}"
+    )
 
 # Resolve the default DB URL once the data_dir is finalized.
 if settings.database_url is None:

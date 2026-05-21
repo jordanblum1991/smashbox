@@ -52,6 +52,7 @@ def _ensure_columns() -> None:
             ("case_pack", "INTEGER"),
             ("safety_stock_pct", "NUMERIC(5,2)"),
             ("is_reorderable", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("service_level", "NUMERIC(4,3)"),
         ],
         "bundles":              [shop_id_col],
         "users": [

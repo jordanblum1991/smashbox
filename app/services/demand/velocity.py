@@ -26,6 +26,7 @@ Demand filtering (per the product-requirements answer):
 The output is `{component_sku: daily_velocity}` — keyed by the SKU you
 actually need to reorder, not the SKU the customer clicked.
 """
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -129,6 +130,27 @@ class SkuVelocity:
         and the investment outlook so one outlier day doesn't trigger
         overbuying for two months."""
         return robust_daily_rate(self.daily_series_60d)
+
+    @property
+    def sigma_daily_raw(self) -> Decimal:
+        """Standard deviation of the RAW (uncapped) 60-day daily series.
+
+        Used by variance-based safety stock. Critical that this comes from
+        the uncapped series — the spike cap reduces σ by clipping the very
+        outlier days the buffer is meant to insure against. Using capped σ
+        would under-buffer the exact volatility we're trying to absorb.
+
+        Sample standard deviation (n−1 denominator) since we're estimating
+        the underlying demand process's σ from a 60-day window of
+        observations, not treating the window as the full population.
+        """
+        n = len(self.daily_series_60d)
+        if n < 2:
+            return Decimal("0")
+        mean = Decimal(sum(self.daily_series_60d)) / Decimal(n)
+        sum_sq = sum((Decimal(x) - mean) ** 2 for x in self.daily_series_60d)
+        variance = sum_sq / Decimal(n - 1)
+        return Decimal(str(math.sqrt(float(variance)))).quantize(Decimal("0.0001"))
 
     @property
     def trend_ratio(self) -> Decimal:

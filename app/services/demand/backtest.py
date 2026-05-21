@@ -496,6 +496,12 @@ def _format_scorecard(sc: CatalogScorecard, *, top_n: int = 5) -> str:
 
 def cli_main(argv: list[str] | None = None) -> int:
     import argparse
+    # Import app.main to trigger boot migrations (`_ensure_columns`,
+    # `Base.metadata.create_all`) so the CLI sees the same schema the
+    # web app does — otherwise a freshly-added column like `service_level`
+    # crashes the query. The FastAPI app instance is harmless to load
+    # for a CLI; nothing listens.
+    import app.main  # noqa: F401 — side-effect: schema bring-up
     from app.db import SessionLocal
 
     parser = argparse.ArgumentParser(

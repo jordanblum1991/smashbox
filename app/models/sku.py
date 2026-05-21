@@ -63,3 +63,9 @@ class Sku(Base):
     case_pack: Mapped[int | None] = mapped_column(Integer, nullable=True)
     safety_stock_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     is_reorderable: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Service-level tier for variance-based safety stock. Stored as a
+    # fraction (0.95 = 95%), nullable, falls back to the global default
+    # `settings.demand_service_level_default` at planner-compute time.
+    # See `app/services/demand/replenishment.py` for how it's used.
+    service_level: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
