@@ -6,10 +6,16 @@
       <span class="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">TikTok P&amp;L</span>
     </a>
     <div class="flex items-center gap-1 text-sm">
-      {% set primary_links = [
+      {% set primary_links_left = [
         ("/", "Dashboard"),
         ("/reports/pnl", "P&L"),
-        ("/reports/samples", "Samples"),
+      ] %}
+      {% set sample_links = [
+        ("/reports/samples", "Sample Tracking"),
+        ("/reports/sample-inventory", "Sample Inventory"),
+        ("/reports/samples-by-creator", "By Creator"),
+      ] %}
+      {% set primary_links_right = [
         ("/reports/ad-spend", "Ad Spend"),
         ("/reports/demand-planning", "Inventory"),
       ] %}
@@ -23,7 +29,33 @@
         ("/reports/reconciliation", "Recon", None),
       ] %}
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
-      {% for href, label in primary_links %}
+      {% for href, label in primary_links_left %}
+        <a href="{{ href }}"
+           class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+          {{ label }}
+        </a>
+      {% endfor %}
+
+      <div class="group relative">
+        <button type="button"
+                class="relative inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 group-hover:bg-slate-100 group-focus-within:bg-slate-100">
+          Samples
+          <svg class="h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180"
+               fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+        <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
+          {% for href, label in sample_links %}
+          <a href="{{ href }}"
+             class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+            {{ label }}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% for href, label in primary_links_right %}
         <a href="{{ href }}"
            class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
           {{ label }}

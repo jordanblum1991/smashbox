@@ -27,6 +27,7 @@ class ImportFileKind(str, enum.Enum):
     BUNDLE_MAPPING = "bundle_mapping"
     SAMPLES = "samples"
     INVENTORY_SNAPSHOT = "inventory_snapshot"
+    SUPPLIER_RECEIPTS = "supplier_receipts"
 
 
 class ImportBatchStatus(str, enum.Enum):

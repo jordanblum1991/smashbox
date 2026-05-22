@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Sample Inventory · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Creator Sample Module",
+  title="Sample Inventory",
+  subtitle="Current on-hand balance per SKU · as of " ~ view.as_of.strftime("%Y-%m-%d %H:%M"),
+) %}
+  <button onclick="window.print()"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
+
+<!-- Headline KPIs -->
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {{ ui.kpi("Total On-Hand Units", view.total_on_hand_units, "Sum across all SKUs in the sample pool") }}
+  {{ ui.kpi("SKUs with Stock", view.sku_count, "Distinct canonical SKUs with a positive balance") }}
+</section>
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">On-Hand by SKU</h2>
+    <p class="mt-0.5 text-xs text-slate-500">Balance = receipts IN minus shipments OUT. Zero-balance SKUs omitted.</p>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2">SKU</th>
+          <th class="px-4 py-2">Product Name</th>
+          <th class="px-4 py-2">Ledger Key</th>
+          <th class="px-4 py-2 text-right">On-Hand Units</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in view.rows %}
+        <tr>
+          <td class="px-4 py-2">
+            {% if r.sku_code %}
+              <span class="font-medium">{{ r.sku_code }}</span>
+              {% if r.is_bundle %}
+                <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700">Bundle</span>
+              {% endif %}
+            {% else %}
+              <span class="text-rose-700">Unmapped</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2">
+            {% if r.name %}{{ r.name }}{% else %}<span class="text-rose-700">—</span>{% endif %}
+          </td>
+          <td class="px-4 py-2 font-mono text-[11px] text-slate-500">{{ r.canonical_sku }}</td>
+          <td class="px-4 py-2 text-right font-semibold tabular-nums">{{ r.on_hand_units }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" class="px-4 py-8 text-center text-slate-400">No sample inventory on hand. Record a receipt to add stock.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

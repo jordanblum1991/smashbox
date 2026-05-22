@@ -30,10 +30,12 @@ from app.reports.reconciliation import (
     reconcile_month,
     yearly_sales_reconciliation,
 )
+from app.reports.sample_inventory import compute_sample_inventory_view
 from app.reports.sample_tracking import (
     SamplePeriodKind,
     compute_sample_view,
 )
+from app.reports.samples_by_creator import compute_samples_by_creator_view
 from app.reports.sku_profitability import compute_sku_profitability
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
@@ -130,6 +132,28 @@ def samples_view(
         request,
         "reports/sample_tracking.html",
         {"view": view, "SamplePeriodKind": SamplePeriodKind},
+    )
+
+
+@router.get("/reports/sample-inventory")
+def sample_inventory_view(request: Request, db: Session = Depends(get_db)):
+    """Sample pool on-hand inventory, derived from the movement ledger."""
+    view = compute_sample_inventory_view(db)
+    return templates.TemplateResponse(
+        request,
+        "reports/sample_inventory.html",
+        {"view": view},
+    )
+
+
+@router.get("/reports/samples-by-creator")
+def samples_by_creator_view(request: Request, db: Session = Depends(get_db)):
+    """Samples sent, grouped by creator."""
+    view = compute_samples_by_creator_view(db)
+    return templates.TemplateResponse(
+        request,
+        "reports/samples_by_creator.html",
+        {"view": view},
     )
 
 

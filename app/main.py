@@ -40,7 +40,11 @@ def _ensure_columns() -> None:
         "payouts":              [shop_id_col],
         "ad_spend":             [shop_id_col],
         "ad_credits":           [shop_id_col],
-        "samples":              [shop_id_col],
+        "samples":              [
+            shop_id_col,
+            ("shipping_cost", "NUMERIC(12,2)"),
+            ("creator_id",    "INTEGER REFERENCES creators(id)"),
+        ],
         "tiktok_daily_metrics": [shop_id_col],
         "import_batches":       [shop_id_col],
         "skus": [

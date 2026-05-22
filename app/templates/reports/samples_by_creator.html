@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Samples by Creator · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Creator Sample Module",
+  title="Samples by Creator",
+  subtitle="All-time sample shipments grouped by creator",
+) %}
+  <button onclick="window.print()"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
+
+<!-- Headline KPIs -->
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {{ ui.kpi("Total Samples Sent", view.total_samples_sent, "Sum of all units shipped to creators") }}
+  {{ ui.kpi("Creators", view.creator_count, "Normalized + legacy rows") }}
+</section>
+
+{% if view.rows | selectattr("is_legacy") | list %}
+<p class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+  <strong>Legacy rows:</strong> Some shipments were recorded before creator records were normalized.
+  A creator may appear twice — once as a normalized row (linked to a Creator record) and once as a legacy row (handle only).
+  Legacy rows will collapse after <code>creator_id</code> is backfilled on old Sample entries.
+</p>
+{% endif %}
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Creator Breakdown</h2>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2">Creator</th>
+          <th class="px-4 py-2">Platform</th>
+          <th class="px-4 py-2 text-right">Samples Sent</th>
+          <th class="px-4 py-2 text-right">Distinct SKUs</th>
+          {% if view.any_shipping_cost %}
+          <th class="px-4 py-2 text-right">Shipping Cost</th>
+          {% endif %}
+          <th class="px-4 py-2">First Shipped</th>
+          <th class="px-4 py-2">Last Shipped</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in view.rows %}
+        <tr>
+          <td class="px-4 py-2">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{{ r.creator_handle or "—" }}</span>
+              {% if r.is_legacy %}
+                <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">legacy</span>
+              {% endif %}
+            </div>
+            {% if r.creator_name %}
+              <div class="text-xs text-slate-500">{{ r.creator_name }}</div>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2 text-slate-600">
+            {% if r.platform %}{{ r.platform }}{% else %}<span class="text-slate-400">—</span>{% endif %}
+          </td>
+          <td class="px-4 py-2 text-right font-semibold tabular-nums">{{ r.total_samples_sent }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ r.distinct_sku_count }}</td>
+          {% if view.any_shipping_cost %}
+          <td class="px-4 py-2 text-right tabular-nums">
+            {% if r.total_shipping_cost is not none %}
+              ${{ "%.2f" % r.total_shipping_cost }}
+            {% else %}
+              <span class="text-slate-400">—</span>
+            {% endif %}
+          </td>
+          {% endif %}
+          <td class="px-4 py-2 text-slate-600">{{ r.first_shipped_at.strftime("%Y-%m-%d") }}</td>
+          <td class="px-4 py-2 text-slate-600">{{ r.last_shipped_at.strftime("%Y-%m-%d") }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="{{ 7 if view.any_shipping_cost else 6 }}" class="px-4 py-8 text-center text-slate-400">No sample shipments recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

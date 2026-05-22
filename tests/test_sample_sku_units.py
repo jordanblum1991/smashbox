@@ -17,7 +17,14 @@ from app.models import (
     Sample,
     Sku,
 )
-from app.reports.sample_tracking import compute_sample_view, count_sku_units_shipped, SamplePeriodKind
+from app.models.sku_alias import SkuAlias
+from app.reports.sample_tracking import (
+    SamplePeriodKind,
+    compute_sample_view,
+    count_sku_units_shipped,
+    samples_by_sku_shipped,
+    samples_vs_sales_by_sku,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -132,3 +139,124 @@ def test_view_exposes_total_sku_units_shipped():
 
     assert view.total_units_shipped == 2          # order-line units (legacy meaning)
     assert view.total_sku_units_shipped == 6      # expanded: 2 × 3 components
+
+
+# ---- Alias consolidation -------------------------------------------------
+# Pre-fix bug: a SKU re-coded mid-window (e.g. legacy 'LEGACY-A' aliased to
+# canonical 'TT-A') showed up as TWO rows on the sample-tracking page because
+# the aggregators grouped by raw OrderLine.sku / Sample.sku. The fix loads
+# the alias map and canonicalizes keys before grouping.
+
+def _alias(db, alias_sku: str, canonical_sku: str) -> None:
+    db.add(SkuAlias(alias_sku=alias_sku, canonical_sku=canonical_sku))
+    db.flush()
+
+
+def test_samples_vs_sales_consolidates_aliased_keys():
+    """Samples shipped under both an alias code and its canonical must
+    collapse to one row in samples_vs_sales_by_sku."""
+    with SessionLocal() as db:
+        db.add(Sku(sku="A", tiktok_sku_id="TT-A", name="Product A",
+                   brand="b", unit_cogs=Decimal("1")))
+        db.flush()
+        _alias(db, "LEGACY-A", "TT-A")
+
+        batch = _batch(db)
+        # 3 sample units under the legacy code, 5 under the canonical.
+        _sample_order_line(db, batch, tiktok_oid="O-OLD", sku="LEGACY-A", quantity=3)
+        _sample_order_line(db, batch, tiktok_oid="O-NEW", sku="TT-A", quantity=5)
+        db.commit()
+
+        rows = samples_vs_sales_by_sku(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
+
+    # ONE row, not two; total samples = 3 + 5 = 8.
+    assert len(rows) == 1
+    assert rows[0].tiktok_sku_id == "TT-A"
+    assert rows[0].samples_sent == 8
+
+
+def test_samples_by_sku_shipped_consolidates_aliased_keys():
+    """Same consolidation guarantee for the dashboard 'Samples sent by SKU' table."""
+    with SessionLocal() as db:
+        db.add(Sku(sku="A", tiktok_sku_id="TT-A", name="Product A",
+                   brand="b", unit_cogs=Decimal("1")))
+        db.flush()
+        _alias(db, "LEGACY-A", "TT-A")
+
+        batch = _batch(db)
+        _sample_order_line(db, batch, tiktok_oid="O-OLD", sku="LEGACY-A", quantity=3)
+        _sample_order_line(db, batch, tiktok_oid="O-NEW", sku="TT-A", quantity=5)
+        # Manual Sample row under the legacy code too — must also collapse.
+        db.add(Sample(
+            import_batch_id=batch.id,
+            shipped_at=datetime(2026, 5, 10),
+            sku="LEGACY-A",
+            quantity=2,
+        ))
+        db.commit()
+
+        rows = samples_by_sku_shipped(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
+
+    assert len(rows) == 1
+    assert rows[0].tiktok_sku_id == "TT-A"
+    assert rows[0].samples_sent == 10  # 3 (order) + 5 (order) + 2 (Sample table)
+
+
+def test_count_sku_units_shipped_consolidates_aliased_bundle_keys():
+    """A bundle re-listed under a new TikTok ID — sample units under the old
+    bundle code should expand through the canonical bundle's components."""
+    with SessionLocal() as db:
+        # Bundle catalog row keyed by the canonical TikTok ID.
+        bundle = Bundle(tiktok_sku_id="TT-BUNDLE-NEW", bundle_sku="BUNDLE",
+                        name="duo", brand="b")
+        db.add(bundle)
+        db.flush()
+        db.add(BundleComponent(bundle_id=bundle.id, component_sku="X",
+                               quantity=1, unit_cogs=Decimal("1")))
+        db.add(BundleComponent(bundle_id=bundle.id, component_sku="Y",
+                               quantity=1, unit_cogs=Decimal("1")))
+
+        # Old bundle TikTok ID aliased to new.
+        _alias(db, "TT-BUNDLE-OLD", "TT-BUNDLE-NEW")
+
+        batch = _batch(db)
+        # 1 sample under old bundle code, 1 under new — both must expand to
+        # 2 component units each, total = 4.
+        _sample_order_line(db, batch, tiktok_oid="O-OLD", sku="TT-BUNDLE-OLD", quantity=1)
+        _sample_order_line(db, batch, tiktok_oid="O-NEW", sku="TT-BUNDLE-NEW", quantity=1)
+        db.commit()
+
+        total = count_sku_units_shipped(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
+
+    # Both line qtys collapse to canonical TT-BUNDLE-NEW (combined qty=2),
+    # then expand via the 2-component bundle → 2 × 2 = 4.
+    assert total == 4
+
+
+def test_alias_map_explicit_empty_disables_collapse():
+    """Passing alias_map={} short-circuits the DB lookup so callers can run
+    pre-aliased analyses (e.g. for diff'ing before/after a merge)."""
+    with SessionLocal() as db:
+        db.add(Sku(sku="A", tiktok_sku_id="TT-A", name="Product A",
+                   brand="b", unit_cogs=Decimal("1")))
+        db.flush()
+        _alias(db, "LEGACY-A", "TT-A")
+
+        batch = _batch(db)
+        _sample_order_line(db, batch, tiktok_oid="O-OLD", sku="LEGACY-A", quantity=3)
+        _sample_order_line(db, batch, tiktok_oid="O-NEW", sku="TT-A", quantity=5)
+        db.commit()
+
+        # Default: alias collapses to one row.
+        with_aliases = samples_vs_sales_by_sku(
+            db, datetime(2026, 5, 1), datetime(2026, 6, 1)
+        )
+        assert len(with_aliases) == 1
+
+        # Explicit empty: two raw rows again.
+        without_aliases = samples_vs_sales_by_sku(
+            db, datetime(2026, 5, 1), datetime(2026, 6, 1), alias_map={}
+        )
+        assert len(without_aliases) == 2
+        skus = {r.tiktok_sku_id for r in without_aliases}
+        assert skus == {"LEGACY-A", "TT-A"}

@@ -20,6 +20,11 @@ Each ImportFileKind has a different blast radius, so deletion is per-kind:
 
   SAMPLES            delete Sample rows owned by this batch.
 
+  SUPPLIER_RECEIPTS  delete SampleInventoryMovement IN rows owned by this batch.
+                     Shipment OUT movements don't carry import_batch_id, so the
+                     import_batch_id filter scopes deletion to receipts only —
+                     rolling back a receipt batch NEVER disturbs shipment history.
+
   SKU_MASTER         catalog-only: Sku rows have no import_batch_id, so we
                      can't tell which Sku rows this batch created vs. updated.
                      Audit-entry delete only — caller surfaces the warning.
@@ -42,6 +47,7 @@ from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.order import Order
 from app.models.payout import Payout
 from app.models.sample import Sample
+from app.models.sample_inventory_movement import SampleInventoryMovement
 from app.models.settlement import Adjustment, Settlement
 
 # Fields the settlement importer back-fills onto Order. Kept in one place so
@@ -87,6 +93,8 @@ def delete_batch(db: Session, batch: ImportBatch) -> DeletionResult:
         result = _delete_samples(db, batch)
     elif batch.kind == ImportFileKind.INVENTORY_SNAPSHOT:
         result = _delete_inventory_snapshots(db, batch)
+    elif batch.kind == ImportFileKind.SUPPLIER_RECEIPTS:
+        result = _delete_supplier_receipts(db, batch)
     elif batch.kind in (ImportFileKind.SKU_MASTER, ImportFileKind.BUNDLE_MAPPING):
         # Catalog rows don't track batch ownership — see module docstring.
         result = DeletionResult(kind=batch.kind, rows_deleted=0, audit_only=True)
@@ -213,6 +221,23 @@ def _delete_samples(db: Session, batch: ImportBatch) -> DeletionResult:
     for s in samples:
         db.delete(s)
     return DeletionResult(kind=batch.kind, rows_deleted=len(samples))
+
+
+def _delete_supplier_receipts(db: Session, batch: ImportBatch) -> DeletionResult:
+    """Delete SampleInventoryMovement rows imported by THIS batch.
+
+    Scoped to import_batch_id == batch.id, so only IN rows the supplier-receipt
+    importer wrote get deleted. Shipment OUT movements have no import_batch_id
+    (see record_sample_shipment) and are therefore untouchable from this path.
+    """
+    rows = db.execute(
+        select(SampleInventoryMovement).where(
+            SampleInventoryMovement.import_batch_id == batch.id
+        )
+    ).scalars().all()
+    for r in rows:
+        db.delete(r)
+    return DeletionResult(kind=batch.kind, rows_deleted=len(rows))
 
 
 def _delete_inventory_snapshots(db: Session, batch: ImportBatch) -> DeletionResult:

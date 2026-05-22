@@ -5,8 +5,9 @@ No allowance comparison: Smashbox has no monthly sample limit, so the
 (set manually or by future importers). See app/reports/sample_tracking.py.
 """
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -25,3 +26,13 @@ class Sample(Base):
     creator_handle: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_paid_oversample: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     note: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    shipping_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Per-shipment outbound freight. The only active cost tracked in the Creator
+    # Sample Module now. Null = unrecorded; suppress from cost displays while null.
+
+    creator_id: Mapped[int | None] = mapped_column(
+        ForeignKey("creators.id"), nullable=True, index=True
+    )
+    # FK to normalized Creator entity. Null on all existing CSV-imported rows;
+    # creator_handle string stays untouched. New entries can set both or either.
