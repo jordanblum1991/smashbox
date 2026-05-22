@@ -41,6 +41,13 @@ class AdSpendMonthRow:
         """Gross spend minus manual ad credit — the true cash cost."""
         return self.total - self.manual_credit
 
+    @property
+    def credit_saved(self) -> bool:
+        """True iff an AdCredit row exists for this month — distinguishes a
+        deliberately-saved $0 from a never-entered month. The form binds to
+        the row's identity, not its amount, so a saved $0 is sticky."""
+        return self.credit_id is not None
+
 
 @dataclass
 class AdSpendSummary:

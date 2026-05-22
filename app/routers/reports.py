@@ -3,9 +3,10 @@
 Each report renders to a Jinja template. Print styles live in static/css/app.css
 so any report page can be sent to PDF or paper for brand meetings.
 """
+import calendar
 from datetime import date, datetime
-
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
@@ -241,33 +242,52 @@ def upsert_ad_credit(
 ):
     """Upsert a manual ad credit for (year, month).
 
-    Empty/zero amount → row is deleted (so the P&L no longer offsets that
-    month). Invalid input → silently treated as zero rather than 500ing; the
-    user can re-submit.
+    Saving any amount — including $0 — records a confirmed entry that persists
+    across reloads. There is no "clear" action; a saved $0 means "explicitly
+    confirmed no credit this month" and is distinct from a month that was
+    never touched. Unparseable or blank amount → redirect back with an error
+    query param; nothing is written.
     """
     if not (1 <= month <= 12):
-        raise HTTPException(status_code=400, detail="month must be 1–12")
+        raise HTTPException(status_code=400, detail="month must be 1-12")
+
+    raw = (amount or "").strip()
+    if not raw:
+        return _credit_error_redirect(
+            year, month, "amount is required (enter 0 to confirm no credit)"
+        )
     try:
-        amt = Decimal(amount.strip() or "0")
-    except (InvalidOperation, AttributeError):
-        amt = Decimal("0")
-    amt = abs(amt)  # always store positive; we treat it as an offset magnitude
+        amt = abs(Decimal(raw))  # store positive; offset magnitude
+    except InvalidOperation:
+        return _credit_error_redirect(year, month, f"{raw!r} is not a valid number")
+
     note_clean = (note or "").strip() or None
 
     existing = db.execute(
         select(AdCredit).where(AdCredit.year == year, AdCredit.month == month)
     ).scalar_one_or_none()
-
-    if amt == 0:
-        if existing is not None:
-            db.delete(existing)
-    elif existing is None:
+    if existing is None:
         db.add(AdCredit(year=year, month=month, amount=amt, note=note_clean))
     else:
         existing.amount = amt
         existing.note = note_clean
     db.commit()
     return RedirectResponse("/reports/ad-spend", status_code=303)
+
+
+def _credit_error_redirect(year: int, month: int, reason: str) -> RedirectResponse:
+    """Build a 303 back to /reports/ad-spend with a query-param error flash.
+
+    Modelled on app/routers/admin.py:_back — query params (not session flash)
+    so the message survives the 303 cleanly without extra session machinery.
+    """
+    period = (
+        f"{calendar.month_name[month]} {year}"
+        if 1 <= month <= 12
+        else f"month {month} {year}"
+    )
+    qs = urlencode({"error": f"Could not save credit for {period}: {reason}"})
+    return RedirectResponse(f"/reports/ad-spend?{qs}", status_code=303)
 
 
 # Whitelist of columns the planner table can sort by. Anything else falls
@@ -589,7 +609,11 @@ def ad_spend_view(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
-        {"summary": summary, "today": date.today()},
+        {
+            "summary": summary,
+            "today": date.today(),
+            "error": request.query_params.get("error"),
+        },
     )
 
 

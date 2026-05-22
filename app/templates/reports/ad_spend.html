@@ -16,6 +16,12 @@
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
 
+{% if error %}
+<div class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
+  <strong>Could not save:</strong> {{ error }}
+</div>
+{% endif %}
+
 {# Top KPIs — Gross / Credits / Net at a glance. #}
 {% if summary.months %}
 <section class="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
@@ -61,14 +67,22 @@
             <input type="hidden" name="year" value="{{ r.year }}">
             <input type="hidden" name="month" value="{{ r.month }}">
             <span class="text-slate-400">$</span>
-            <input type="number" name="amount" step="0.01" min="0"
-                   value="{{ '%.2f'|format(r.manual_credit) if r.manual_credit > 0 else '' }}"
+            <input type="number" name="amount" step="0.01" min="0" required
+                   value="{{ '%.2f'|format(r.manual_credit) if r.credit_saved else '' }}"
                    placeholder="0.00"
                    class="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <input type="text" name="note" value="{{ r.credit_note or '' }}" placeholder="note (optional)"
                    class="w-32 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <button type="submit"
                     class="inline-flex items-center rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">Save</button>
+            {% if r.credit_saved %}
+              <span class="ml-1 whitespace-nowrap text-xs font-medium text-emerald-700"
+                    title="Confirmed entry — persists across reload">
+                ✓ Saved{% if r.manual_credit == 0 %} — $0, no credit{% endif %}
+              </span>
+            {% else %}
+              <span class="ml-1 whitespace-nowrap text-xs italic text-slate-400">— not entered</span>
+            {% endif %}
           </form>
           <span class="hidden text-right tabular-nums text-emerald-700 print:inline">{{ r.manual_credit | money }}</span>
         </td>
@@ -96,8 +110,9 @@
     <h2 class="text-base font-semibold text-slate-900">Add or update a credit for any month</h2>
     <p class="mt-0.5 text-xs text-slate-500">
       Use this when the month doesn't yet appear in the table above (e.g. a credit issued for a month
-      with no campaign spend). Submitting the same month again overwrites the existing entry. Enter
-      <strong>$0</strong> (or leave amount blank) to clear an existing credit.
+      with no campaign spend). Submitting the same month again overwrites the existing entry.
+      <strong>Saving $0 is a valid confirmed entry</strong> — it records "no credit this month"
+      distinctly from a month that was never touched.
     </p>
   </header>
   <form action="/reports/ad-spend/credits" method="post"
@@ -122,7 +137,7 @@
     </label>
     <label class="block">
       <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
-      <input type="number" name="amount" step="0.01" min="0" placeholder="0.00"
+      <input type="number" name="amount" step="0.01" min="0" placeholder="0.00" required
              class="mt-1 w-32 rounded-lg border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
     </label>
     <label class="block flex-1 min-w-[12rem]">
@@ -184,7 +199,7 @@
     <li><strong>Ad Credits</strong> are amounts you manually enter here when TikTok grants you promotional credits that should reduce your reported spend.</li>
     <li><strong>Net Ad Spend = Gross − Credits.</strong> This is the figure that flows into the P&amp;L Net Profit calculation and into ROAS.</li>
     <li>On the P&amp;L, you'll see an indented <em>Less: Ad Credits</em> row beneath the ad-spend lines when a credit exists for that month — so Gross and Credits remain visible separately for reconciliation.</li>
-    <li>Enter <strong>$0</strong> (or leave blank) to clear a credit; the row is removed entirely.</li>
+    <li><strong>Saving any amount — including $0 — records a confirmed entry that persists across reloads.</strong> A confirmed $0 shows as "✓ Saved — $0, no credit" and is distinct from a never-touched month ("— not entered"). There is no separate "clear" action; once saved, the entry is sticky.</li>
   </ul>
 </section>
 {% endblock %}
