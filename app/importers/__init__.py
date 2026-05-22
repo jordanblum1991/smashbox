@@ -8,6 +8,7 @@ from app.importers.bundle_mapping import BundleMappingImporter
 from app.importers.inventory_snapshot import InventorySnapshotImporter
 from app.importers.samples import SamplesImporter
 from app.importers.sku_master import SkuMasterImporter
+from app.importers.supplier_receipts import SupplierReceiptImporter
 from app.importers.tiktok_ads import TikTokAdsImporter
 from app.importers.tiktok_analytics import TikTokAnalyticsImporter
 from app.importers.tiktok_orders import TikTokOrdersImporter
@@ -25,6 +26,7 @@ IMPORTERS: dict[ImportFileKind, type[BaseImporter]] = {
     ImportFileKind.BUNDLE_MAPPING: BundleMappingImporter,
     ImportFileKind.SAMPLES: SamplesImporter,
     ImportFileKind.INVENTORY_SNAPSHOT: InventorySnapshotImporter,
+    ImportFileKind.SUPPLIER_RECEIPTS: SupplierReceiptImporter,
 }
 
 __all__ = ["BaseImporter", "ImportResult", "IMPORTERS"]
