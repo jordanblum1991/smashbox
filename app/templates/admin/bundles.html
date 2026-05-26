@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Manage Bundles · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Manage bundles",
+  subtitle="Create new bundles and review existing ones. The XLSX upload path (Imports → Bundle Mapping) still works in parallel; both write to the same Bundle table.",
+) %}
+{% endcall %}
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+  {{ notice }}
+</div>
+{% endif %}
+
+{# ---- Add bundle form ---- #}
+<section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="mb-4 text-sm font-semibold text-slate-900">Add new bundle</h2>
+  <form action="/admin/bundles" method="post" class="space-y-4">
+
+    {# Bundle-level fields #}
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-6">
+      <label class="md:col-span-3">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Bundle Name</span>
+        <input type="text" name="name" required maxlength="512"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+      <label class="md:col-span-3">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Bundle Variation <span class="font-normal text-slate-400">(optional)</span></span>
+        <input type="text" name="variation" maxlength="256"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+      <label class="md:col-span-3">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">TikTok SKU ID</span>
+        <input type="text" name="tiktok_sku_id" required maxlength="64" placeholder="e.g. 1732302789147660459"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+      <label class="md:col-span-2">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Brand <span class="font-normal text-slate-400">(optional)</span></span>
+        <input type="text" name="brand" maxlength="64" placeholder="Smashbox"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+      <label class="md:col-span-1">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
+        <select name="active_status" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <option value="Active" selected>Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+      </label>
+      <label class="md:col-span-3">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Bundle MSRP <span class="font-normal text-slate-400">(optional, $)</span></span>
+        <input type="text" name="msrp" inputmode="decimal" placeholder="0.00"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+      <label class="md:col-span-3">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Bundle Selling Price <span class="font-normal text-slate-400">(optional, $)</span></span>
+        <input type="text" name="selling_price" inputmode="decimal" placeholder="0.00"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+    </div>
+
+    {# Components — dynamic, uncapped #}
+    <div>
+      <div class="mb-2 flex items-center justify-between">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          Components <span class="font-normal text-slate-400">(at least 1 required)</span>
+        </span>
+        <button type="button" id="add-component-btn"
+                class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+          + Add component
+        </button>
+      </div>
+      <div class="overflow-hidden rounded-md border border-slate-200">
+        <div class="grid grid-cols-12 gap-2 bg-slate-50/60 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <div class="col-span-3">SKU</div>
+          <div class="col-span-3">Name <span class="font-normal text-slate-400">(optional)</span></div>
+          <div class="col-span-1 text-right">Qty</div>
+          <div class="col-span-2 text-right">MSRP ($)</div>
+          <div class="col-span-2 text-right">COGS ($)</div>
+          <div class="col-span-1"></div>
+        </div>
+        <div id="component-rows" class="divide-y divide-slate-100">
+          {# Initial server-rendered row #}
+          <div class="component-row grid grid-cols-12 gap-2 px-3 py-2">
+            <input type="text" name="component_sku" maxlength="128" class="col-span-3 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="text" name="component_name" maxlength="512" class="col-span-3 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="text" name="component_qty" inputmode="numeric" placeholder="1" class="col-span-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="text" name="component_msrp" inputmode="decimal" placeholder="0.00" class="col-span-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="text" name="component_cogs" inputmode="decimal" placeholder="0.00" class="col-span-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <button type="button" class="remove-component-btn col-span-1 rounded-md text-xs text-rose-700 hover:bg-rose-50">Remove</button>
+          </div>
+        </div>
+      </div>
+      <template id="component-row-template">
+        <div class="component-row grid grid-cols-12 gap-2 px-3 py-2">
+          <input type="text" name="component_sku" maxlength="128" class="col-span-3 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <input type="text" name="component_name" maxlength="512" class="col-span-3 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <input type="text" name="component_qty" inputmode="numeric" placeholder="1" class="col-span-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <input type="text" name="component_msrp" inputmode="decimal" placeholder="0.00" class="col-span-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <input type="text" name="component_cogs" inputmode="decimal" placeholder="0.00" class="col-span-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <button type="button" class="remove-component-btn col-span-1 rounded-md text-xs text-rose-700 hover:bg-rose-50">Remove</button>
+        </div>
+      </template>
+    </div>
+
+    <div class="flex justify-end">
+      <button type="submit" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        Add bundle
+      </button>
+    </div>
+  </form>
+</section>
+
+<script>
+  // Dynamic component-row management. Pattern matches period_selector.html
+  // and uploads.html: IIFE, var, addEventListener. The <template> element
+  // holds the row markup; clones share the same name= attributes so FastAPI
+  // collects them into list[str].
+  (function () {
+    var tpl = document.getElementById("component-row-template");
+    var container = document.getElementById("component-rows");
+    var addBtn = document.getElementById("add-component-btn");
+    if (!tpl || !container || !addBtn) return;
+
+    function wireRemove(btn) {
+      btn.addEventListener("click", function () {
+        var row = btn.closest(".component-row");
+        if (row) row.remove();
+      });
+    }
+    container.querySelectorAll(".remove-component-btn").forEach(wireRemove);
+
+    addBtn.addEventListener("click", function () {
+      container.appendChild(tpl.content.cloneNode(true));
+      var rows = container.querySelectorAll(".component-row");
+      var lastRemove = rows[rows.length - 1].querySelector(".remove-component-btn");
+      if (lastRemove) wireRemove(lastRemove);
+    });
+  })();
+</script>
+
+{# ---- Bundle list ---- #}
+<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">
+      All bundles <span class="ml-2 text-xs font-normal text-slate-500">{{ bundles | length }} total</span>
+    </h2>
+  </header>
+
+  {% if bundles | length == 0 %}
+  <div class="px-5 py-8 text-center">
+    <p class="text-sm text-slate-700">No bundles yet.</p>
+    <p class="mt-1 text-xs text-slate-500">
+      Add one using the form above, or upload a <code class="rounded bg-slate-100 px-1.5 py-0.5">Bundle Mapping</code> XLSX via the <a href="/uploads" class="text-sky-700 underline hover:text-sky-900">Imports page</a>.
+    </p>
+  </div>
+  {% else %}
+  <div class="divide-y divide-slate-100">
+    {% for b in bundles %}
+    {% set active_label = b.is_active or "Active" %}
+    {% set inactive = active_label != "Active" %}
+    <details class="group">
+      <summary class="flex cursor-pointer items-center gap-4 px-5 py-3 hover:bg-slate-50">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="truncate font-medium text-slate-900 {% if inactive %}text-slate-500 line-through{% endif %}">{{ b.name }}</span>
+            {% if b.variation %}
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">{{ b.variation }}</span>
+            {% endif %}
+            {% if inactive %}
+            <span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700 ring-1 ring-rose-100">Inactive</span>
+            {% endif %}
+          </div>
+          <div class="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
+            {% if b.tiktok_sku_id %}<span class="font-mono">{{ b.tiktok_sku_id }}</span>{% endif %}
+            {% if b.brand %}<span>· {{ b.brand }}</span>{% endif %}
+            {% if b.bundle_sku %}<span class="font-mono">· {{ b.bundle_sku }}</span>{% endif %}
+            <span>· {{ b.components | length }} component{{ '' if b.components | length == 1 else 's' }}</span>
+          </div>
+        </div>
+        <div class="hidden text-right text-xs sm:block">
+          <div class="text-slate-500">MSRP <span class="tabular-nums text-slate-700">${{ '%.2f'|format(b.calculated_msrp) }}</span></div>
+          <div class="text-slate-500">COGS <span class="tabular-nums text-slate-700">${{ '%.2f'|format(b.calculated_cogs) }}</span></div>
+          {% if b.calculated_msrp > 0 %}
+          {% set margin_pct = ((b.calculated_msrp - b.calculated_cogs) / b.calculated_msrp * 100) %}
+          <div class="text-slate-500">Margin
+            <span class="tabular-nums font-semibold {% if margin_pct >= 50 %}text-emerald-700{% elif margin_pct >= 25 %}text-slate-700{% else %}text-amber-700{% endif %}">{{ '%.1f'|format(margin_pct) }}%</span>
+          </div>
+          {% endif %}
+        </div>
+        <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+        </svg>
+      </summary>
+      <div class="border-t border-slate-100 bg-slate-50/40 px-5 py-4">
+        <table class="w-full text-sm">
+          <thead class="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            <tr>
+              <th class="pb-1.5">Component SKU</th>
+              <th class="pb-1.5">Name</th>
+              <th class="pb-1.5 text-right">Qty</th>
+              <th class="pb-1.5 text-right">MSRP</th>
+              <th class="pb-1.5 text-right">COGS</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {% for c in b.components %}
+            <tr>
+              <td class="py-1.5 font-mono text-xs">{{ c.component_sku }}</td>
+              <td class="py-1.5">{{ c.component_name or '' }}</td>
+              <td class="py-1.5 text-right tabular-nums">{{ c.quantity }}</td>
+              <td class="py-1.5 text-right tabular-nums">${{ '%.2f'|format(c.msrp) }}</td>
+              <td class="py-1.5 text-right tabular-nums">${{ '%.4f'|format(c.unit_cogs) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="py-3 text-center text-xs text-slate-400">No components on this bundle</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
