@@ -11,13 +11,20 @@ Four period kinds:
 No P&L math lives here. compute_monthly_pnl is the single source of truth and
 every mode is just "sum across the months in this window."
 """
+import calendar
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 
 from sqlalchemy.orm import Session
 
-from app.reports.monthly_pnl import MonthlyPnL, _add_month, compute_monthly_pnl
+from app.reports.monthly_pnl import (
+    MonthlyPnL,
+    _add_month,
+    compute_monthly_pnl,
+    compute_window_pnl,
+    months_in_window,
+)
 from app.reports.ytd_pnl import _sum  # private but ours
 from app.templating import month_label
 
@@ -27,6 +34,7 @@ class PeriodKind(str, Enum):
     YTD = "ytd"
     YEAR = "year"
     RANGE = "range"
+    CUSTOM = "custom"          # arbitrary [start_date, end_date] day window
 
 
 @dataclass
@@ -36,7 +44,15 @@ class PnLView:
     year: int
     month: int | None
     total: MonthlyPnL
-    monthly_breakdown: list[MonthlyPnL] | None  # None for MONTH, set otherwise
+    monthly_breakdown: list[MonthlyPnL] | None  # None for MONTH/CUSTOM, set otherwise
+
+    # CUSTOM mode only — None in every other mode. Populated so the template
+    # can render the not-prorated note + repaint the date pickers on reload.
+    custom_start: datetime | None = None              # exclusive-end window start
+    custom_end: datetime | None = None                # exclusive end (start_of_day_after)
+    inclusive_end_date: date | None = None            # the date the user originally picked
+    ad_credit_months_touched: list[tuple[int, int]] | None = None
+    ad_credit_months_label: str | None = None         # pre-rendered "March 2026, April 2026"
 
     @property
     def title(self) -> str:
@@ -60,6 +76,12 @@ def _months_in_range(sy: int, sm: int, ey: int, em: int) -> list[tuple[int, int]
     return out
 
 
+def _format_date_short(d: date) -> str:
+    """Date suffix for the CUSTOM-mode title: 'Mar 28, 2026'. Manual build
+    because %-d / %#d differ across platforms; avoid strftime for the day."""
+    return f"{calendar.month_abbr[d.month]} {d.day}, {d.year}"
+
+
 def compute_pnl_view(
     db: Session,
     period: PeriodKind,
@@ -70,6 +92,8 @@ def compute_pnl_view(
     start_month: int | None = None,
     end_year: int | None = None,
     end_month: int | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> PnLView:
     """Resolve the selector into a PnLView."""
     today = date.today()
@@ -106,6 +130,37 @@ def compute_pnl_view(
             monthly_breakdown=months_list,
         )
 
+    if period == PeriodKind.CUSTOM:
+        if start_date is None or end_date is None:
+            raise ValueError("CUSTOM period requires both start_date and end_date")
+        if start_date > end_date:
+            raise ValueError("start_date must be <= end_date")
+        start = datetime(start_date.year, start_date.month, start_date.day)
+        # User-facing end is inclusive ("through April 27"); window math wants
+        # exclusive, so bump by one day to cover all of the chosen end_date.
+        end = datetime(end_date.year, end_date.month, end_date.day) + timedelta(days=1)
+        months_touched = months_in_window(start, end)
+        pnl = compute_window_pnl(
+            db, start, end,
+            months_touched=months_touched,
+            month_anchor=start.date(),
+        )
+        suffix = f"{_format_date_short(start_date)} – {_format_date_short(end_date)}"
+        months_label = ", ".join(month_label(yy, mm) for yy, mm in months_touched)
+        return PnLView(
+            title_suffix=suffix,
+            period_kind=period,
+            year=start_date.year,
+            month=start_date.month,
+            total=pnl,
+            monthly_breakdown=None,                 # single combined column
+            custom_start=start,
+            custom_end=end,
+            inclusive_end_date=end_date,
+            ad_credit_months_touched=months_touched,
+            ad_credit_months_label=months_label or None,
+        )
+
     # PeriodKind.RANGE
     sy = start_year or y
     sm = start_month or m
@@ -131,6 +186,8 @@ def compute_pnl_view(
 def window_for(view: PnLView) -> tuple[datetime, datetime]:
     """Return the [start, end) datetime window matching the view's period —
     so anything that queries Order.placed_at uses the same range the P&L did."""
+    if view.period_kind == PeriodKind.CUSTOM and view.custom_start and view.custom_end:
+        return view.custom_start, view.custom_end
     if view.period_kind == PeriodKind.MONTH:
         start = datetime(view.year, view.month, 1)
         return start, _add_month(start)

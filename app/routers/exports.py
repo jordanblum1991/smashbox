@@ -162,19 +162,27 @@ def export_pnl_xlsx(
     start_month: int | None = None,
     end_year: int | None = None,
     end_month: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     db: Session = Depends(get_db),
 ):
-    """Sectioned P&L workbook for any period (month / YTD / year / range).
+    """Sectioned P&L workbook for any period (month / YTD / year / range / custom).
 
     One worksheet: title block, period summary KPIs, then the full statement
     with section headers, indented sub-items, bolded subtotals, monthly
     columns + total. Accounting-style negatives via Excel number-format —
     negative values render as `($1,234.56)` in red automatically.
+
+    For CUSTOM (arbitrary date range) the breakdown collapses to a single
+    column labelled with the date range — same code path as MONTH.
     """
+    sd_obj = date.fromisoformat(start_date) if start_date and period == PeriodKind.CUSTOM else None
+    ed_obj = date.fromisoformat(end_date) if end_date and period == PeriodKind.CUSTOM else None
     view = compute_pnl_view(
         db, period, year, month,
         start_year=start_year, start_month=start_month,
         end_year=end_year, end_month=end_month,
+        start_date=sd_obj, end_date=ed_obj,
     )
     pnl = view.total
 

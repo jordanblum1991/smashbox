@@ -22,6 +22,12 @@
   {% set em = sm %}
 {% endif %}
 
+{# For custom-date mode, repaint the picker values from the view's stored
+   dates. inclusive_end_date is the date the user originally chose (not the
+   exclusive end-of-window timestamp the engine uses internally). #}
+{% set custom_sd = view.custom_start.date().isoformat() if view.custom_start else "" %}
+{% set custom_ed = view.inclusive_end_date.isoformat() if view.inclusive_end_date else "" %}
+
 <form method="get" action="{{ selector_action }}"
       class="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm print:hidden">
   {# Two stripes: a soft-slate left accent + a darker top accent give the bar a
@@ -44,14 +50,15 @@
       <label class="sr-only" for="ps-view">View</label>
       <select id="ps-view" name="period" onchange="this.form.submit()"
               class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800">
-        <option value="month" {% if kind == "month" %}selected{% endif %}>Single month</option>
-        <option value="ytd"   {% if kind == "ytd"   %}selected{% endif %}>YTD through month</option>
-        <option value="year"  {% if kind == "year"  %}selected{% endif %}>Full year</option>
-        <option value="range" {% if kind == "range" %}selected{% endif %}>Custom range</option>
+        <option value="month"  {% if kind == "month"  %}selected{% endif %}>Single month</option>
+        <option value="ytd"    {% if kind == "ytd"    %}selected{% endif %}>YTD through month</option>
+        <option value="year"   {% if kind == "year"   %}selected{% endif %}>Full year</option>
+        <option value="range"  {% if kind == "range"  %}selected{% endif %}>Custom range (months)</option>
+        <option value="custom" {% if kind == "custom" %}selected{% endif %}>Custom date range</option>
       </select>
 
       {# Month / YTD / Year: a single (year, month) pair. Month disabled for Year. #}
-      <div class="{% if kind == 'range' %}hidden{% endif %} flex items-center gap-2">
+      <div class="{% if kind in ('range', 'custom') %}hidden{% endif %} flex items-center gap-2">
         <select name="year" onchange="this.form.submit()"
                 class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
           {% for y in range(2024, 2031) %}
@@ -95,6 +102,20 @@
           <option value="{{ mm }}" {% if mm == em %}selected{% endif %}>{{ mm | month_short }}</option>
           {% endfor %}
         </select>
+      </div>
+
+      {# Custom date range: two <input type="date"> pickers + an explicit Apply
+         button. Other modes auto-submit on change; date pickers can't, since
+         typing a date fires change events on every keystroke. #}
+      <div class="{% if kind != 'custom' %}hidden{% endif %} flex flex-wrap items-center gap-2">
+        <span class="text-xs text-slate-500">From</span>
+        <input type="date" name="start_date" value="{{ custom_sd }}"
+               class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+        <span class="text-xs text-slate-500">to</span>
+        <input type="date" name="end_date" value="{{ custom_ed }}"
+               class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+        <button type="submit"
+                class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Apply</button>
       </div>
 
       <noscript>

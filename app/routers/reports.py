@@ -61,19 +61,45 @@ def pnl_view(
     start_month: int | None = None,
     end_year: int | None = None,
     end_month: int | None = None,
+    start_date: str | None = None,    # ISO YYYY-MM-DD; CUSTOM mode only
+    end_date: str | None = None,
+    error: str | None = None,          # rendered as banner; set by _pnl_error_redirect
     db: Session = Depends(get_db),
 ):
-    """Unified P&L: pick a single month, YTD, full year, or a custom range."""
+    """Unified P&L: pick a single month, YTD, full year, a month range, or
+    an arbitrary day range (CUSTOM)."""
+    sd_obj: date | None = None
+    ed_obj: date | None = None
+    if period == PeriodKind.CUSTOM:
+        try:
+            sd_obj = date.fromisoformat(start_date) if start_date else None
+            ed_obj = date.fromisoformat(end_date) if end_date else None
+        except ValueError:
+            return _pnl_error_redirect("Invalid date format — use YYYY-MM-DD.")
+        if sd_obj is None or ed_obj is None:
+            return _pnl_error_redirect("Custom date range requires both start and end dates.")
+        if sd_obj > ed_obj:
+            return _pnl_error_redirect("Start date must be on or before end date.")
+
     view = compute_pnl_view(
         db, period, year, month,
         start_year=start_year, start_month=start_month,
         end_year=end_year, end_month=end_month,
+        start_date=sd_obj, end_date=ed_obj,
     )
     return templates.TemplateResponse(
         request,
         "reports/pnl.html",
-        {"view": view, "PeriodKind": PeriodKind},
+        {"view": view, "PeriodKind": PeriodKind, "error": error},
     )
+
+
+def _pnl_error_redirect(reason: str) -> RedirectResponse:
+    """303 back to /reports/pnl with an error flash. Falls back to month
+    mode so the user lands on a sensible default view. Modelled on
+    _credit_error_redirect."""
+    qs = urlencode({"error": reason})
+    return RedirectResponse(f"/reports/pnl?period=month&{qs}", status_code=303)
 
 
 # Old URLs redirect to the unified page so bookmarks keep working.
