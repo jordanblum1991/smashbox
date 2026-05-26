@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ad_credit import AdCredit
@@ -147,9 +147,39 @@ class MonthlyPnL:
 
 
 def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
+    """Single-calendar-month P&L. Thin wrapper around compute_window_pnl."""
     start = datetime(year, month, 1)
     end = _add_month(start)
+    return compute_window_pnl(
+        db, start, end,
+        months_touched=[(year, month)],
+        month_anchor=start.date(),
+    )
 
+
+def compute_window_pnl(
+    db: Session,
+    start: datetime,
+    end: datetime,
+    *,
+    months_touched: list[tuple[int, int]],
+    month_anchor: date | None = None,
+) -> MonthlyPnL:
+    """P&L for an arbitrary [start, end) window.
+
+    All order / settlement / ad-spend / COGS queries are date-bounded against
+    [start, end), so any window — calendar month, multi-month, or arbitrary
+    day range — works directly.
+
+    AdCredit semantics: not date-bounded (the column stores integer year+month,
+    not a date). Callers pass `months_touched` — the list of (year, month)
+    pairs whose AdCredit rows should contribute. Each contributes IN FULL;
+    credits are NOT prorated by days-in-window. The intentional rule is "include
+    the credit for every month the window touches."
+
+    `month_anchor` is the date stored on the result for display. Defaults to
+    start.date(); the monthly-mode wrapper passes the first of the month.
+    """
     row = db.execute(
         select(
             func.coalesce(func.sum(Order.gross_sales), 0).label("gross_sales"),
@@ -188,12 +218,20 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         ).scalar() or 0
     ))
 
-    ad_credit_offset = Decimal(str(
-        db.execute(
-            select(func.coalesce(func.sum(AdCredit.amount), 0))
-            .where(AdCredit.year == year, AdCredit.month == month)
-        ).scalar() or 0
-    ))
+    # AdCredit lookup: OR'd ANDs over the months in this window. Empty list
+    # short-circuits to 0 (no query) — keeps the empty-window case clean.
+    if months_touched:
+        ad_credit_offset = Decimal(str(
+            db.execute(
+                select(func.coalesce(func.sum(AdCredit.amount), 0))
+                .where(or_(*[
+                    and_(AdCredit.year == y, AdCredit.month == m)
+                    for y, m in months_touched
+                ]))
+            ).scalar() or 0
+        ))
+    else:
+        ad_credit_offset = Decimal("0")
 
     # Units sold (paid orders only). Bundles are one OrderLine each, so this
     # naturally counts a bundle as a single item — not its components.
@@ -230,7 +268,7 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
     )
 
     return MonthlyPnL(
-        month=start.date(),
+        month=month_anchor or start.date(),
         gross_sales=gross_sales,
         platform_discount=platform_disc,
         outlandish_discount=outlandish,
@@ -259,6 +297,29 @@ def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
         orders_settled=int(row.orders_settled or 0),
         units_sold=int(units_sold),
     )
+
+
+def months_in_window(start: datetime, end: datetime) -> list[tuple[int, int]]:
+    """Return the (year, month) pairs covered by [start, end).
+
+    Used to gather AdCredit rows for an arbitrary date window. The end
+    boundary is exclusive: a window ending at exactly midnight on the 1st of
+    a month does NOT include that month, because no time in that month is
+    inside the window. (March 1 00:00 → April 1 00:00 covers only March.)
+    """
+    if end <= start:
+        return []
+    last_y, last_m = end.year, end.month
+    # If end is exactly month-start (Y-M-01 00:00:00), back up one month —
+    # the boundary doesn't actually overlap M.
+    if end.day == 1 and end.hour == 0 and end.minute == 0 and end.second == 0 and end.microsecond == 0:
+        last_y, last_m = (last_y - 1, 12) if last_m == 1 else (last_y, last_m - 1)
+    out: list[tuple[int, int]] = []
+    y, m = start.year, start.month
+    while (y, m) <= (last_y, last_m):
+        out.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
 
 
 def _paid_cogs(db: Session, start: datetime, end: datetime) -> Decimal:

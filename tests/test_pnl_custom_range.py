@@ -1,0 +1,376 @@
+"""Tests for the P&L custom date range feature.
+
+Four areas:
+  1. CRITICAL regression guard: compute_window_pnl over a single calendar
+     month must match compute_monthly_pnl field-for-field — proves the
+     refactor (extracting compute_window_pnl + month version delegates) did
+     not change month semantics.
+  2. Cross-month windows include FULL AdCredits from every month touched
+     (not prorated).
+  3. months_in_window boundary correctness: inclusive start, exclusive end —
+     a window ending exactly at month-start does NOT include that month.
+  4. compute_pnl_view(CUSTOM) input validation + route error redirect.
+"""
+from datetime import date, datetime
+from decimal import Decimal
+
+import pytest
+
+from app.db import Base, SessionLocal, engine
+from app.models import (
+    AdCredit,
+    AdSpend,
+    ImportBatch,
+    ImportBatchStatus,
+    ImportFileKind,
+    Order,
+    OrderLine,
+    OrderType,
+)
+from app.reports.monthly_pnl import (
+    compute_monthly_pnl,
+    compute_window_pnl,
+    months_in_window,
+)
+from app.reports.pnl import PeriodKind, compute_pnl_view
+from app.routers.reports import pnl_view
+
+
+@pytest.fixture(autouse=True)
+def fresh_db():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
+def _batch(db) -> ImportBatch:
+    b = ImportBatch(
+        kind=ImportFileKind.TIKTOK_ORDERS,
+        status=ImportBatchStatus.COMPLETED,
+        original_filename="t.csv",
+        stored_path="/tmp/t.csv",
+    )
+    db.add(b)
+    db.flush()
+    return b
+
+
+def _paid_order(
+    db,
+    batch_id: int,
+    placed_at: datetime,
+    *,
+    tt_id: str,
+    gross_sales: Decimal = Decimal("100.00"),
+    platform_discount: Decimal = Decimal("0"),
+    outlandish: Decimal = Decimal("0"),
+    smashbox: Decimal = Decimal("0"),
+    refunds: Decimal = Decimal("0"),
+    tiktok_fees: Decimal = Decimal("10.00"),
+    affiliate: Decimal = Decimal("0"),
+    shop_ads: Decimal = Decimal("0"),
+    ship_rev: Decimal = Decimal("0"),
+    ship_cost: Decimal = Decimal("0"),
+    units: int = 1,
+    sku: str = "SBX-001",
+    unit_cogs_snapshot: Decimal = Decimal("3.00"),
+) -> Order:
+    """Seed a PAID order + one OrderLine with controllable totals."""
+    order = Order(
+        import_batch_id=batch_id,
+        tiktok_order_id=tt_id,
+        placed_at=placed_at,
+        order_type=OrderType.PAID,
+        status="Shipped",
+        brand="smashbox",
+        gross_sales=gross_sales,
+        platform_discount_total=platform_discount,
+        seller_funded_outlandish=outlandish,
+        seller_funded_smashbox=smashbox,
+        refunds=refunds,
+        tiktok_fees=tiktok_fees,
+        tiktok_referral_fee=tiktok_fees,  # populate one bucket so the sum stays sensible
+        affiliate_commission=affiliate,
+        shop_ads_cost=shop_ads,
+        shipping_revenue=ship_rev,
+        shipping_cost=ship_cost,
+    )
+    db.add(order)
+    db.flush()
+    db.add(OrderLine(
+        order_id=order.id,
+        sku=sku,
+        quantity=units,
+        unit_price=gross_sales / units if units else gross_sales,
+        gross_sales=gross_sales,
+        unit_cogs_snapshot=unit_cogs_snapshot,
+    ))
+    db.flush()
+    return order
+
+
+def _seed_march_and_april(db) -> int:
+    """Seed a varied set of paid orders + AdCredits + AdSpend across March
+    and April 2026. Returns the batch_id used."""
+    batch = _batch(db)
+    bid = batch.id
+
+    # March orders — early, mid, late
+    _paid_order(db, bid, datetime(2026, 3, 2, 9), tt_id="TT-M-1",
+                gross_sales=Decimal("120.00"), tiktok_fees=Decimal("12.00"), units=2)
+    _paid_order(db, bid, datetime(2026, 3, 15, 14), tt_id="TT-M-2",
+                gross_sales=Decimal("80.00"), tiktok_fees=Decimal("8.00"), units=1)
+    _paid_order(db, bid, datetime(2026, 3, 29, 11), tt_id="TT-M-3",
+                gross_sales=Decimal("200.00"), platform_discount=Decimal("20.00"),
+                outlandish=Decimal("8.00"), smashbox=Decimal("12.00"),
+                tiktok_fees=Decimal("20.00"), units=3)
+
+    # April orders — early, mid, late
+    _paid_order(db, bid, datetime(2026, 4, 5, 8), tt_id="TT-A-1",
+                gross_sales=Decimal("150.00"), tiktok_fees=Decimal("15.00"), units=1)
+    _paid_order(db, bid, datetime(2026, 4, 20, 16), tt_id="TT-A-2",
+                gross_sales=Decimal("90.00"), refunds=Decimal("10.00"),
+                tiktok_fees=Decimal("9.00"), units=1)
+
+    # AdCredits — distinct per month so we can prove which were included.
+    db.add(AdCredit(year=2026, month=3, amount=Decimal("100.00"), note="Mar credit"))
+    db.add(AdCredit(year=2026, month=4, amount=Decimal("200.00"), note="Apr credit"))
+
+    # AdSpend — a row in each month so gmv_max_ad_spend has data to filter.
+    db.add(AdSpend(import_batch_id=bid, spend_date=datetime(2026, 3, 10),
+                   campaign_id="C1", amount=Decimal("50.00")))
+    db.add(AdSpend(import_batch_id=bid, spend_date=datetime(2026, 4, 10),
+                   campaign_id="C2", amount=Decimal("75.00")))
+
+    db.commit()
+    return bid
+
+
+# Fields that must match byte-for-byte between the month wrapper and the
+# window primitive when the window is exactly a calendar month.
+_MATCH_FIELDS = (
+    "gross_sales", "platform_discount", "outlandish_discount",
+    "smashbox_discount", "refunds", "net_customer_sales",
+    "cogs", "gross_profit",
+    "tiktok_fees", "tiktok_referral_fee", "tiktok_transaction_fee",
+    "tiktok_refund_admin_fee", "tiktok_sales_tax_on_referral",
+    "tiktok_smart_promo_fee", "tiktok_campaign_fees",
+    "tiktok_partner_commission", "tiktok_managed_service",
+    "affiliate_commission", "shop_ads_cost",
+    "gmv_max_ad_spend", "ad_credit_offset",
+    "shipping_revenue", "shipping_cost",
+    "net_profit",
+    "orders_count", "orders_settled", "units_sold",
+)
+
+
+# ---------------------------------------------------------------------------
+# 1. REGRESSION GUARD — single-month window matches the legacy wrapper exactly
+# ---------------------------------------------------------------------------
+
+def test_compute_window_pnl_matches_compute_monthly_pnl_for_march():
+    """The PRIMARY safety test for the refactor. compute_monthly_pnl(2026, 3)
+    is now a thin wrapper around compute_window_pnl over the same window.
+    If this test fails, the refactor changed month semantics and every existing
+    P&L number on production could shift. Every field — revenue, COGS, units,
+    ad_credit_offset, net — must match byte-for-byte."""
+    with SessionLocal() as db:
+        _seed_march_and_april(db)
+
+    with SessionLocal() as db:
+        legacy = compute_monthly_pnl(db, 2026, 3)
+        windowed = compute_window_pnl(
+            db,
+            datetime(2026, 3, 1),
+            datetime(2026, 4, 1),
+            months_touched=[(2026, 3)],
+            month_anchor=date(2026, 3, 1),
+        )
+
+    for field in _MATCH_FIELDS:
+        assert getattr(legacy, field) == getattr(windowed, field), (
+            f"{field}: legacy={getattr(legacy, field)} vs windowed={getattr(windowed, field)}"
+        )
+    assert legacy.month == windowed.month
+
+
+def test_compute_window_pnl_matches_compute_monthly_pnl_for_april():
+    """Same regression guard, second month — confirms the match isn't a
+    coincidence of March data."""
+    with SessionLocal() as db:
+        _seed_march_and_april(db)
+
+    with SessionLocal() as db:
+        legacy = compute_monthly_pnl(db, 2026, 4)
+        windowed = compute_window_pnl(
+            db,
+            datetime(2026, 4, 1),
+            datetime(2026, 5, 1),
+            months_touched=[(2026, 4)],
+            month_anchor=date(2026, 4, 1),
+        )
+
+    for field in _MATCH_FIELDS:
+        assert getattr(legacy, field) == getattr(windowed, field), (
+            f"{field}: legacy={getattr(legacy, field)} vs windowed={getattr(windowed, field)}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 2. CROSS-MONTH — both months' full AdCredit included
+# ---------------------------------------------------------------------------
+
+def test_cross_month_window_includes_full_credits_from_both_months():
+    """Mar 28 - Apr 27 spans two calendar months. Each month's AdCredit must
+    contribute IN FULL (no proration). Mar=$100, Apr=$200 → $300 combined."""
+    with SessionLocal() as db:
+        _seed_march_and_april(db)
+
+    with SessionLocal() as db:
+        start = datetime(2026, 3, 28)
+        end = datetime(2026, 4, 28)              # exclusive — covers all of Apr 27
+        months = months_in_window(start, end)
+        view = compute_window_pnl(db, start, end, months_touched=months)
+
+    assert months == [(2026, 3), (2026, 4)]
+    assert view.ad_credit_offset == Decimal("300.00"), (
+        "Both March ($100) and April ($200) credits must be summed in full"
+    )
+    # Order-level sums in the window: TT-M-3 (Mar 29) + TT-A-1 (Apr 5) + TT-A-2 (Apr 20).
+    # TT-M-1 (Mar 2) and TT-M-2 (Mar 15) are BEFORE the window and must be excluded.
+    assert view.orders_count == 3
+    assert view.gross_sales == Decimal("440.00")    # 200 + 150 + 90
+
+
+def test_cross_month_window_excludes_orders_outside_dates():
+    """Confirm the date-bounded order filter is respected; only orders with
+    placed_at inside [start, end) contribute to gross_sales."""
+    with SessionLocal() as db:
+        _seed_march_and_april(db)
+
+    with SessionLocal() as db:
+        # Tight 3-day window — only Mar 15 order (TT-M-2) should count.
+        view = compute_window_pnl(
+            db,
+            datetime(2026, 3, 14),
+            datetime(2026, 3, 17),
+            months_touched=[(2026, 3)],
+        )
+
+    assert view.orders_count == 1
+    assert view.gross_sales == Decimal("80.00")
+
+
+# ---------------------------------------------------------------------------
+# 3. months_in_window edge cases
+# ---------------------------------------------------------------------------
+
+def test_months_in_window_within_single_month():
+    """Window entirely inside one month → single-element list."""
+    assert months_in_window(
+        datetime(2026, 3, 5), datetime(2026, 3, 20)
+    ) == [(2026, 3)]
+
+
+def test_months_in_window_spans_two_months_partial_to_partial():
+    """Window crossing one boundary → both months."""
+    assert months_in_window(
+        datetime(2026, 3, 28), datetime(2026, 4, 28)
+    ) == [(2026, 3), (2026, 4)]
+
+
+def test_months_in_window_ending_exactly_on_first_excludes_that_month():
+    """Critical exclusive-end edge case: window ending at midnight on Apr 1
+    does NOT touch April, because no point of April time is inside the window.
+    If this were inclusive, every March end-bumped query would mistakenly
+    pull April's AdCredit."""
+    assert months_in_window(
+        datetime(2026, 3, 1), datetime(2026, 4, 1)
+    ) == [(2026, 3)]
+
+
+def test_months_in_window_full_calendar_month():
+    """Whole-month window → exactly that month."""
+    assert months_in_window(
+        datetime(2026, 3, 1), datetime(2026, 4, 1)
+    ) == [(2026, 3)]
+
+
+def test_months_in_window_ending_one_second_into_april_includes_april():
+    """Symmetry check: a window that DOES poke even one second into April
+    must include April. Confirms the exclusive-end rule isn't off-by-one
+    in the other direction."""
+    assert months_in_window(
+        datetime(2026, 3, 1), datetime(2026, 4, 1, 0, 0, 1)
+    ) == [(2026, 3), (2026, 4)]
+
+
+def test_months_in_window_year_boundary():
+    """December → next January window crosses a year. Both pairs returned."""
+    assert months_in_window(
+        datetime(2025, 12, 15), datetime(2026, 1, 15)
+    ) == [(2025, 12), (2026, 1)]
+
+
+# ---------------------------------------------------------------------------
+# 4. Input validation — compute_pnl_view + route redirect
+# ---------------------------------------------------------------------------
+
+def test_compute_pnl_view_custom_rejects_inverted_dates():
+    with SessionLocal() as db:
+        with pytest.raises(ValueError, match="start_date must be <= end_date"):
+            compute_pnl_view(
+                db, PeriodKind.CUSTOM,
+                start_date=date(2026, 4, 27),
+                end_date=date(2026, 3, 28),     # before start — illegal
+            )
+
+
+def test_compute_pnl_view_custom_rejects_missing_dates():
+    with SessionLocal() as db:
+        with pytest.raises(ValueError, match="requires both start_date and end_date"):
+            compute_pnl_view(db, PeriodKind.CUSTOM)
+
+
+def test_route_redirects_on_inverted_dates():
+    """The route catches the start>end case and returns a 303 with an error
+    flash, rather than letting the ValueError propagate as a 500."""
+    with SessionLocal() as db:
+        resp = pnl_view(
+            request=None,
+            period=PeriodKind.CUSTOM,
+            start_date="2026-04-27",
+            end_date="2026-03-28",
+            db=db,
+        )
+    assert resp.status_code == 303
+    assert "error=" in resp.headers["location"]
+    assert "Start+date+must+be" in resp.headers["location"] or \
+           "Start%20date%20must%20be" in resp.headers["location"]
+
+
+def test_route_redirects_on_missing_dates():
+    with SessionLocal() as db:
+        resp = pnl_view(
+            request=None,
+            period=PeriodKind.CUSTOM,
+            start_date=None,
+            end_date=None,
+            db=db,
+        )
+    assert resp.status_code == 303
+    assert "error=" in resp.headers["location"]
+
+
+def test_route_redirects_on_garbage_date():
+    with SessionLocal() as db:
+        resp = pnl_view(
+            request=None,
+            period=PeriodKind.CUSTOM,
+            start_date="not-a-date",
+            end_date="2026-04-01",
+            db=db,
+        )
+    assert resp.status_code == 303
+    assert "Invalid+date+format" in resp.headers["location"] or \
+           "Invalid%20date%20format" in resp.headers["location"]

@@ -11,6 +11,8 @@
 {% if kind == "range" and view.monthly_breakdown %}
   {% set last_m = view.monthly_breakdown[-1].month %}
   {% set xlsx_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=" ~ (view.month or 1) ~ "&end_year=" ~ last_m.year ~ "&end_month=" ~ last_m.month %}
+{% elif kind == "custom" and view.custom_start and view.inclusive_end_date %}
+  {% set xlsx_qs = "?period=custom&start_date=" ~ view.custom_start.date().isoformat() ~ "&end_date=" ~ view.inclusive_end_date.isoformat() %}
 {% else %}
   {% set xlsx_qs = "?period=" ~ kind ~ "&year=" ~ view.year ~ ("&month=" ~ view.month if view.month else "") %}
 {% endif %}
@@ -36,6 +38,12 @@
 
 {% set selector_action = "/reports/pnl" %}
 {% include "partials/period_selector.html" %}
+
+{% if error %}
+<div class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
+  <strong>Could not load:</strong> {{ error }}
+</div>
+{% endif %}
 
 <!-- Period summary cards — give the big picture before the line-level detail -->
 {% if pnl.orders_count > 0 %}
@@ -74,8 +82,10 @@
 {% endcall %}
 {% endif %}
 
-{# -------- single-month statement (redesigned) -------- #}
-{% if view.period_kind.value == "month" %}
+{# -------- single-column statement (redesigned) — used for single month
+       AND custom day range. Both render the same accounting-style table; no
+       monthly breakdown. -------- #}
+{% if view.period_kind.value in ("month", "custom") %}
 
 {# ---- Macros ---- #}
 {# Accounting-style dollar: positive → $X.XX  ·  negative → ($X.XX) #}
@@ -200,6 +210,15 @@
   </div>
 
 </div>
+
+{% if view.period_kind.value == "custom" and pnl.ad_credit_offset > 0 and view.ad_credit_months_label %}
+<p class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 print:hidden">
+  <strong>Ad credits shown at full month value for months in range; not prorated.</strong>
+  This window touches
+  {{ view.ad_credit_months_touched | length }} month{{ "" if view.ad_credit_months_touched | length == 1 else "s" }}
+  ({{ view.ad_credit_months_label }}); each month's full ad credit is included.
+</p>
+{% endif %}
 
 <script>
   // Wire up the TikTok-fees disclosure: toggling the <details> shows/hides the
