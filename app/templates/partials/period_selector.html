@@ -48,7 +48,7 @@
 
     <div class="ml-auto flex flex-wrap items-center gap-2 text-sm">
       <label class="sr-only" for="ps-view">View</label>
-      <select id="ps-view" name="period" onchange="this.form.submit()"
+      <select id="ps-view" name="period"
               class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800">
         <option value="month"  {% if kind == "month"  %}selected{% endif %}>Single month</option>
         <option value="ytd"    {% if kind == "ytd"    %}selected{% endif %}>YTD through month</option>
@@ -58,7 +58,8 @@
       </select>
 
       {# Month / YTD / Year: a single (year, month) pair. Month disabled for Year. #}
-      <div class="{% if kind in ('range', 'custom') %}hidden{% endif %} flex items-center gap-2">
+      <div id="ps-month-group"
+           class="{% if kind in ('range', 'custom') %}hidden{% endif %} flex items-center gap-2">
         <select name="year" onchange="this.form.submit()"
                 class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
           {% for y in range(2024, 2031) %}
@@ -75,7 +76,8 @@
       </div>
 
       {# Custom range: two (year, month) pairs. #}
-      <div class="{% if kind != 'range' %}hidden{% endif %} flex items-center gap-2">
+      <div id="ps-range-group"
+           class="{% if kind != 'range' %}hidden{% endif %} flex items-center gap-2">
         <span class="text-xs text-slate-500">From</span>
         <select name="start_year" onchange="this.form.submit()"
                 class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
@@ -107,7 +109,8 @@
       {# Custom date range: two <input type="date"> pickers + an explicit Apply
          button. Other modes auto-submit on change; date pickers can't, since
          typing a date fires change events on every keystroke. #}
-      <div class="{% if kind != 'custom' %}hidden{% endif %} flex flex-wrap items-center gap-2">
+      <div id="ps-custom-date-group"
+           class="{% if kind != 'custom' %}hidden{% endif %} flex flex-wrap items-center gap-2">
         <span class="text-xs text-slate-500">From</span>
         <input type="date" name="start_date" value="{{ custom_sd }}"
                class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
@@ -124,3 +127,35 @@
     </div>
   </div>
 </form>
+
+<script>
+  // Period-dropdown change handler.
+  //
+  // month / ytd / year / range all have form values pre-rendered server-side
+  // (year+month dropdowns and start_*/end_* dropdowns are populated with sane
+  // defaults regardless of which mode is currently active), so picking them
+  // from the dropdown can submit immediately and the next render reveals the
+  // right input group.
+  //
+  // "custom" is different: the date inputs start empty, so we must reveal
+  // them locally and wait for the user to fill them + click Apply. Submitting
+  // with empty dates would trip the route's validator and bounce back to
+  // month mode with an error banner.
+  (function () {
+    var select = document.getElementById("ps-view");
+    if (!select) return;
+    var customGroup = document.getElementById("ps-custom-date-group");
+    var monthGroup  = document.getElementById("ps-month-group");
+    var rangeGroup  = document.getElementById("ps-range-group");
+    select.addEventListener("change", function () {
+      if (select.value === "custom") {
+        if (customGroup) customGroup.classList.remove("hidden");
+        if (monthGroup)  monthGroup.classList.add("hidden");
+        if (rangeGroup)  rangeGroup.classList.add("hidden");
+        // Don't submit — the user has to enter dates first.
+      } else {
+        select.form.submit();
+      }
+    });
+  })();
+</script>
