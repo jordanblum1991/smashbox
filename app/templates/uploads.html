@@ -47,7 +47,7 @@
           "tiktok_analytics": "TikTok Shop Analytics (Key metrics)",
           "inventory_snapshot": "Inventory Snapshot (on-hand)",
         } %}
-        <select name="kind" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <select id="upload-kind" name="kind" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
           {% for k in kinds %}
           <option value="{{ k.value }}">{{ kind_labels.get(k.value) or k.value.replace("_", " ").title() }}</option>
           {% endfor %}
@@ -59,6 +59,55 @@
                class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-800">
       </label>
     </div>
+
+    {# Per-kind download links + instructions for TikTok exports. Only the
+       five TikTok kinds have an upstream source; internal kinds (SKU master,
+       bundles, samples, inventory snapshot, supplier receipts) render nothing.
+       The script at the bottom of the page reveals the matching panel as the
+       dropdown selection changes. #}
+    {% set kind_download_info = {
+      "tiktok_orders": {
+        "url": "https://seller-us.tiktok.com/order?selected_sort=6&tab=all",
+        "note": "Choose All Orders before downloading.",
+      },
+      "tiktok_payouts": {
+        "url": "https://seller-us.tiktok.com/finance/bills?subTab=all&tab=payouts",
+        "note": "Finances → Payouts Tab → Choose Date (All).",
+      },
+      "tiktok_settlements": {
+        "url": "https://seller-us.tiktok.com/finance/analysis?shop_region=US",
+        "note": "Finances → Earning Analytics → Choose Date → Orders & Settlements. Be sure to choose Orders and Settlements in the pulldown and the applicable date.",
+      },
+      "tiktok_ads": {
+        "url": "https://ads.tiktok.com/i18n/gmv-max/dashboard?aadvid=7611255872546701319",
+        "note": "ads.tiktok.com → GMV Max → Choose Date. Be sure to be logged in as OL Beauty.",
+      },
+      "tiktok_analytics": {
+        "url": "https://seller-us.tiktok.com/compass/data-overview?shop_region=US",
+        "note": "Analytics → Shop Analytics → Choose date period.",
+      },
+    } %}
+    <div class="mt-4 space-y-2">
+      {% for k, info in kind_download_info.items() %}
+      <div id="kind-help-{{ k }}"
+           class="hidden rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+        <div class="flex items-start gap-2.5">
+          <svg class="mt-0.5 h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+          </svg>
+          <div class="min-w-0 flex-1">
+            <a href="{{ info.url }}" target="_blank" rel="noopener"
+               class="text-sm font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900">
+              Open in TikTok Seller Center ↗
+            </a>
+            <p class="mt-1 text-xs leading-relaxed text-slate-600">{{ info.note }}</p>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
     <div class="mt-5 flex justify-end">
       <button id="upload-submit" type="submit"
               class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
@@ -128,6 +177,31 @@
           }
         }
       }, 250);
+    });
+  })();
+</script>
+
+<script>
+  // Per-kind contextual help — reveal the matching <div id="kind-help-..."> when
+  // the dropdown selection changes. The five TikTok kinds have panels; the
+  // internal kinds (SKU master, bundles, samples, inventory snapshot, supplier
+  // receipts) have none, so picking them leaves the area empty.
+  //
+  // Pattern matches period_selector.html: IIFE, var, addEventListener("change").
+  (function () {
+    var select = document.getElementById("upload-kind");
+    if (!select) return;
+    var panels = document.querySelectorAll('[id^="kind-help-"]');
+
+    function reveal(value) {
+      panels.forEach(function (p) {
+        p.classList.toggle("hidden", p.id !== "kind-help-" + value);
+      });
+    }
+
+    reveal(select.value);            // initial state on first paint
+    select.addEventListener("change", function () {
+      reveal(select.value);
     });
   })();
 </script>
