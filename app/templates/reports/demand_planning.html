@@ -125,7 +125,7 @@
    what to actually buy and when. #}
 {% set p = v.pipeline %}
 {% if p.overdue or p.next_30 or p.next_60 or p.next_90 %}
-<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+<section class="mb-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5">
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">Upcoming purchase pipeline</h2>
@@ -155,7 +155,7 @@
        'slate': {'bg':'bg-slate-50/60',   'label':'text-slate-600',  'value':'text-slate-900'},
     }[tone] %}
     <div class="{{ tone_classes.bg }} px-5 py-4">
-      <div class="text-[10px] font-semibold uppercase tracking-wider {{ tone_classes.label }}">{{ label }}</div>
+      <div class="text-[10px] font-medium uppercase tracking-[0.14em] {{ tone_classes.label }}">{{ label }}</div>
       <div class="mt-1.5 text-2xl font-semibold tabular-nums {{ tone_classes.value }}">{{ total | money }}</div>
       <div class="mt-0.5 text-xs text-slate-500">
         {{ items | length }} SKU{{ "" if (items | length) == 1 else "s" }}
@@ -203,16 +203,13 @@
               {{ item.sku_code or "—" }}
             </a>
           </td>
-          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ item.name or "—" }}</td>
+          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ (item.name | strip_size | title_case) or "—" }}</td>
           <td class="px-3 py-2.5">
             {% set pill_tone = {
-              'out_of_stock': 'bg-rose-50 text-rose-700 ring-rose-200',
-              'at_risk': 'bg-amber-50 text-amber-700 ring-amber-200',
-              'reorder_now': 'bg-indigo-50 text-indigo-700 ring-indigo-200',
-              'healthy': 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-              'overstocked': 'bg-sky-50 text-sky-700 ring-sky-200',
-            }.get(item.status.value, 'bg-slate-50 text-slate-600 ring-slate-200') %}
-            <span class="inline-flex items-center rounded-full font-semibold uppercase tracking-wider text-[10px] px-1.5 py-0.5 ring-1 {{ pill_tone }}">{{ item.status.value.replace('_', ' ') }}</span>
+              'out_of_stock': 'neg', 'at_risk': 'warn', 'reorder_now': 'accent',
+              'healthy': 'pos', 'overstocked': 'info',
+            }.get(item.status.value, 'neutral') %}
+            {{ ui.pill(item.status.value.replace('_', ' '), tone=pill_tone) }}
           </td>
           <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(item.on_hand) }}</td>
           <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ item.daily_velocity }}</td>
@@ -371,7 +368,7 @@
   Upload an orders file and an inventory snapshot to populate the planner.
 {% endcall %}
 {% else %}
-<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+<section class="mb-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5">
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">Replenishment plan</h2>
@@ -454,7 +451,7 @@
             </a>
             <div class="font-mono text-[10px] text-slate-400">{{ r.component_sku }}</div>
           </td>
-          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ r.name or "—" }}</td>
+          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ (r.name | strip_size | title_case) or "—" }}</td>
           <td class="px-3 py-2.5 text-right tabular-nums">{{ "{:,}".format(r.on_hand) }}</td>
           <td class="px-3 py-2.5 text-right tabular-nums {% if r.expected_receipts > 0 %}text-emerald-700{% else %}text-slate-300{% endif %}">
             {% if r.expected_receipts > 0 %}+{{ "{:,}".format(r.expected_receipts) }}{% else %}—{% endif %}
