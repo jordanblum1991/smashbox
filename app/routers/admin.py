@@ -29,6 +29,7 @@ from app.db import get_db
 from app.models.bundle import Bundle, BundleComponent
 from app.models.sku import Sku
 from app.models.user import User, UserRole
+from app.services.sku_resolver import resolve_all_order_lines
 from app.templating import templates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -293,6 +294,8 @@ def create_bundle(
             msrp=c["msrp"],
             unit_cogs=c["cogs"],
         ))
+    db.flush()
+    resolve_all_order_lines(db)
     db.commit()
     return _bundles_back(notice=f"Added bundle: {name}")
 
@@ -548,6 +551,8 @@ def create_sku(
         is_reorderable=is_reorderable_bool,
         service_level=service_level_dec,
     ))
+    db.flush()
+    resolve_all_order_lines(db)
     db.commit()
     return _skus_back(notice=f"Added SKU: {name}")
 

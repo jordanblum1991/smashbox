@@ -12,12 +12,15 @@ Covers:
   6. Blank numerics OK — blank money → 0 ('not specified'); blank qty → 1.
   7. At least one non-blank component required.
 """
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
 
 from app.db import Base, SessionLocal, engine
 from app.models.bundle import Bundle, BundleComponent
+from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.order import Order, OrderLine
 from app.routers.admin import create_bundle
 
 
@@ -170,3 +173,54 @@ def test_only_first_row_populated_succeeds():
         b = db.query(Bundle).one()
         assert len(b.components) == 1
         assert b.components[0].component_sku == "SBX-ONE"
+
+
+# ---------------------------------------------------------------------------
+# 8. Web-create retroactively backfills unmapped OrderLines. Mirrors XLSX
+# importer behavior — adding a bundle via the web admin should resolve any
+# already-loaded lines that referenced it before the bundle row existed.
+# Bundle COGS = sum(component qty * component unit_cogs) — Bundle.calculated_cogs.
+# ---------------------------------------------------------------------------
+def test_create_bundle_backfills_unmapped_order_line_cogs():
+    tiktok_id = "9000000000000007777"
+    with SessionLocal() as db:
+        batch = ImportBatch(
+            kind=ImportFileKind.TIKTOK_ORDERS,
+            status=ImportBatchStatus.COMPLETED,
+            original_filename="seed.csv",
+            stored_path="/tmp/seed.csv",
+        )
+        db.add(batch)
+        db.flush()
+        order = Order(
+            import_batch_id=batch.id,
+            tiktok_order_id="TT-BUNDLE-BACKFILL-1",
+            placed_at=datetime(2026, 5, 1, 12, 0, 0),
+            status="Completed",
+            brand="Smashbox",
+        )
+        db.add(order)
+        db.flush()
+        db.add(OrderLine(
+            order_id=order.id,
+            sku=tiktok_id,
+            quantity=1,
+            unit_cogs_snapshot=Decimal("0"),
+        ))
+        db.commit()
+
+    # Bundle of two components: 1x@$5 + 2x@$3 = $11 calculated_cogs.
+    resp = _call(
+        tiktok_sku_id=tiktok_id,
+        component_sku=["SBX-A", "SBX-B"],
+        component_name=["A item", "B item"],
+        component_qty=["1", "2"],
+        component_msrp=["20", "10"],
+        component_cogs=["5", "3"],
+    )
+    assert resp.status_code == 303
+    assert "notice=" in resp.headers["location"]
+
+    with SessionLocal() as db:
+        line = db.query(OrderLine).filter_by(sku=tiktok_id).one()
+        assert line.unit_cogs_snapshot == Decimal("11.0000")

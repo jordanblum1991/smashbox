@@ -21,11 +21,14 @@ Covers:
   7. Checkbox + status handling — is_reorderable absent → False;
      active_status Inactive → is_active False.
 """
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
 
 from app.db import Base, SessionLocal, engine
+from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.order import Order, OrderLine
 from app.models.sku import Sku
 from app.routers.admin import create_sku
 
@@ -318,3 +321,46 @@ def test_clean_tiktok_sku_id_still_works():
     assert "notice=" in resp.headers["location"]
     with SessionLocal() as db:
         assert db.query(Sku).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# 9. Web-create retroactively backfills unmapped OrderLines. Mirrors the XLSX
+# importer behavior — adding a SKU via the web admin should resolve any
+# already-loaded lines that referenced it before the master row existed.
+# ---------------------------------------------------------------------------
+def test_create_sku_backfills_unmapped_order_line_cogs():
+    tiktok_id = "9000000000000005555"
+    with SessionLocal() as db:
+        batch = ImportBatch(
+            kind=ImportFileKind.TIKTOK_ORDERS,
+            status=ImportBatchStatus.COMPLETED,
+            original_filename="seed.csv",
+            stored_path="/tmp/seed.csv",
+        )
+        db.add(batch)
+        db.flush()
+        order = Order(
+            import_batch_id=batch.id,
+            tiktok_order_id="TT-SKU-BACKFILL-1",
+            placed_at=datetime(2026, 5, 1, 12, 0, 0),
+            status="Completed",
+            brand="Smashbox",
+        )
+        db.add(order)
+        db.flush()
+        db.add(OrderLine(
+            order_id=order.id,
+            sku=tiktok_id,
+            quantity=1,
+            unit_cogs_snapshot=Decimal("0"),
+        ))
+        db.commit()
+
+    resp = _call(name="Backfill Target", sku="SBX-BACKFILL", tiktok_sku_id=tiktok_id,
+                 unit_cogs="7.25")
+    assert resp.status_code == 303
+    assert "notice=" in resp.headers["location"]
+
+    with SessionLocal() as db:
+        line = db.query(OrderLine).filter_by(sku=tiktok_id).one()
+        assert line.unit_cogs_snapshot == Decimal("7.2500")
