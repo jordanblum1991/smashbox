@@ -179,13 +179,24 @@ def bundles_page(
     notice: str | None = None,
 ):
     """List all bundles + render the add-bundle form. A-Z by name."""
+    # Split into active vs inactive lists. The template renders active as the
+    # primary list and inactive in a collapsible disclosure below — defensive
+    # `(is_active or "Active")` matches the template, since the column is a
+    # String("Active"/"Inactive") with a default of "Active".
     bundles = db.execute(
         select(Bundle).order_by(Bundle.name.asc())
     ).scalars().all()
+    active_bundles = [b for b in bundles if (b.is_active or "Active") == "Active"]
+    inactive_bundles = [b for b in bundles if (b.is_active or "Active") != "Active"]
     return templates.TemplateResponse(
         request,
         "admin/bundles.html",
-        {"bundles": bundles, "error": error, "notice": notice},
+        {
+            "active_bundles": active_bundles,
+            "inactive_bundles": inactive_bundles,
+            "error": error,
+            "notice": notice,
+        },
     )
 
 
@@ -401,14 +412,19 @@ def skus_page(
     notice: str | None = None,
 ):
     """List all SKUs + render the add-SKU form. A-Z by name, then SBX code."""
+    # Split into active vs inactive lists. The template renders active as the
+    # primary list and inactive in a collapsible disclosure below.
     skus = db.execute(
         select(Sku).order_by(Sku.name.asc(), Sku.sku.asc())
     ).scalars().all()
+    active_skus = [s for s in skus if s.is_active]
+    inactive_skus = [s for s in skus if not s.is_active]
     return templates.TemplateResponse(
         request,
         "admin/skus.html",
         {
-            "skus": skus,
+            "active_skus": active_skus,
+            "inactive_skus": inactive_skus,
             "error": error,
             "notice": notice,
             "service_level_choices": sorted(SERVICE_LEVEL_Z_TABLE.keys()),
