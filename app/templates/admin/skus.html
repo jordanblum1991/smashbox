@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Manage SKUs · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Manage SKUs",
+  subtitle="Create new SKUs and review existing ones. The XLSX upload path (Imports → SKU Master) still works in parallel; both write to the same Sku table.",
+) %}
+{% endcall %}
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+  {{ notice }}
+</div>
+{% endif %}
+
+{# ---- Add SKU form ---- #}
+<section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="mb-4 text-sm font-semibold text-slate-900">Add new SKU</h2>
+  <form action="/admin/skus" method="post" class="space-y-6">
+
+    {# Identity #}
+    <div>
+      <h3 class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Identity</h3>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
+        <label class="md:col-span-6">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Name</span>
+          <input type="text" name="name" required maxlength="512"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-3">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Brand <span class="font-normal text-slate-400">(defaults "unknown")</span></span>
+          <input type="text" name="brand" maxlength="64" placeholder="Smashbox"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-3">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
+          <select name="active_status" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <option value="Active" selected>Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </label>
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">SBX SKU Code</span>
+          <input type="text" name="sku" required maxlength="128" placeholder="SBX-C00101"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">TikTok SKU ID <span class="font-normal text-slate-400">(unique if set)</span></span>
+          <input type="text" name="tiktok_sku_id" maxlength="64" placeholder="e.g. 1729492097758368939"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">TikTok ALT SKU <span class="font-normal text-slate-400">(C-form, optional)</span></span>
+          <input type="text" name="tiktok_alt_sku" maxlength="128" placeholder="C00101"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-6">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Category <span class="font-normal text-slate-400">(optional)</span></span>
+          <input type="text" name="category" maxlength="256"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-6">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Item Type <span class="font-normal text-slate-400">(optional)</span></span>
+          <input type="text" name="item_type" maxlength="64"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+      </div>
+    </div>
+
+    {# Pricing #}
+    <div>
+      <h3 class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Pricing</h3>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
+        <label class="md:col-span-6">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">MSRP <span class="font-normal text-slate-400">(blank → $0)</span></span>
+          <input type="text" name="msrp" inputmode="decimal" placeholder="0.00"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-6">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Unit COGS <span class="font-normal text-slate-400">(blank → $0, 4 dp)</span></span>
+          <input type="text" name="unit_cogs" inputmode="decimal" placeholder="0.0000"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+      </div>
+    </div>
+
+    {# Procurement #}
+    <div>
+      <h3 class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Procurement <span class="font-normal text-slate-400">(all optional — blank uses planner global default)</span></h3>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Lead time (days)</span>
+          <input type="text" name="lead_time_days" inputmode="numeric" placeholder="—"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">MOQ</span>
+          <input type="text" name="moq" inputmode="numeric" placeholder="—"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Case pack</span>
+          <input type="text" name="case_pack" inputmode="numeric" placeholder="—"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Safety stock % <span class="font-normal text-slate-400">(0-100)</span></span>
+          <input type="text" name="safety_stock_pct" inputmode="decimal" placeholder="—"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-4">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Service level</span>
+          <select name="service_level" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <option value="">— not set —</option>
+            {% for sl in service_level_choices %}
+            <option value="{{ sl }}">{{ '%.1f' | format(sl * 100) }}%</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="md:col-span-4 flex items-end gap-2 pb-2">
+          <input type="checkbox" name="is_reorderable" checked class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500">
+          <span class="text-sm text-slate-700">Reorderable</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="flex justify-end">
+      <button type="submit" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        Add SKU
+      </button>
+    </div>
+  </form>
+</section>
+
+{# ---- SKU list ---- #}
+<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">
+      All SKUs <span class="ml-2 text-xs font-normal text-slate-500">{{ skus | length }} total</span>
+    </h2>
+  </header>
+
+  {% if skus | length == 0 %}
+  <div class="px-5 py-8 text-center">
+    <p class="text-sm text-slate-700">No SKUs yet.</p>
+    <p class="mt-1 text-xs text-slate-500">
+      Add one using the form above, or upload a <code class="rounded bg-slate-100 px-1.5 py-0.5">SKU Master</code> XLSX via the <a href="/uploads" class="text-sky-700 underline hover:text-sky-900">Imports page</a>.
+    </p>
+  </div>
+  {% else %}
+  <div class="divide-y divide-slate-100">
+    {% for s in skus %}
+    <details class="group">
+      <summary class="flex cursor-pointer items-center gap-4 px-5 py-3 hover:bg-slate-50">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="truncate font-medium text-slate-900 {% if not s.is_active %}text-slate-500 line-through{% endif %}">{{ s.name }}</span>
+            {% if not s.is_active %}
+            <span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700 ring-1 ring-rose-100">Inactive</span>
+            {% endif %}
+            {% if not s.is_reorderable %}
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">No reorder</span>
+            {% endif %}
+          </div>
+          <div class="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
+            <span class="font-mono">{{ s.sku }}</span>
+            {% if s.tiktok_sku_id %}<span class="font-mono">· {{ s.tiktok_sku_id }}</span>{% endif %}
+            {% if s.brand %}<span>· {{ s.brand }}</span>{% endif %}
+            {% if s.category %}<span>· {{ s.category }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="hidden text-right text-xs sm:block">
+          <div class="text-slate-500">MSRP <span class="tabular-nums text-slate-700">${{ '%.2f'|format(s.msrp) }}</span></div>
+          <div class="text-slate-500">COGS <span class="tabular-nums text-slate-700">${{ '%.4f'|format(s.unit_cogs) }}</span></div>
+          {% if s.msrp > 0 %}
+          {% set margin_pct = ((s.msrp - s.unit_cogs) / s.msrp * 100) %}
+          <div class="text-slate-500">Margin
+            <span class="tabular-nums font-semibold {% if margin_pct >= 50 %}text-emerald-700{% elif margin_pct >= 25 %}text-slate-700{% else %}text-amber-700{% endif %}">{{ '%.1f'|format(margin_pct) }}%</span>
+          </div>
+          {% endif %}
+        </div>
+        <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+        </svg>
+      </summary>
+      <div class="border-t border-slate-100 bg-slate-50/40 px-5 py-4">
+        <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-xs md:grid-cols-4">
+          <div><dt class="font-medium text-slate-500">TikTok ALT</dt><dd class="font-mono text-slate-700">{{ s.tiktok_alt_sku or '—' }}</dd></div>
+          <div><dt class="font-medium text-slate-500">Item type</dt><dd class="text-slate-700">{{ s.item_type or '—' }}</dd></div>
+          <div><dt class="font-medium text-slate-500">Lead time</dt><dd class="tabular-nums text-slate-700">{% if s.lead_time_days is not none %}{{ s.lead_time_days }} days{% else %}—{% endif %}</dd></div>
+          <div><dt class="font-medium text-slate-500">MOQ</dt><dd class="tabular-nums text-slate-700">{{ s.moq if s.moq is not none else '—' }}</dd></div>
+          <div><dt class="font-medium text-slate-500">Case pack</dt><dd class="tabular-nums text-slate-700">{{ s.case_pack if s.case_pack is not none else '—' }}</dd></div>
+          <div><dt class="font-medium text-slate-500">Safety stock</dt><dd class="tabular-nums text-slate-700">{% if s.safety_stock_pct is not none %}{{ '%.2f'|format(s.safety_stock_pct) }}%{% else %}—{% endif %}</dd></div>
+          <div><dt class="font-medium text-slate-500">Service level</dt><dd class="tabular-nums text-slate-700">{% if s.service_level is not none %}{{ '%.1f'|format(s.service_level * 100) }}%{% else %}—{% endif %}</dd></div>
+          <div><dt class="font-medium text-slate-500">Reorderable</dt><dd class="text-slate-700">{{ 'Yes' if s.is_reorderable else 'No' }}</dd></div>
+        </dl>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

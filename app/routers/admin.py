@@ -24,8 +24,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import hash_password, require_admin
+from app.config import SERVICE_LEVEL_Z_TABLE
 from app.db import get_db
 from app.models.bundle import Bundle, BundleComponent
+from app.models.sku import Sku
 from app.models.user import User, UserRole
 from app.templating import templates
 
@@ -296,17 +298,69 @@ def _bundles_back(*, error: str | None = None, notice: str | None = None) -> Red
     return RedirectResponse(f"/admin/bundles{suffix}", status_code=303)
 
 
-def _money_strict(s: str, label: str) -> Decimal:
-    """Parse money input. Blank → 0 (means 'not specified'). Non-numeric →
-    ValueError. Matches the ad-spend rejection rule: silent coercion to 0
-    would invisibly understate COGS/margins on every order using this bundle."""
+def _money_strict(s: str, label: str, *, min_value: Decimal | None = None) -> Decimal:
+    """Parse money input. Blank → 0 (means 'not specified'). Non-numeric or
+    below min_value → ValueError. Matches the ad-spend rejection rule: silent
+    coercion to 0 would invisibly understate COGS/margins on every order
+    using this bundle."""
     s = (s or "").strip()
     if not s:
         return Decimal("0")
     try:
-        return Decimal(s)
+        v = Decimal(s)
     except InvalidOperation:
         raise ValueError(f"{label} must be a number (got '{s}').")
+    if min_value is not None and v < min_value:
+        raise ValueError(f"{label} must be at least {min_value} (got {v}).")
+    return v
+
+
+def _int_strict_optional(
+    s: str,
+    label: str,
+    *,
+    min_value: int | None = None,
+    max_value: int | None = None,
+) -> int | None:
+    """Parse optional integer input. Blank → None ('not specified'). Non-integer
+    or out-of-range → ValueError. Used for procurement attrs where blank means
+    'use the planner's global default' (NOT zero)."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        v = int(s)
+    except ValueError:
+        raise ValueError(f"{label} must be a whole number (got '{s}').")
+    if min_value is not None and v < min_value:
+        raise ValueError(f"{label} must be at least {min_value} (got {v}).")
+    if max_value is not None and v > max_value:
+        raise ValueError(f"{label} must be at most {max_value} (got {v}).")
+    return v
+
+
+def _decimal_strict_optional(
+    s: str,
+    label: str,
+    *,
+    min_value: Decimal | None = None,
+    max_value: Decimal | None = None,
+) -> Decimal | None:
+    """Parse optional decimal input. Blank → None. Non-numeric or out-of-range
+    → ValueError. Used for safety_stock_pct (range [0, 100]) and other
+    nullable decimal fields where the absence of a value is meaningful."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        v = Decimal(s)
+    except InvalidOperation:
+        raise ValueError(f"{label} must be a number (got '{s}').")
+    if min_value is not None and v < min_value:
+        raise ValueError(f"{label} must be at least {min_value} (got {v}).")
+    if max_value is not None and v > max_value:
+        raise ValueError(f"{label} must be at most {max_value} (got {v}).")
+    return v
 
 
 def _qty_strict(s: str, label: str) -> int:
@@ -322,3 +376,172 @@ def _qty_strict(s: str, label: str) -> int:
     if v < 1:
         raise ValueError(f"{label} must be at least 1.")
     return v
+
+
+# ---------------------------------------------------------------------------
+# SKU master — admin-only list + add.
+# Edit / delete deferred. Existing in-place procurement editor at
+# /reports/demand-planning/sku/{sku}/procurement continues to handle edits
+# for already-created SKUs.
+#
+# Uniqueness rule (Option A, matches importer semantics):
+#   - tiktok_sku_id, when provided, must be unique (DB-enforced).
+#   - sku (SBX-form) may repeat across rows when each has a distinct
+#     tiktok_sku_id — that's the TikTok-variation case.
+#   - BUT: (sku, tiktok_sku_id IS NULL) must be unique — otherwise we'd
+#     create two indistinguishable rows for the same product with no TikTok
+#     ID. Mirrors the importer's fallback upsert key.
+# ---------------------------------------------------------------------------
+
+@router.get("/skus", dependencies=[Depends(require_admin)])
+def skus_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    error: str | None = None,
+    notice: str | None = None,
+):
+    """List all SKUs + render the add-SKU form. A-Z by name, then SBX code."""
+    skus = db.execute(
+        select(Sku).order_by(Sku.name.asc(), Sku.sku.asc())
+    ).scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "admin/skus.html",
+        {
+            "skus": skus,
+            "error": error,
+            "notice": notice,
+            "service_level_choices": sorted(SERVICE_LEVEL_Z_TABLE.keys()),
+        },
+    )
+
+
+@router.post("/skus", dependencies=[Depends(require_admin)])
+def create_sku(
+    name: str = Form(...),
+    sku: str = Form(...),
+    tiktok_alt_sku: str | None = Form(default=None),
+    tiktok_sku_id: str | None = Form(default=None),
+    brand: str | None = Form(default=None),
+    category: str | None = Form(default=None),
+    item_type: str | None = Form(default=None),
+    msrp: str = Form(default=""),
+    unit_cogs: str = Form(default=""),
+    active_status: str = Form(default="Active"),
+    lead_time_days: str = Form(default=""),
+    moq: str = Form(default=""),
+    case_pack: str = Form(default=""),
+    safety_stock_pct: str = Form(default=""),
+    service_level: str = Form(default=""),
+    is_reorderable: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    """Create a new Sku row. Numeric fields REJECT garbage; never silent-coerce.
+    unit_cogs in particular feeds reorder math and P&L gross profit — coercion
+    to 0 on a fat-fingered value would invisibly inflate margins."""
+    name = name.strip()
+    # Strip whitespace AND common paste artifacts (commas/semicolons/periods)
+    # from identifier fields. A trailing comma from a copied CSV cell would
+    # otherwise produce a row indistinguishable from a "clean" one but with
+    # a different string value, defeating the uniqueness check downstream.
+    _IDENT_TRIM = " \t\n\r,;."
+    sku_code = sku.strip(_IDENT_TRIM)
+    tiktok_alt_sku = (tiktok_alt_sku or "").strip(_IDENT_TRIM) or None
+    tiktok_sku_id = (tiktok_sku_id or "").strip(_IDENT_TRIM) or None
+    brand = (brand or "").strip() or "unknown"      # matches importer default
+    category = (category or "").strip() or None
+    item_type = (item_type or "").strip() or None
+    if active_status not in ("Active", "Inactive"):
+        active_status = "Active"
+    is_active = (active_status == "Active")
+    is_reorderable_bool = is_reorderable is not None
+
+    if not name:
+        return _skus_back(error="Name is required.")
+    if not sku_code:
+        return _skus_back(error="SKU code is required.")
+
+    # TikTok SKU IDs are numeric. Reject any non-digit chars that survived
+    # the strip — catches embedded commas, letters, typos pasted from CSVs.
+    if tiktok_sku_id is not None and not tiktok_sku_id.isdigit():
+        return _skus_back(
+            error=f"TikTok SKU ID must contain only digits (got '{tiktok_sku_id}')."
+        )
+
+    # Uniqueness — two-tier per Option A.
+    if tiktok_sku_id:
+        clash = db.execute(
+            select(Sku).where(Sku.tiktok_sku_id == tiktok_sku_id)
+        ).scalar_one_or_none()
+        if clash is not None:
+            return _skus_back(
+                error=f"A SKU with TikTok SKU ID {tiktok_sku_id} already exists "
+                      f"(SBX code: {clash.sku})."
+            )
+    else:
+        clash = db.execute(
+            select(Sku).where(Sku.sku == sku_code).where(Sku.tiktok_sku_id.is_(None))
+        ).scalar_one_or_none()
+        if clash is not None:
+            return _skus_back(
+                error=f"A SKU with code {sku_code} (and no TikTok SKU ID) already "
+                      f"exists. To add a new TikTok variation, provide a TikTok SKU ID."
+            )
+
+    try:
+        msrp_dec = _money_strict(msrp, "MSRP", min_value=Decimal("0"))
+        cogs_dec = _money_strict(unit_cogs, "Unit COGS", min_value=Decimal("0"))
+        lead_time = _int_strict_optional(lead_time_days, "Lead time (days)", min_value=0)
+        moq_int = _int_strict_optional(moq, "MOQ", min_value=0)
+        case_pack_int = _int_strict_optional(case_pack, "Case pack", min_value=0)
+        safety_pct = _decimal_strict_optional(
+            safety_stock_pct, "Safety stock %",
+            min_value=Decimal("0"), max_value=Decimal("100"),
+        )
+    except ValueError as e:
+        return _skus_back(error=str(e))
+
+    # Service level — blank OR one of the table-allowed values. The dropdown
+    # only offers valid choices; this catches browser/curl bypass.
+    service_level_dec: Decimal | None = None
+    if service_level.strip():
+        try:
+            cand = Decimal(service_level.strip())
+        except InvalidOperation:
+            return _skus_back(error=f"Service level must be a decimal (got '{service_level}').")
+        if cand not in SERVICE_LEVEL_Z_TABLE:
+            allowed = ", ".join(str(k) for k in sorted(SERVICE_LEVEL_Z_TABLE.keys()))
+            return _skus_back(error=f"Service level must be one of: {allowed} (or blank).")
+        service_level_dec = cand
+
+    db.add(Sku(
+        sku=sku_code,
+        tiktok_alt_sku=tiktok_alt_sku,
+        tiktok_sku_id=tiktok_sku_id,
+        name=name,
+        brand=brand,
+        category=category,
+        item_type=item_type,
+        msrp=msrp_dec,
+        unit_cogs=cogs_dec,
+        is_active=is_active,
+        lead_time_days=lead_time,
+        moq=moq_int,
+        case_pack=case_pack_int,
+        safety_stock_pct=safety_pct,
+        is_reorderable=is_reorderable_bool,
+        service_level=service_level_dec,
+    ))
+    db.commit()
+    return _skus_back(notice=f"Added SKU: {name}")
+
+
+def _skus_back(*, error: str | None = None, notice: str | None = None) -> RedirectResponse:
+    """303 back to /admin/skus with error/notice flash. urlencode'd."""
+    qs: dict[str, str] = {}
+    if error:
+        qs["error"] = error
+    if notice:
+        qs["notice"] = notice
+    suffix = ("?" + urlencode(qs)) if qs else ""
+    return RedirectResponse(f"/admin/skus{suffix}", status_code=303)
