@@ -140,24 +140,10 @@
   </form>
 </section>
 
-{# ---- SKU list ---- #}
-<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <header class="border-b border-slate-200 px-5 py-3">
-    <h2 class="text-sm font-semibold text-slate-900">
-      All SKUs <span class="ml-2 text-xs font-normal text-slate-500">{{ skus | length }} total</span>
-    </h2>
-  </header>
-
-  {% if skus | length == 0 %}
-  <div class="px-5 py-8 text-center">
-    <p class="text-sm text-slate-700">No SKUs yet.</p>
-    <p class="mt-1 text-xs text-slate-500">
-      Add one using the form above, or upload a <code class="rounded bg-slate-100 px-1.5 py-0.5">SKU Master</code> XLSX via the <a href="/uploads" class="text-sky-700 underline hover:text-sky-900">Imports page</a>.
-    </p>
-  </div>
-  {% else %}
-  <div class="divide-y divide-slate-100">
-    {% for s in skus %}
+{# Macro for one SKU row — used in both the active list and the inactive
+   disclosure below. Keeps the two sections visually identical aside from
+   placement so users can scan / expand either the same way. #}
+{% macro sku_row(s) %}
     <details class="group">
       <summary class="flex cursor-pointer items-center gap-4 px-5 py-3 hover:bg-slate-50">
         <div class="min-w-0 flex-1">
@@ -204,8 +190,45 @@
         </dl>
       </div>
     </details>
-    {% endfor %}
+{% endmacro %}
+
+{# ---- Active SKUs (primary list) ---- #}
+<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">
+      Active SKUs <span class="ml-2 text-xs font-normal text-slate-500">{{ active_skus | length }} active</span>
+    </h2>
+  </header>
+
+  {% if active_skus | length == 0 %}
+  <div class="px-5 py-8 text-center">
+    <p class="text-sm text-slate-700">No active SKUs.</p>
+    <p class="mt-1 text-xs text-slate-500">
+      Add one using the form above, or upload a <code class="rounded bg-slate-100 px-1.5 py-0.5">SKU Master</code> XLSX via the <a href="/uploads" class="text-sky-700 underline hover:text-sky-900">Imports page</a>.
+    </p>
+  </div>
+  {% else %}
+  <div class="divide-y divide-slate-100">
+    {% for s in active_skus %}{{ sku_row(s) }}{% endfor %}
   </div>
   {% endif %}
 </section>
+
+{# ---- Inactive SKUs (collapsed disclosure below, only renders if any exist) ---- #}
+{% if inactive_skus | length > 0 %}
+<details class="group/inactive mt-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <summary class="flex cursor-pointer items-center gap-2 border-b border-transparent px-5 py-3 hover:bg-slate-50 group-open/inactive:border-slate-200">
+    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform group-open/inactive:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+    </svg>
+    <h2 class="text-sm font-semibold text-slate-700">
+      Inactive SKUs
+      <span class="ml-2 text-xs font-normal text-slate-500">{{ inactive_skus | length }} inactive</span>
+    </h2>
+  </summary>
+  <div class="divide-y divide-slate-100">
+    {% for s in inactive_skus %}{{ sku_row(s) }}{% endfor %}
+  </div>
+</details>
+{% endif %}
 {% endblock %}

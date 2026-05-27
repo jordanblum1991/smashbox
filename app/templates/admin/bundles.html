@@ -147,24 +147,9 @@
   })();
 </script>
 
-{# ---- Bundle list ---- #}
-<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <header class="border-b border-slate-200 px-5 py-3">
-    <h2 class="text-sm font-semibold text-slate-900">
-      All bundles <span class="ml-2 text-xs font-normal text-slate-500">{{ bundles | length }} total</span>
-    </h2>
-  </header>
-
-  {% if bundles | length == 0 %}
-  <div class="px-5 py-8 text-center">
-    <p class="text-sm text-slate-700">No bundles yet.</p>
-    <p class="mt-1 text-xs text-slate-500">
-      Add one using the form above, or upload a <code class="rounded bg-slate-100 px-1.5 py-0.5">Bundle Mapping</code> XLSX via the <a href="/uploads" class="text-sky-700 underline hover:text-sky-900">Imports page</a>.
-    </p>
-  </div>
-  {% else %}
-  <div class="divide-y divide-slate-100">
-    {% for b in bundles %}
+{# Macro for one bundle row — used in both the active list and the inactive
+   disclosure below. Single source of truth for the row markup. #}
+{% macro bundle_row(b) %}
     {% set active_label = b.is_active or "Active" %}
     {% set inactive = active_label != "Active" %}
     <details class="group">
@@ -227,8 +212,45 @@
         </table>
       </div>
     </details>
-    {% endfor %}
+{% endmacro %}
+
+{# ---- Active bundles (primary list) ---- #}
+<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">
+      Active bundles <span class="ml-2 text-xs font-normal text-slate-500">{{ active_bundles | length }} active</span>
+    </h2>
+  </header>
+
+  {% if active_bundles | length == 0 %}
+  <div class="px-5 py-8 text-center">
+    <p class="text-sm text-slate-700">No active bundles.</p>
+    <p class="mt-1 text-xs text-slate-500">
+      Add one using the form above, or upload a <code class="rounded bg-slate-100 px-1.5 py-0.5">Bundle Mapping</code> XLSX via the <a href="/uploads" class="text-sky-700 underline hover:text-sky-900">Imports page</a>.
+    </p>
+  </div>
+  {% else %}
+  <div class="divide-y divide-slate-100">
+    {% for b in active_bundles %}{{ bundle_row(b) }}{% endfor %}
   </div>
   {% endif %}
 </section>
+
+{# ---- Inactive bundles (collapsed disclosure below) ---- #}
+{% if inactive_bundles | length > 0 %}
+<details class="group/inactive mt-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <summary class="flex cursor-pointer items-center gap-2 border-b border-transparent px-5 py-3 hover:bg-slate-50 group-open/inactive:border-slate-200">
+    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform group-open/inactive:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+    </svg>
+    <h2 class="text-sm font-semibold text-slate-700">
+      Inactive bundles
+      <span class="ml-2 text-xs font-normal text-slate-500">{{ inactive_bundles | length }} inactive</span>
+    </h2>
+  </summary>
+  <div class="divide-y divide-slate-100">
+    {% for b in inactive_bundles %}{{ bundle_row(b) }}{% endfor %}
+  </div>
+</details>
+{% endif %}
 {% endblock %}
