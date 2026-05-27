@@ -2,6 +2,7 @@
 
 Routers import `templates` from here so every page shares filters and globals.
 """
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -45,7 +46,39 @@ def month_short(month_val) -> str:
     return calendar.month_abbr[int(month_val)]
 
 
+# Matches a trailing parenthesized chunk preceded by optional whitespace.
+# \xa0 is included explicitly because the TikTok master sheet uses NBSP
+# before the size paren on some rows (e.g. PHOTO FINISH OIL CONTROL ...).
+_TRAILING_SIZE_RE = re.compile(r"[\s\xa0]*\(([^)]*)\)\s*$")
+
+
+def strip_size(value) -> str:
+    """Remove a trailing parenthesized size chunk from a product name.
+    Returns the input unchanged when no trailing paren is present."""
+    if not value:
+        return value
+    return _TRAILING_SIZE_RE.sub("", str(value))
+
+
+def extract_size(value) -> str:
+    """Return the trailing parenthesized size (without parens), or '—'."""
+    if not value:
+        return "—"
+    match = _TRAILING_SIZE_RE.search(str(value))
+    return match.group(1).strip() if match else "—"
+
+
+def title_case(value) -> str:
+    """Title-case a string via str.title(); pass-through for falsy input."""
+    if not value:
+        return value
+    return str(value).title()
+
+
 templates.env.filters["money"] = money
 templates.env.filters["pct"] = pct
 templates.env.globals["month_label"] = month_label
 templates.env.filters["month_short"] = month_short
+templates.env.filters["strip_size"] = strip_size
+templates.env.filters["extract_size"] = extract_size
+templates.env.filters["title_case"] = title_case

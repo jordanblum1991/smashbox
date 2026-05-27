@@ -156,7 +156,7 @@
       <summary class="flex cursor-pointer items-center gap-4 px-5 py-3 hover:bg-slate-50">
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
-            <span class="truncate font-medium text-slate-900 {% if not s.is_active %}text-slate-500 line-through{% endif %}">{{ s.name }}</span>
+            <span class="truncate font-medium text-slate-900 {% if not s.is_active %}text-slate-500 line-through{% endif %}">{{ s.name | strip_size | title_case }}</span>
             {% if not s.is_active %}
             <span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700 ring-1 ring-rose-100">Inactive</span>
             {% endif %}
@@ -188,6 +188,7 @@
           <div><dt class="font-medium text-slate-500">TikTok ALT</dt><dd class="font-mono text-slate-700">{{ s.tiktok_alt_sku or '—' }}</dd></div>
           <div><dt class="font-medium text-slate-500">Brand</dt><dd class="text-slate-700">{{ s.brand or '—' }}</dd></div>
           <div><dt class="font-medium text-slate-500">Item type</dt><dd class="text-slate-700">{{ s.item_type or '—' }}</dd></div>
+          <div><dt class="font-medium text-slate-500">Size</dt><dd class="text-slate-700">{{ s.name | extract_size }}</dd></div>
           <div><dt class="font-medium text-slate-500">Lead time</dt><dd class="tabular-nums text-slate-700">{% if s.lead_time_days is not none %}{{ s.lead_time_days }} days{% else %}—{% endif %}</dd></div>
           <div><dt class="font-medium text-slate-500">MOQ</dt><dd class="tabular-nums text-slate-700">{{ s.moq if s.moq is not none else '—' }}</dd></div>
           <div><dt class="font-medium text-slate-500">Case pack</dt><dd class="tabular-nums text-slate-700">{{ s.case_pack if s.case_pack is not none else '—' }}</dd></div>
