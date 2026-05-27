@@ -10,16 +10,25 @@
 
   ---- Design tokens (apply consistently across the app) ----------------------
 
-  Cards:        rounded-2xl  border border-slate-200  shadow-sm
-                hover:shadow-md  (when clickable)
-  Padding:      p-5  inside small cards,  p-6  for major sections
+  Cards:        rounded-2xl  ring-1 ring-slate-900/5  bg-white  shadow-sm
+                hover:shadow-md hover:ring-slate-900/10  (when clickable)
+                NB: ring is used instead of border — reads as elevation, not
+                a drawn-on outline. Tone-coloured cards add a 0.5-px top bar.
+  Padding:      p-6 inside cards (Stripe-restraint = more breathing room).
+                Sections still p-6.
   Section gap:  mb-6  between sections
   Eyebrow:      text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600
                 (page-level)
-  Tile label:   text-[11px] font-semibold uppercase tracking-wider text-slate-500
-                (inside KPI cards)
+  Tile label:   text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500
+                (inside KPI cards — looser tracking + lighter weight reads
+                more typographic, less stamped-on)
   H1:           text-3xl font-semibold tracking-tight text-slate-900
-  Money/value:  text-2xl font-semibold tabular-nums text-slate-900
+  Money/value:  text-2xl font-semibold tracking-tight tabular-nums text-slate-900
+                Hero values (kpi_hero): text-4xl tracking-tighter
+                Default colour stays slate-900 — tone-colour the value ONLY
+                when there's semantic meaning (net profit going negative,
+                ROAS hitting the warn threshold). Ambient state stays neutral.
+  Hover:        shadow-md only — NO translate-y. (Stripe doesn't bounce.)
 
   Semantic tone palette:
     pos        emerald   positive performance, success, fresh
@@ -67,7 +76,12 @@
    - `bar`    : when truthy, draws a thin colored bar at the top in the tone color
    - `size`   : 'sm' (compact) | 'md' (default) | 'lg' (hero — bigger value)
    ========================================================================== #}
-{% macro kpi(label, value, hint="", tone="none", href=none, bar=false, size="md") -%}
+{% macro kpi(label, value, hint="", tone="none", href=none, bar=none, size="md", col_span="") -%}
+  {# Supporting KPI card. Stripe-restraint: white surface, ring-1 ring-slate-900/5
+     (no drawn-on border), shadow grows on hover with NO Y-translate, tone shows
+     up as a thin top bar when set (auto-derived from tone; pass bar=False to
+     force off, bar=True to force on without a tone). Use ui.kpi_hero for the
+     ONE headline card per page. #}
   {% set tone_text = {
     'pos':'text-emerald-700', 'neg':'text-rose-700',
     'warn':'text-amber-700', 'info':'text-sky-700',
@@ -79,13 +93,98 @@
     'accent':'bg-indigo-500', 'none':'bg-slate-300'
   }[tone] %}
   {% set value_size = {'sm':'text-xl', 'md':'text-2xl', 'lg':'text-4xl'}[size] %}
+  {# Auto-derive bar from tone unless caller passed True/False explicitly. #}
+  {% set show_bar = bar if (bar is sameas true or bar is sameas false) else (tone != 'none') %}
   {% set tag = 'a' if href else 'div' %}
   <{{ tag }} {% if href %}href="{{ href }}"{% endif %}
-    class="relative block overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm{% if href %} transition hover:-translate-y-0.5 hover:shadow-md{% endif %}">
-    {% if bar %}<span class="absolute inset-x-0 top-0 h-0.5 {{ tone_bg }}"></span>{% endif %}
-    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
-    <div class="mt-2 {{ value_size }} font-semibold tabular-nums {{ tone_text }}">{{ value }}</div>
+    class="{{ col_span }} relative block overflow-hidden rounded-2xl bg-white p-6 ring-1 ring-slate-900/5 shadow-sm{% if href %} transition hover:shadow-md hover:ring-slate-900/10{% endif %}">
+    {% if show_bar %}<span class="absolute inset-x-0 top-0 h-0.5 {{ tone_bg }}"></span>{% endif %}
+    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{{ label }}</div>
+    <div class="mt-2 {{ value_size }} font-semibold tracking-tight tabular-nums {{ tone_text }}">{{ value }}</div>
     {% if hint %}<div class="mt-1.5 text-xs text-slate-400">{{ hint }}</div>{% endif %}
+  </{{ tag }}>
+{%- endmacro %}
+
+
+{# ==========================================================================
+   KPI HERO  —  the headline/feature KPI on each report page.
+
+   Linear-style: subtle gradient bg, large 4xl value with tracking-tighter,
+   optional badge chip next to the value (e.g. margin pct), directional icon
+   based on tone (up-arrow for pos, down-arrow for neg). Use exactly ONE per
+   page — the figure operators care about most. Supporting metrics use kpi().
+
+   - `label`    : small caps label
+   - `value`    : the big formatted value (already piped through | money etc.)
+   - `tone`     : pos|neg|warn|info|accent|none (default none = slate gradient)
+   - `badge`    : optional chip beside the value (e.g. "12.3% margin")
+   - `icon`     : optional SVG path (the d= attribute). When omitted, tones
+                  pos/neg auto-pick an up/down trend icon.
+   - `href`     : when set, card becomes a clickable link (shadow on hover)
+   - `col_span` : grid placement passed by the caller, e.g.
+                  "col-span-12 md:col-span-6 lg:col-span-4"
+   - `caller()` : optional descriptive slot below the value. Use {% call %}
+                  when the description needs embedded markup (e.g. inline
+                  emphasis on specific dollar amounts).
+   ========================================================================== #}
+{% macro kpi_hero(label, value, tone="none", badge=none, icon=none, href=none, col_span="col-span-12") -%}
+  {% set tone_grad = {
+    'pos':    'from-emerald-50/40 via-white to-white',
+    'neg':    'from-rose-50/40 via-white to-white',
+    'warn':   'from-amber-50/40 via-white to-white',
+    'info':   'from-sky-50/40 via-white to-white',
+    'accent': 'from-indigo-50/40 via-white to-white',
+    'none':   'from-slate-50/40 via-white to-white',
+  }[tone] %}
+  {% set tone_bar = {
+    'pos':'bg-emerald-500', 'neg':'bg-rose-500',
+    'warn':'bg-amber-500', 'info':'bg-sky-500',
+    'accent':'bg-indigo-500', 'none':'bg-slate-300',
+  }[tone] %}
+  {% set tone_text = {
+    'pos':'text-emerald-700', 'neg':'text-rose-700',
+    'warn':'text-amber-700', 'info':'text-sky-700',
+    'accent':'text-indigo-700', 'none':'text-slate-900',
+  }[tone] %}
+  {% set tone_chip = {
+    'pos':'bg-emerald-100 text-emerald-700',
+    'neg':'bg-rose-100 text-rose-700',
+    'warn':'bg-amber-100 text-amber-700',
+    'info':'bg-sky-100 text-sky-700',
+    'accent':'bg-indigo-100 text-indigo-700',
+    'none':'bg-slate-100 text-slate-700',
+  }[tone] %}
+  {# Default directional icon based on tone — caller can override with icon= #}
+  {% set default_icons = {
+    'pos': 'M3 17l6-6 4 4 8-8M17 7h4v4',
+    'neg': 'M3 7l6 6 4-4 8 8M17 17h4v-4',
+  } %}
+  {% set icon_path = icon or default_icons.get(tone) %}
+  {% set tag = 'a' if href else 'div' %}
+  <{{ tag }} {% if href %}href="{{ href }}"{% endif %}
+    class="{{ col_span }} relative block overflow-hidden rounded-2xl bg-gradient-to-br {{ tone_grad }} p-6 ring-1 ring-slate-900/5 shadow-sm{% if href %} transition hover:shadow-md hover:ring-slate-900/10{% endif %}">
+    <span class="absolute inset-x-0 top-0 h-0.5 {{ tone_bar }}"></span>
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{{ label }}</div>
+        <div class="mt-2 flex flex-wrap items-baseline gap-3">
+          <span class="text-4xl font-semibold tracking-tighter tabular-nums {{ tone_text }}">{{ value }}</span>
+          {% if badge %}
+          <span class="rounded-full {{ tone_chip }} px-2 py-0.5 text-xs font-semibold">{{ badge }}</span>
+          {% endif %}
+        </div>
+        {% if caller %}
+        <div class="mt-2 max-w-md text-xs leading-relaxed text-slate-500">{{ caller() }}</div>
+        {% endif %}
+      </div>
+      {% if icon_path %}
+      <div class="hidden shrink-0 rounded-xl bg-white/70 p-3 ring-1 ring-slate-200 md:block">
+        <svg class="h-6 w-6 {{ tone_text }}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}"/>
+        </svg>
+      </div>
+      {% endif %}
+    </div>
   </{{ tag }}>
 {%- endmacro %}
 
