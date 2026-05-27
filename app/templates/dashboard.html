@@ -67,106 +67,66 @@
 {# ===========================================================================
    KPI GRID — hero Net Profit card + supporting financial + operating metrics
    =========================================================================== #}
-{% set net_tone = 'emerald' if pnl.net_profit >= 0 else 'rose' %}
-{% set net_grad = {
-  'emerald': 'from-emerald-50 via-white to-white',
-  'rose':    'from-rose-50 via-white to-white',
-}[net_tone] %}
-{% set net_bar = 'bg-emerald-500' if pnl.net_profit >= 0 else 'bg-rose-500' %}
+{% set net_tone = 'pos' if pnl.net_profit >= 0 else 'neg' %}
 
-<section aria-label="Headline metrics" class="mb-4 grid grid-cols-12 gap-4">
-  {# Hero: Net Profit — spans 4/12 on lg so each supporting card gets 2/12. #}
-  <a href="/reports/pnl{{ pnl_qs }}"
-     class="relative col-span-12 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br {{ net_grad }} p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-6 lg:col-span-4">
-    <span class="absolute inset-x-0 top-0 h-1 {{ net_bar }}"></span>
-    <div class="flex items-start justify-between gap-3">
-      <div>
-        <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Net Profit</div>
-        <div class="mt-2 flex items-baseline gap-3">
-          <span class="text-4xl font-semibold tracking-tight tabular-nums text-{{ net_tone }}-700">{{ pnl.net_profit | money }}</span>
-          <span class="rounded-full bg-{{ net_tone }}-100 px-2 py-0.5 text-xs font-semibold text-{{ net_tone }}-700">{{ pnl.net_margin | pct }} margin</span>
-        </div>
-        <p class="mt-2 max-w-md text-xs leading-relaxed text-slate-500">
-          Net Customer Sales of <span class="font-medium text-slate-700">{{ pnl.net_customer_sales | money }}</span>
-          after COGS of <span class="font-medium text-slate-700">{{ pnl.cogs | money }}</span>,
-          TikTok fees, ads (net of credits), affiliate, and shipping.
-        </p>
-      </div>
-      <div class="hidden shrink-0 rounded-xl bg-white/70 p-3 ring-1 ring-slate-200 md:block">
-        <svg class="h-6 w-6 text-{{ net_tone }}-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          {% if pnl.net_profit >= 0 %}
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 17l6-6 4 4 8-8M17 7h4v4"/>
-          {% else %}
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 7l6 6 4-4 8 8M17 17h4v-4"/>
-          {% endif %}
-        </svg>
-      </div>
-    </div>
-  </a>
+<section aria-label="Headline metrics" class="mb-4 grid grid-cols-12 gap-3">
+  {# Hero #}
+  {% call ui.kpi_hero(
+      label="Net Profit",
+      value=pnl.net_profit | money,
+      tone=net_tone,
+      badge=(pnl.net_margin | pct) ~ " margin",
+      href="/reports/pnl" ~ pnl_qs,
+      col_span="col-span-12 md:col-span-6 lg:col-span-4"
+  ) %}
+    Net Customer Sales of <span class="font-medium text-slate-700">{{ pnl.net_customer_sales | money }}</span>
+    after COGS of <span class="font-medium text-slate-700">{{ pnl.cogs | money }}</span>,
+    TikTok fees, ads (net of credits), affiliate, and shipping.
+  {% endcall %}
 
   {# Supporting financial metrics #}
-  {% macro metric_card(label, value, hint, href, tone='slate', accent_bar=false) %}
-    {% set value_color = {
-      'emerald': 'text-emerald-700',
-      'rose':    'text-rose-700',
-      'amber':   'text-amber-700',
-      'sky':     'text-sky-700',
-      'indigo':  'text-indigo-700',
-      'slate':   'text-slate-900',
-    }[tone] %}
-    <a href="{{ href }}"
-       class="relative col-span-6 overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-{{ 7 if accent_bar else '' }}">
-      {% if accent_bar %}<span class="absolute inset-x-0 top-0 h-0.5 bg-{{ tone }}-400"></span>{% endif %}
-      <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums {{ value_color }}">{{ value }}</div>
-      <div class="mt-1.5 text-xs text-slate-400">{{ hint }}</div>
-    </a>
-  {% endmacro %}
+  {{ ui.kpi(
+      label="Net Customer Sales",
+      value=pnl.net_customer_sales | money,
+      hint="After all discounts & refunds",
+      href="/reports/pnl" ~ pnl_qs,
+      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+  ) }}
 
-  {# We want the supporting cards to fill the remaining 7 columns on large.
-     Use 4 cards × ~lg:col-span-2 (with one taking 1 extra). Manually set spans. #}
-  <a href="/reports/pnl{{ pnl_qs }}"
-     class="col-span-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
-    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Net Customer Sales</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ pnl.net_customer_sales | money }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">After all discounts &amp; refunds</div>
-  </a>
+  {{ ui.kpi(
+      label="Gross Margin",
+      value=pnl.gross_margin | pct,
+      hint="Gross Profit ÷ Net Sales",
+      href="/reports/pnl" ~ pnl_qs,
+      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+  ) }}
 
-  <a href="/reports/pnl{{ pnl_qs }}"
-     class="col-span-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
-    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gross Margin</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ pnl.gross_margin | pct }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">Gross Profit ÷ Net Sales</div>
-  </a>
-
-  {# ROAS — color-coded #}
-  {% set roas_tone = 'slate' %}
+  {# ROAS — conditional tone based on derived signals from above #}
+  {% set roas_tone = 'none' %}
   {% if has_ads %}
-    {% if roas_strong %}{% set roas_tone = 'emerald' %}
-    {% elif roas_ok %}{% set roas_tone = 'amber' %}
-    {% else %}{% set roas_tone = 'rose' %}{% endif %}
+    {% if roas_strong %}{% set roas_tone = 'pos' %}
+    {% elif roas_ok %}{% set roas_tone = 'warn' %}
+    {% else %}{% set roas_tone = 'neg' %}{% endif %}
   {% endif %}
-  {% set roas_color = {
-    'emerald':'text-emerald-700', 'rose':'text-rose-700',
-    'amber':'text-amber-700', 'slate':'text-slate-900',
-  }[roas_tone] %}
-  <a href="/reports/ad-spend"
-     class="relative col-span-6 overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
-    {% if roas_tone != 'slate' %}<span class="absolute inset-x-0 top-0 h-0.5 bg-{{ roas_tone }}-400"></span>{% endif %}
-    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">ROAS</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums {{ roas_color }}">{% if has_ads %}{{ "%.2fx" % pnl.roas }}{% else %}—{% endif %}</div>
-    <div class="mt-1.5 text-xs text-slate-400">Sales per $1 net ad spend</div>
-  </a>
+  {{ ui.kpi(
+      label="ROAS",
+      value=("%.2fx" % pnl.roas) if has_ads else "—",
+      hint="Sales per $1 net ad spend",
+      tone=roas_tone,
+      href="/reports/ad-spend",
+      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+  ) }}
 
-  <a href="/reports/ad-spend"
-     class="col-span-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:col-span-3 lg:col-span-2">
-    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Ad Spend</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ pnl.net_ad_spend | money }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">Net of credits</div>
-  </a>
+  {{ ui.kpi(
+      label="Ad Spend",
+      value=pnl.net_ad_spend | money,
+      hint="Net of credits",
+      href="/reports/ad-spend",
+      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+  ) }}
 </section>
 
-<section aria-label="Operating metrics" class="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+<section aria-label="Operating metrics" class="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
   {% set ops = [
     ("Total Orders", "{:,}".format(pnl.orders_count), "Paid orders only", "/reports/pnl" ~ pnl_qs),
     ("Total Units Sold", "{:,}".format(pnl.units_sold), "Bundles count as 1 unit", "/reports/pnl" ~ pnl_qs),
@@ -174,12 +134,7 @@
     ("Avg Order Value", pnl.aov_after_discounts | money, "Net Sales ÷ Orders", "/reports/pnl" ~ pnl_qs),
   ] %}
   {% for label, value, hint, href in ops %}
-  <a href="{{ href }}"
-     class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ value }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">{{ hint }}</div>
-  </a>
+    {{ ui.kpi(label=label, value=value, hint=hint, href=href) }}
   {% endfor %}
 </section>
 
