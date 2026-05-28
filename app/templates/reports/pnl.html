@@ -211,15 +211,6 @@
 
 </div>
 
-{% if view.period_kind.value == "custom" and pnl.ad_credit_offset > 0 and view.ad_credit_months_label %}
-<p class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 print:hidden">
-  <strong>Ad credits shown at full month value for months in range; not prorated.</strong>
-  This window touches
-  {{ view.ad_credit_months_touched | length }} month{{ "" if view.ad_credit_months_touched | length == 1 else "s" }}
-  ({{ view.ad_credit_months_label }}); each month's full ad credit is included.
-</p>
-{% endif %}
-
 <script>
   // Wire up the TikTok-fees disclosure: toggling the <details> shows/hides the
   // detail row below. Standalone <details> only toggle their own content; we

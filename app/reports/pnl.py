@@ -23,7 +23,6 @@ from app.reports.monthly_pnl import (
     _add_month,
     compute_monthly_pnl,
     compute_window_pnl,
-    months_in_window,
 )
 from app.reports.ytd_pnl import _sum  # private but ours
 from app.templating import month_label
@@ -47,12 +46,10 @@ class PnLView:
     monthly_breakdown: list[MonthlyPnL] | None  # None for MONTH/CUSTOM, set otherwise
 
     # CUSTOM mode only — None in every other mode. Populated so the template
-    # can render the not-prorated note + repaint the date pickers on reload.
+    # can repaint the date pickers on reload.
     custom_start: datetime | None = None              # exclusive-end window start
     custom_end: datetime | None = None                # exclusive end (start_of_day_after)
     inclusive_end_date: date | None = None            # the date the user originally picked
-    ad_credit_months_touched: list[tuple[int, int]] | None = None
-    ad_credit_months_label: str | None = None         # pre-rendered "March 2026, April 2026"
 
     @property
     def title(self) -> str:
@@ -139,14 +136,8 @@ def compute_pnl_view(
         # User-facing end is inclusive ("through April 27"); window math wants
         # exclusive, so bump by one day to cover all of the chosen end_date.
         end = datetime(end_date.year, end_date.month, end_date.day) + timedelta(days=1)
-        months_touched = months_in_window(start, end)
-        pnl = compute_window_pnl(
-            db, start, end,
-            months_touched=months_touched,
-            month_anchor=start.date(),
-        )
+        pnl = compute_window_pnl(db, start, end, month_anchor=start.date())
         suffix = f"{_format_date_short(start_date)} – {_format_date_short(end_date)}"
-        months_label = ", ".join(month_label(yy, mm) for yy, mm in months_touched)
         return PnLView(
             title_suffix=suffix,
             period_kind=period,
@@ -157,8 +148,6 @@ def compute_pnl_view(
             custom_start=start,
             custom_end=end,
             inclusive_end_date=end_date,
-            ad_credit_months_touched=months_touched,
-            ad_credit_months_label=months_label or None,
         )
 
     # PeriodKind.RANGE

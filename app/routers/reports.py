@@ -260,59 +260,77 @@ def policy_violation_acknowledge(
 
 @router.post("/reports/ad-spend/credits")
 def upsert_ad_credit(
-    year: int = Form(...),
-    month: int = Form(...),
+    applied_date: str = Form(...),
     amount: str = Form(...),
     note: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
-    """Upsert a manual ad credit for (year, month).
+    """Upsert a manual ad credit on a specific calendar date.
+
+    The credit is keyed by (year, month) — at most one credit per calendar
+    month, but the date inside that month can be any day. Re-saving for the
+    same (year, month) updates in place, including re-specifying the date.
 
     Saving any amount — including $0 — records a confirmed entry that persists
     across reloads. There is no "clear" action; a saved $0 means "explicitly
     confirmed no credit this month" and is distinct from a month that was
-    never touched. Unparseable or blank amount → redirect back with an error
+    never touched. Unparseable or blank input → redirect back with an error
     query param; nothing is written.
     """
-    if not (1 <= month <= 12):
-        raise HTTPException(status_code=400, detail="month must be 1-12")
+    raw_date = (applied_date or "").strip()
+    if not raw_date:
+        return _credit_error_redirect(None, "applied date is required (use YYYY-MM-DD)")
+    try:
+        ad_date = date.fromisoformat(raw_date)
+    except ValueError:
+        return _credit_error_redirect(
+            None, f"{raw_date!r} is not a valid date (use YYYY-MM-DD)"
+        )
 
     raw = (amount or "").strip()
     if not raw:
         return _credit_error_redirect(
-            year, month, "amount is required (enter 0 to confirm no credit)"
+            ad_date, "amount is required (enter 0 to confirm no credit)"
         )
     try:
         amt = abs(Decimal(raw))  # store positive; offset magnitude
     except InvalidOperation:
-        return _credit_error_redirect(year, month, f"{raw!r} is not a valid number")
+        return _credit_error_redirect(ad_date, f"{raw!r} is not a valid number")
 
     note_clean = (note or "").strip() or None
 
+    # year/month are derived from applied_date so the legacy UNIQUE constraint
+    # continues to enforce "one credit per calendar month".
+    year, month = ad_date.year, ad_date.month
     existing = db.execute(
         select(AdCredit).where(AdCredit.year == year, AdCredit.month == month)
     ).scalar_one_or_none()
     if existing is None:
-        db.add(AdCredit(year=year, month=month, amount=amt, note=note_clean))
+        db.add(AdCredit(
+            year=year, month=month, applied_date=ad_date,
+            amount=amt, note=note_clean,
+        ))
     else:
+        existing.applied_date = ad_date
         existing.amount = amt
         existing.note = note_clean
     db.commit()
     return RedirectResponse("/reports/ad-spend", status_code=303)
 
 
-def _credit_error_redirect(year: int, month: int, reason: str) -> RedirectResponse:
+def _credit_error_redirect(ad_date: date | None, reason: str) -> RedirectResponse:
     """Build a 303 back to /reports/ad-spend with a query-param error flash.
 
     Modelled on app/routers/admin.py:_back — query params (not session flash)
     so the message survives the 303 cleanly without extra session machinery.
+    `ad_date` is None when the date itself was the thing that failed to parse.
     """
-    period = (
-        f"{calendar.month_name[month]} {year}"
-        if 1 <= month <= 12
-        else f"month {month} {year}"
-    )
-    qs = urlencode({"error": f"Could not save credit for {period}: {reason}"})
+    if ad_date is None:
+        msg = f"Could not save credit: {reason}"
+    else:
+        label = f"{calendar.month_name[ad_date.month]} {ad_date.day}, {ad_date.year}"
+        msg = f"Could not save credit for {label}: {reason}"
+    qs = urlencode({"error": msg})
     return RedirectResponse(f"/reports/ad-spend?{qs}", status_code=303)
 
 

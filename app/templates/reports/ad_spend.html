@@ -58,14 +58,18 @@
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% for r in summary.months %}
+      {# Default the row's date picker to the saved applied_date, falling back
+         to the 1st of the row's month for "never entered" credits. #}
+      {% set row_date_default = (r.credit_applied_date.isoformat() if r.credit_applied_date else "%04d-%02d-01" % (r.year, r.month)) %}
       <tr class="hover:bg-slate-50/60">
         <td class="px-3 py-3 font-medium text-slate-900">{{ month_label(r.year, r.month) }}</td>
         <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ r.total | money }}</td>
         <td class="px-3 py-3 print:py-1">
           <form action="/reports/ad-spend/credits" method="post"
                 class="flex items-center justify-end gap-1.5 print:hidden">
-            <input type="hidden" name="year" value="{{ r.year }}">
-            <input type="hidden" name="month" value="{{ r.month }}">
+            <input type="date" name="applied_date" required value="{{ row_date_default }}"
+                   title="Date this credit is applied on — drives which P&amp;L period it lands in"
+                   class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <span class="text-slate-400">$</span>
             <input type="number" name="amount" step="0.01" min="0" required
                    value="{{ '%.2f'|format(r.manual_credit) if r.credit_saved else '' }}"
@@ -84,10 +88,15 @@
               <span class="ml-1 whitespace-nowrap text-xs italic text-slate-400">— not entered</span>
             {% endif %}
           </form>
-          <span class="hidden text-right tabular-nums text-emerald-700 print:inline">{{ r.manual_credit | money }}</span>
+          <span class="hidden text-right tabular-nums text-emerald-700 print:inline">
+            {% if r.credit_applied_date %}{{ r.credit_applied_date.strftime("%b %d") }} · {% endif %}{{ r.manual_credit | money }}
+          </span>
         </td>
         <td class="px-3 py-3 text-right tabular-nums font-semibold text-slate-900">{{ r.net_total | money }}</td>
-        <td class="px-3 py-3 text-right text-xs text-slate-500 print:hidden">{{ r.credit_note or "" }}</td>
+        <td class="px-3 py-3 text-right text-xs text-slate-500 print:hidden">
+          {% if r.credit_applied_date %}<span class="block text-[10px] uppercase tracking-wide text-slate-400">applied {{ r.credit_applied_date.strftime("%b %d, %Y") }}</span>{% endif %}
+          {{ r.credit_note or "" }}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -104,13 +113,15 @@
 </section>
 {% endif %}
 
-{# Catch-all form: enter a credit for ANY month, even one with no spend rows. #}
+{# Catch-all form: enter a credit on any date, even for a month with no spend rows. #}
 <section class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm print:hidden">
   <header class="border-b border-slate-200 px-6 py-3">
-    <h2 class="text-base font-semibold text-slate-900">Add or update a credit for any month</h2>
+    <h2 class="text-base font-semibold text-slate-900">Add or update a credit on any date</h2>
     <p class="mt-0.5 text-xs text-slate-500">
-      Use this when the month doesn't yet appear in the table above (e.g. a credit issued for a month
-      with no campaign spend). Submitting the same month again overwrites the existing entry.
+      Use this when the credit's month doesn't yet appear in the table above (e.g. a credit issued
+      for a month with no campaign spend). Pick the exact date the credit applies on — that's what
+      custom-range P&amp;Ls filter against. Submitting another date in the same month overwrites the
+      existing entry (one credit per calendar month).
       <strong>Saving $0 is a valid confirmed entry</strong> — it records "no credit this month"
       distinctly from a month that was never touched.
     </p>
@@ -118,22 +129,9 @@
   <form action="/reports/ad-spend/credits" method="post"
         class="flex flex-wrap items-end gap-3 p-6">
     <label class="block">
-      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Year</span>
-      <select name="year" required
-              class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        {% for y in range(2024, 2031) %}
-        <option value="{{ y }}" {% if y == today.year %}selected{% endif %}>{{ y }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label class="block">
-      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Month</span>
-      <select name="month" required
-              class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        {% for mm in range(1, 13) %}
-        <option value="{{ mm }}" {% if mm == today.month %}selected{% endif %}>{{ mm | month_short }}</option>
-        {% endfor %}
-      </select>
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Applied date</span>
+      <input type="date" name="applied_date" required value="{{ today.isoformat() }}"
+             class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
     </label>
     <label class="block">
       <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
@@ -196,9 +194,9 @@
 
   <ul class="list-disc space-y-1.5 pl-5">
     <li><strong>Gross Ad Spend</strong> is what TikTok charges (Shop Ads affiliate commission + GMV Max from the Cost export) — unchanged from before.</li>
-    <li><strong>Ad Credits</strong> are amounts you manually enter here when TikTok grants you promotional credits that should reduce your reported spend.</li>
+    <li><strong>Ad Credits</strong> are amounts you manually enter here when TikTok grants you promotional credits that should reduce your reported spend. Each credit is attributed to a specific <em>applied date</em> — that's the date the P&amp;L windows it into.</li>
     <li><strong>Net Ad Spend = Gross − Credits.</strong> This is the figure that flows into the P&amp;L Net Profit calculation and into ROAS.</li>
-    <li>On the P&amp;L, you'll see an indented <em>Less: Ad Credits</em> row beneath the ad-spend lines when a credit exists for that month — so Gross and Credits remain visible separately for reconciliation.</li>
+    <li>On the P&amp;L, you'll see an indented <em>Less: Ad Credits</em> row beneath the ad-spend lines whenever the period contains a credit's applied date. A custom date range only includes credits whose date falls inside [start, end).</li>
     <li><strong>Saving any amount — including $0 — records a confirmed entry that persists across reloads.</strong> A confirmed $0 shows as "✓ Saved — $0, no credit" and is distinct from a never-touched month ("— not entered"). There is no separate "clear" action; once saved, the entry is sticky.</li>
   </ul>
 </section>

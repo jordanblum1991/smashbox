@@ -39,7 +39,13 @@ def _ensure_columns() -> None:
         "adjustments":          [shop_id_col],
         "payouts":              [shop_id_col],
         "ad_spend":             [shop_id_col],
-        "ad_credits":           [shop_id_col],
+        "ad_credits": [
+            shop_id_col,
+            # applied_date is the new P&L windowing key. Backfilled to the 1st
+            # of (year, month) for existing rows by _backfill_ad_credit_dates
+            # immediately after this shim runs.
+            ("applied_date", "DATE"),
+        ],
         "samples":              [
             shop_id_col,
             ("shipping_cost", "NUMERIC(12,2)"),
@@ -128,7 +134,35 @@ def _bootstrap_shop_and_backfill() -> None:
         db.commit()
 
 
+def _backfill_ad_credit_dates() -> None:
+    """One-time backfill: assign applied_date = date(year, month, 1) to every
+    AdCredit row that doesn't have one yet. Conservative choice — places each
+    legacy credit on the 1st of its month so monthly/YTD/yearly P&L totals are
+    identical pre- and post-migration. Custom-range P&Ls will differ (intended,
+    that's the whole point of moving to date-granularity).
+
+    Idempotent: the WHERE clause guards against re-overwriting any date the
+    user has since edited. Safe to run on every boot."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if not insp.has_table("ad_credits"):
+        return
+    # `applied_date` may not exist on a very old DB where _ensure_columns
+    # hasn't yet added it (shouldn't happen in practice since this runs after
+    # the shim, but be defensive).
+    cols = {c["name"] for c in insp.get_columns("ad_credits")}
+    if "applied_date" not in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE ad_credits "
+            "SET applied_date = date(printf('%04d-%02d-01', year, month)) "
+            "WHERE applied_date IS NULL"
+        ))
+
+
 _ensure_columns()
+_backfill_ad_credit_dates()
 _bootstrap_shop_and_backfill()
 
 
