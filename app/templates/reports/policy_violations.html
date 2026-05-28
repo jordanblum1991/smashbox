@@ -88,7 +88,7 @@
         <td class="px-4 py-2 font-mono text-[11px] {% if not r.acknowledged %}text-slate-700{% endif %}">{{ r.tiktok_order_id }}</td>
         <td class="px-4 py-2">
           <div class="font-medium {% if r.acknowledged %}text-slate-600{% else %}text-slate-900{% endif %}">
-            {{ r.name or "—" }}
+            {{ (r.name | strip_size | title_case) or "—" }}
             {% if r.is_bundle %}
               <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700">Bundle</span>
             {% elif not r.name %}
