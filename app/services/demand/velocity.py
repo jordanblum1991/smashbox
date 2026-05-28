@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -107,6 +107,12 @@ class SkuVelocity:
     units_14d: int          # raw units in last 14d (post-expansion)
     units_60d: int          # raw units in last 60d (post-expansion)
     daily_series_60d: list[int] = field(default_factory=list)  # zero-filled 60-day series
+    # Number of days the SKU has existed within the 60-day window. For a
+    # mature SKU (first sale before the window started) this equals
+    # WINDOW_DAYS; for a SKU first sold N<60 days ago this is N. The cold-start
+    # branch in replenishment.compute_one uses this as the denominator so the
+    # velocity mean isn't diluted by pre-existence zero-padded days.
+    days_observed: int = WINDOW_DAYS
 
     @property
     def daily_14d(self) -> Decimal:
@@ -117,6 +123,19 @@ class SkuVelocity:
         """Flat 60-day mean — used for days-of-supply, stockout dates, and
         the at-risk/out-of-stock flags so a viral spike surfaces as risk."""
         return (Decimal(self.units_60d) / Decimal(WINDOW_DAYS)).quantize(Decimal("0.01"))
+
+    @property
+    def daily_observed(self) -> Decimal:
+        """Mean over only the days the SKU has actually existed in the window.
+
+        For a mature SKU this equals `daily_60d_raw`. For a cold-start SKU
+        (first sold within the window) this is higher — the 60-day mean is
+        polluted by zero-padded pre-existence days, but `daily_observed`
+        is the realistic recent rate.
+        """
+        if self.days_observed <= 0:
+            return Decimal("0")
+        return (Decimal(self.units_60d) / Decimal(self.days_observed)).quantize(Decimal("0.01"))
 
     # Back-compat alias: `daily_60d` historically meant the raw mean. Kept so
     # callers that don't care about the raw/robust split keep working.
@@ -222,9 +241,68 @@ def _expand_daily_to_components(
     return {k: dict(v) for k, v in out.items()}
 
 
+def compute_first_sold_at_per_component(
+    db: Session, *, alias_map: dict[str, str] | None = None,
+) -> dict[str, date]:
+    """Earliest sale date per component SKU across the ENTIRE order history
+    (not just the 60d velocity window). Cold-start detection needs to know
+    when a SKU was first sold ever, not when it last appeared.
+
+    Bundle handling mirrors `_expand_daily_to_components`: a bundle's first
+    sale propagates as the first sale of each component (the component
+    "exists" from the moment any product containing it shipped). A
+    component sold both standalone and bundled gets the MIN of the two.
+
+    Filters match the velocity counted-statuses (Shipped + Completed PAID /
+    PAID_SAMPLE orders) so the cold-start definition is consistent with
+    what counts as demand.
+    """
+    alias_map = alias_map or {}
+    rows = db.execute(
+        select(OrderLine.sku, func.min(Order.placed_at))
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.order_type.in_([OrderType.PAID, OrderType.PAID_SAMPLE]))
+        .where(Order.status.in_(COUNTED_STATUSES))
+        .group_by(OrderLine.sku)
+    ).all()
+    if not rows:
+        return {}
+
+    # Step 1: alias-collapse at the raw-SKU level. A re-coded SKU's "first
+    # sold" wins across the alias group (matches velocity's alias semantics).
+    raw_first: dict[str, date] = {}
+    for sku_key, first_dt in rows:
+        canonical = alias_map.get(sku_key, sku_key)
+        first_d = first_dt.date()
+        existing = raw_first.get(canonical)
+        if existing is None or first_d < existing:
+            raw_first[canonical] = first_d
+
+    # Step 2: expand bundle keys to components, propagating each bundle's
+    # first-sale date to every component inside it. Standalone SKUs pass
+    # through unchanged.
+    bundle_map = bundle_component_breakdown(db, set(raw_first))
+
+    out: dict[str, date] = {}
+    for raw_sku, first_d in raw_first.items():
+        components = bundle_map.get(raw_sku)
+        if components:
+            for component_sku, _qty in components:
+                canonical_component = alias_map.get(component_sku, component_sku)
+                existing = out.get(canonical_component)
+                if existing is None or first_d < existing:
+                    out[canonical_component] = first_d
+        else:
+            existing = out.get(raw_sku)
+            if existing is None or first_d < existing:
+                out[raw_sku] = first_d
+    return out
+
+
 def compute_velocity(
     db: Session, *, as_of: datetime,
     alias_map: dict[str, str] | None = None,
+    first_sold_at: dict[str, date] | None = None,
 ) -> dict[str, SkuVelocity]:
     """Per-component daily velocity over trailing 60d as of `as_of`, with
     a 14d sub-window derived from the same series.
@@ -236,6 +314,11 @@ def compute_velocity(
     re-coded SKUs to their canonical before daily bucketing, so demand
     history for a renamed product isn't split across two codes. Pass an
     explicit `{}` to disable for tests or one-off analyses.
+
+    `first_sold_at` (optional): per-component earliest sale date across all
+    history. When provided, each SkuVelocity gets `days_observed` capped at
+    the days since first sale (within the 60d window) — drives the
+    cold-start branch in replenishment math.
 
     Returns a dict keyed by the component SKU (the SKU you reorder against).
     """
@@ -259,10 +342,22 @@ def compute_velocity(
             # No demand at all — skip rather than emit a zero-velocity row
             # the planner has to filter back out.
             continue
+
+        # Days observed defaults to WINDOW_DAYS (mature SKU). When a first-sold
+        # map is supplied and that date falls inside the window, compress the
+        # denominator to "days since first sold" so cold-start velocity isn't
+        # diluted by pre-existence zero days. Minimum of 1 to avoid div/0.
+        days_observed = WINDOW_DAYS
+        if first_sold_at and component_sku in first_sold_at:
+            first_d = first_sold_at[component_sku]
+            if first_d > start_date:
+                days_observed = max(1, (end_date - first_d).days)
+
         out[component_sku] = SkuVelocity(
             component_sku=component_sku,
             units_14d=sum(series_60[-14:]),
             units_60d=units_60,
             daily_series_60d=series_60,
+            days_observed=days_observed,
         )
     return out

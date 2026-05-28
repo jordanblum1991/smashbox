@@ -271,8 +271,16 @@ def compute_demand_planning_view(
     from app.services.sku_alias import load_alias_map
     alias_map = load_alias_map(db)
 
+    # Cold-start detection: when did each component first sell? Threaded
+    # into compute_velocity so SkuVelocity.days_observed reflects "days since
+    # first sale" (clamped to WINDOW_DAYS) instead of the full 60.
+    from app.services.demand.velocity import compute_first_sold_at_per_component
+    first_sold_at = compute_first_sold_at_per_component(db, alias_map=alias_map)
+
     # Velocity per component SKU (bundle-expanded, alias-collapsed).
-    velocities = compute_velocity(db, as_of=now, alias_map=alias_map)
+    velocities = compute_velocity(
+        db, as_of=now, alias_map=alias_map, first_sold_at=first_sold_at,
+    )
 
     # On-hand per inventory snapshot SKU (alias-collapsed to canonical).
     on_hand_by_sku, latest_snapshot_at = _latest_on_hand_per_sku(db, alias_map=alias_map)
@@ -351,12 +359,15 @@ def compute_demand_planning_view(
             safety_stock_pct=effective_safety,
             sigma_daily=sigma_daily,
             z_value=z_value,
+            service_level=Decimal(str(effective_service_level)) if effective_service_level is not None else None,
             cover_days=cover,
             overstocked_threshold_days=overstocked,
             moq=moq,
             case_pack=case_pack,
             is_reorderable=is_reorderable,
             unit_cogs=unit_cogs,
+            days_observed=v.days_observed if v else 60,
+            units_observed=v.units_60d if v else None,
         )
         results.append(compute_one(inputs, as_of=now.date()))
 
