@@ -48,9 +48,14 @@
       <tr class="align-bottom">
         <th class="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider">Month</th>
         <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Gross Ad Spend</th>
-        <th class="px-3 py-2.5 text-right">
-          <div class="text-[11px] font-semibold uppercase tracking-wider">Ad Credits</div>
-          <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">Editable · offsets P&amp;L</div>
+        <th class="px-3 py-2.5">
+          <div class="flex items-end justify-between gap-2">
+            <div class="text-[10px] font-medium uppercase tracking-wider text-slate-400">Date Applied</div>
+            <div class="text-right">
+              <div class="text-[11px] font-semibold uppercase tracking-wider">Ad Credits</div>
+              <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">Editable · offsets P&amp;L</div>
+            </div>
+          </div>
         </th>
         <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Net Ad Spend</th>
         <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider print:hidden">Note</th>
@@ -62,30 +67,36 @@
          to the 1st of the row's month for "never entered" credits. #}
       {% set row_date_default = (r.credit_applied_date.isoformat() if r.credit_applied_date else "%04d-%02d-01" % (r.year, r.month)) %}
       <tr class="hover:bg-slate-50/60">
-        <td class="px-3 py-3 font-medium text-slate-900">{{ month_label(r.year, r.month) }}</td>
+        <td class="px-3 py-3 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
         <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ r.total | money }}</td>
-        <td class="px-3 py-3 print:py-1">
+        {# AD CREDITS cell: every sub-element has a fixed/min width so columns
+           align across rows. min-h-[4rem] is belt-and-suspenders so empty
+           NOTE cells don't shrink the row. #}
+        <td class="px-3 py-3 print:py-1 min-h-[4rem]">
           <form action="/reports/ad-spend/credits" method="post"
                 class="flex items-center justify-end gap-1.5 print:hidden">
             <input type="date" name="applied_date" required value="{{ row_date_default }}"
                    title="Date this credit is applied on — drives which P&amp;L period it lands in"
-                   class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-            <span class="text-slate-400">$</span>
+                   class="w-[150px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <span class="inline-block w-3 text-right text-slate-400">$</span>
             <input type="number" name="amount" step="0.01" min="0" required
                    value="{{ '%.2f'|format(r.manual_credit) if r.credit_saved else '' }}"
                    placeholder="0.00"
                    class="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <input type="text" name="note" value="{{ r.credit_note or '' }}" placeholder="note (optional)"
-                   class="w-32 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+                   class="w-48 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <button type="submit"
                     class="inline-flex items-center rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">Save</button>
+            {# Badge has min-w so the right-edge of the saved-state area
+               anchors at a consistent x across rows; content stays left-
+               aligned so the short variant doesn't read as trailing space. #}
             {% if r.credit_saved %}
-              <span class="ml-1 whitespace-nowrap text-xs font-medium text-emerald-700"
+              <span class="ml-1 inline-flex items-center justify-start min-w-44 whitespace-nowrap text-xs font-medium text-emerald-700"
                     title="Confirmed entry — persists across reload">
                 ✓ Saved{% if r.manual_credit == 0 %} — $0, no credit{% endif %}
               </span>
             {% else %}
-              <span class="ml-1 whitespace-nowrap text-xs italic text-slate-400">— not entered</span>
+              <span class="ml-1 inline-flex items-center justify-start min-w-44 whitespace-nowrap text-xs italic text-slate-400">— not entered</span>
             {% endif %}
           </form>
           <span class="hidden text-right tabular-nums text-emerald-700 print:inline">
@@ -93,9 +104,11 @@
           </span>
         </td>
         <td class="px-3 py-3 text-right tabular-nums font-semibold text-slate-900">{{ r.net_total | money }}</td>
-        <td class="px-3 py-3 text-right text-xs text-slate-500 print:hidden">
+        {# NOTE cell capped at 18rem so long notes wrap predictably (~2 lines
+           max) instead of stretching the column and dictating row height. #}
+        <td class="px-3 py-3 text-right text-xs text-slate-500 max-w-[18rem] print:hidden">
           {% if r.credit_applied_date %}<span class="block text-[10px] uppercase tracking-wide text-slate-400">applied {{ r.credit_applied_date.strftime("%b %d, %Y") }}</span>{% endif %}
-          {{ r.credit_note or "" }}
+          {% if r.credit_note %}<span class="block">{{ r.credit_note }}</span>{% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -171,7 +184,7 @@
       <tbody class="divide-y divide-slate-100">
         {% for r in summary.months %}
         <tr>
-          <td class="px-3 py-2 font-medium text-slate-900">{{ month_label(r.year, r.month) }}</td>
+          <td class="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
           <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.cash_cost | money }}</td>
           <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.credit_cost | money }}</td>
           <td class="px-3 py-2 text-right tabular-nums {% if r.ad_credit_cost > 0 %}text-emerald-700{% else %}text-slate-400{% endif %}">{{ r.ad_credit_cost | money }}</td>
