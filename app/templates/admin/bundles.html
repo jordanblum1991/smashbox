@@ -161,8 +161,8 @@
 {% macro bundle_row(b) %}
     {% set active_label = b.is_active or "Active" %}
     {% set inactive = active_label != "Active" %}
-    {% set headline = b.variation or b.name %}
-    {% set subtitle = b.name if b.variation else none %}
+    {% set headline = (b.variation or b.name) | strip_size | title_case %}
+    {% set subtitle = (b.name | strip_size | title_case) if b.variation else none %}
     <details class="group">
       <summary class="flex cursor-pointer items-center gap-4 px-5 py-3 hover:bg-slate-50">
         <div class="min-w-0 flex-1">
@@ -253,7 +253,7 @@
     {% for family_name, family_bundles in active_bundles | groupby('name') %}
     <details open class="group/family">
       <summary class="group/familyhdr flex cursor-pointer list-none items-center gap-2 bg-slate-50/60 px-5 py-2 [&::-webkit-details-marker]:hidden">
-        <span class="truncate text-xs font-semibold text-slate-700">{{ family_name }}</span>
+        <span class="truncate text-xs font-semibold text-slate-700">{{ family_name | strip_size | title_case }}</span>
         <span class="shrink-0 text-[11px] font-normal text-slate-500">&middot; {{ family_bundles | length }} variant{{ '' if family_bundles | length == 1 else 's' }}</span>
         <svg class="ml-auto h-3 w-3 shrink-0 text-slate-400 opacity-0 transition-all group-hover/familyhdr:opacity-100 group-open/family:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>

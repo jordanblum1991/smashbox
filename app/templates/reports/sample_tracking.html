@@ -169,7 +169,7 @@
             {% endif %}
           </td>
           <td class="px-4 py-2">
-            {% if r.name %}{{ r.name }}{% else %}<span class="text-rose-700">Missing Product Name</span>{% endif %}
+            {% if r.name %}{{ r.name | strip_size | title_case }}{% else %}<span class="text-rose-700">Missing Product Name</span>{% endif %}
           </td>
           <td class="px-4 py-2 font-mono text-[11px] text-slate-500">
             {% if r.tiktok_sku_id and r.tiktok_sku_id != "UNKNOWN" %}{{ r.tiktok_sku_id }}{% else %}<span class="text-rose-700">Missing TikTok SKU ID</span>{% endif %}

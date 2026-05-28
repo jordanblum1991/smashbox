@@ -197,7 +197,7 @@
                   {% if r.is_bundle %}<span class="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Bundle</span>{% endif %}
                 {% endif %}
               </td>
-              <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ r.name or "—" }}</td>
+              <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ (r.name | strip_size | title_case) or "—" }}</td>
               <td class="px-3 py-3 font-mono text-[11px] text-slate-500">{{ r.tiktok_sku_id }}</td>
               <td class="px-3 py-3 text-right tabular-nums font-medium text-slate-900">{{ "{:,}".format(r.units_sold) }}</td>
               <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ r.net_customer_sales | money }}</td>
@@ -256,7 +256,7 @@
                   {% if r.is_bundle %}<span class="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Bundle</span>{% endif %}
                 {% endif %}
               </td>
-              <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ r.name or "—" }}</td>
+              <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ (r.name | strip_size | title_case) or "—" }}</td>
               <td class="px-3 py-3 font-mono text-[11px] text-slate-500">{{ r.tiktok_sku_id }}</td>
               <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.samples_sent) }}</td>
               <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.sample_orders_shipped) }}</td>

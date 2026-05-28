@@ -17,10 +17,13 @@
 } %}
 {% set status_label, status_tone = status_meta.get(r.status.value, (r.status.value, 'neutral')) %}
 
+{# Pre-compute subtitle with an explicit if/else so the 'Unmapped SKU'
+   fallback is never run through the title_case filter. #}
+{% set page_subtitle = (r.name | strip_size | title_case) if r.name else 'Unmapped SKU' %}
 {% call ui.page_header(
   eyebrow="Demand Planning",
   title=(r.sku_code or r.component_sku),
-  subtitle=(r.name or 'Unmapped SKU'),
+  subtitle=page_subtitle,
 ) %}
   <a href="/reports/demand-planning"
      class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
@@ -335,7 +338,7 @@
       <ul class="mt-2 space-y-1.5 text-sm">
         {% for b in v.bundle_parents %}
         <li class="flex items-baseline justify-between gap-3">
-          <span class="text-slate-700">{{ b.name }}{% if b.bundle_sku %} <span class="ml-1 font-mono text-[11px] text-slate-400">{{ b.bundle_sku }}</span>{% endif %}</span>
+          <span class="text-slate-700">{{ b.name | strip_size | title_case }}{% if b.bundle_sku %} <span class="ml-1 font-mono text-[11px] text-slate-400">{{ b.bundle_sku }}</span>{% endif %}</span>
           <span class="shrink-0 tabular-nums text-slate-500">×{{ b.qty }} per bundle</span>
         </li>
         {% endfor %}
@@ -348,7 +351,7 @@
       <ul class="mt-2 space-y-1.5 text-sm">
         {% for c in v.bundle_components %}
         <li class="flex items-baseline justify-between gap-3">
-          <span class="text-slate-700">{{ c.name }}{% if c.bundle_sku %} <span class="ml-1 font-mono text-[11px] text-slate-400">{{ c.bundle_sku }}</span>{% endif %}</span>
+          <span class="text-slate-700">{{ c.name | strip_size | title_case }}{% if c.bundle_sku %} <span class="ml-1 font-mono text-[11px] text-slate-400">{{ c.bundle_sku }}</span>{% endif %}</span>
           <span class="shrink-0 tabular-nums text-slate-500">×{{ c.qty }}</span>
         </li>
         {% endfor %}
