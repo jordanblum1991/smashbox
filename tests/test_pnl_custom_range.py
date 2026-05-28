@@ -26,6 +26,7 @@ from app.models import (
     Order,
     OrderLine,
     OrderType,
+    Sample,
 )
 from app.reports.monthly_pnl import compute_monthly_pnl, compute_window_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
@@ -169,7 +170,7 @@ _MATCH_FIELDS = (
     "tiktok_partner_commission", "tiktok_managed_service",
     "affiliate_commission", "shop_ads_cost",
     "gmv_max_ad_spend", "ad_credit_offset",
-    "shipping_revenue", "shipping_cost",
+    "shipping_revenue", "shipping_cost", "sample_shipping_cost",
     "net_profit",
     "orders_count", "orders_settled", "units_sold",
 )
@@ -409,3 +410,185 @@ def test_route_redirects_on_garbage_date():
     assert resp.status_code == 303
     assert "Invalid+date+format" in resp.headers["location"] or \
            "Invalid%20date%20format" in resp.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# 5. Sample shipping cost — separate line, both channels
+# ---------------------------------------------------------------------------
+
+def _sample_order(
+    db,
+    batch_id: int,
+    placed_at: datetime,
+    *,
+    tt_id: str,
+    order_type: OrderType,
+    shipping_cost: Decimal,
+) -> Order:
+    """SAMPLE / PAID_SAMPLE order with a known shipping_cost. Mirrors the
+    settlement-importer back-fill that populates Order.shipping_cost on
+    every order regardless of type."""
+    order = Order(
+        import_batch_id=batch_id,
+        tiktok_order_id=tt_id,
+        placed_at=placed_at,
+        order_type=order_type,
+        status="Shipped",
+        brand="smashbox",
+        gross_sales=Decimal("0"),  # samples have $0 gross by the detection rule
+        shipping_cost=shipping_cost,
+    )
+    db.add(order)
+    db.flush()
+    return order
+
+
+def _off_platform_sample(
+    db,
+    batch_id: int,
+    shipped_at: datetime,
+    *,
+    sku: str = "SBX-001",
+    shipping_cost: Decimal | None,
+) -> Sample:
+    s = Sample(
+        import_batch_id=batch_id,
+        shipped_at=shipped_at,
+        sku=sku,
+        quantity=1,
+        shipping_cost=shipping_cost,
+    )
+    db.add(s)
+    db.flush()
+    return s
+
+
+def test_sample_shipping_zero_when_only_paid_orders():
+    """Baseline: with only PAID orders, sample_shipping_cost is $0 and
+    shipping_cost is unchanged from the legacy behaviour."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _paid_order(db, b.id, datetime(2026, 3, 10), tt_id="P1",
+                    ship_cost=Decimal("5.00"))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 3)
+
+    assert pnl.shipping_cost == Decimal("5.00")
+    assert pnl.sample_shipping_cost == Decimal("0")
+
+
+def test_sample_shipping_captures_sample_order_shipping_only():
+    """Mixed PAID + SAMPLE/PAID_SAMPLE: shipping_cost stays PAID-only,
+    sample_shipping_cost captures the sample-order shipping sum."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _paid_order(db, b.id, datetime(2026, 3, 5), tt_id="P-A",
+                    ship_cost=Decimal("4.00"))
+        _sample_order(db, b.id, datetime(2026, 3, 7), tt_id="S-A",
+                      order_type=OrderType.SAMPLE,
+                      shipping_cost=Decimal("3.50"))
+        _sample_order(db, b.id, datetime(2026, 3, 14), tt_id="S-B",
+                      order_type=OrderType.PAID_SAMPLE,
+                      shipping_cost=Decimal("6.25"))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 3)
+
+    assert pnl.shipping_cost == Decimal("4.00"), "Shipping cost must remain PAID-only"
+    assert pnl.sample_shipping_cost == Decimal("9.75")  # 3.50 + 6.25
+
+
+def test_sample_shipping_captures_off_platform_sample_rows():
+    """Off-platform Sample rows with shipping_cost populated must flow into
+    sample_shipping_cost. The PAID Shipping cost line is unaffected."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _paid_order(db, b.id, datetime(2026, 3, 10), tt_id="P-X",
+                    ship_cost=Decimal("2.00"))
+        _off_platform_sample(db, b.id, datetime(2026, 3, 12),
+                             shipping_cost=Decimal("8.00"))
+        _off_platform_sample(db, b.id, datetime(2026, 3, 20),
+                             shipping_cost=Decimal("4.50"))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 3)
+
+    assert pnl.shipping_cost == Decimal("2.00")
+    assert pnl.sample_shipping_cost == Decimal("12.50")  # 8.00 + 4.50
+
+
+def test_sample_shipping_combines_both_channels_and_reduces_net_profit():
+    """All three sources present: PAID order shipping, sample-order shipping,
+    and off-platform Sample shipping. The two P&L lines partition cleanly,
+    and net_profit reflects the additional sample shipping deduction."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _paid_order(db, b.id, datetime(2026, 3, 5), tt_id="P-C",
+                    gross_sales=Decimal("100.00"),
+                    tiktok_fees=Decimal("0"),
+                    ship_cost=Decimal("4.00"),
+                    unit_cogs_snapshot=Decimal("0"))
+        _sample_order(db, b.id, datetime(2026, 3, 10), tt_id="S-C",
+                      order_type=OrderType.SAMPLE,
+                      shipping_cost=Decimal("3.00"))
+        _off_platform_sample(db, b.id, datetime(2026, 3, 15),
+                             shipping_cost=Decimal("5.00"))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 3)
+
+    assert pnl.shipping_cost == Decimal("4.00")
+    assert pnl.sample_shipping_cost == Decimal("8.00")  # 3.00 + 5.00
+    # net_profit must deduct BOTH; with gross 100, no fees, no COGS, no ad
+    # spend, net = 100 - 4 - 8 = 88.
+    assert pnl.net_profit == Decimal("88.00")
+
+
+def test_sample_shipping_ignores_null_sample_shipping_cost():
+    """Sample rows with NULL shipping_cost must be silently skipped — no
+    sum contribution, no error. Mirrors how the data arrives when a row
+    pre-dates the cost-tracking column or simply wasn't recorded."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _off_platform_sample(db, b.id, datetime(2026, 3, 10),
+                             shipping_cost=None)
+        _off_platform_sample(db, b.id, datetime(2026, 3, 11),
+                             shipping_cost=Decimal("4.00"))
+        _off_platform_sample(db, b.id, datetime(2026, 3, 12),
+                             shipping_cost=None)
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 3)
+
+    assert pnl.sample_shipping_cost == Decimal("4.00")
+
+
+def test_sample_shipping_period_boundary_attribution():
+    """A SAMPLE Order on the last instant before month-end belongs to March;
+    a Sample shipped at midnight on the 1st of April belongs to April.
+    Confirms the same inclusive-start / exclusive-end convention as orders."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        # On the last second of March — must be IN March.
+        _sample_order(db, b.id, datetime(2026, 3, 31, 23, 59, 59), tt_id="S-LAST",
+                      order_type=OrderType.SAMPLE,
+                      shipping_cost=Decimal("7.00"))
+        # Exactly month-start of April — must be IN April, NOT March.
+        _off_platform_sample(db, b.id, datetime(2026, 4, 1, 0, 0, 0),
+                             shipping_cost=Decimal("11.00"))
+        db.commit()
+
+    with SessionLocal() as db:
+        march = compute_monthly_pnl(db, 2026, 3)
+        april = compute_monthly_pnl(db, 2026, 4)
+
+    assert march.sample_shipping_cost == Decimal("7.00"), \
+        "March 31 23:59:59 sample-order shipping belongs to March"
+    assert april.sample_shipping_cost == Decimal("11.00"), \
+        "April 1 00:00:00 off-platform sample shipping belongs to April, not March"

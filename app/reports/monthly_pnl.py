@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.order import Order, OrderLine, OrderType
+from app.models.sample import Sample
 from app.models.sku import Sku
 
 
@@ -55,7 +56,11 @@ class MonthlyPnL:
     gmv_max_ad_spend: Decimal                  # TikTok Ads (GMV Max) — from Cost export
     ad_credit_offset: Decimal                  # Manually-entered ad credits for the month
     shipping_revenue: Decimal
-    shipping_cost: Decimal
+    shipping_cost: Decimal                     # PAID orders only (existing behavior)
+    sample_shipping_cost: Decimal              # SAMPLE/PAID_SAMPLE order shipping +
+                                               # off-platform Sample.shipping_cost
+                                               # Captured separately so the operational
+                                               # Shipping cost line stays paid-only.
     net_profit: Decimal
 
     # Settlement coverage — what fraction of paid orders in this month have
@@ -222,6 +227,31 @@ def compute_window_pnl(
         ).scalar() or 0
     ))
 
+    # Sample shipping cost — captured separately from operational Shipping cost
+    # (which stays PAID-only). Two channels summed:
+    #   (a) Order.shipping_cost on SAMPLE / PAID_SAMPLE rows (TikTok-channel
+    #       samples; populated by the settlement importer same as PAID rows).
+    #   (b) Sample.shipping_cost on off-platform samples (creator seeding /
+    #       agency drops; populated by app/importers/samples.py).
+    # Both windowed by their respective shipping-event date (Order.placed_at
+    # for TikTok-channel, Sample.shipped_at for off-platform) using the same
+    # inclusive-start / exclusive-end convention as everything else.
+    sample_order_shipping = Decimal(str(
+        db.execute(
+            select(func.coalesce(func.sum(Order.shipping_cost), 0))
+            .where(Order.placed_at >= start, Order.placed_at < end)
+            .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+        ).scalar() or 0
+    ))
+    off_platform_sample_shipping = Decimal(str(
+        db.execute(
+            select(func.coalesce(func.sum(Sample.shipping_cost), 0))
+            .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+            .where(Sample.shipping_cost.isnot(None))
+        ).scalar() or 0
+    ))
+    sample_shipping_cost = sample_order_shipping + off_platform_sample_shipping
+
     # Units sold (paid orders only). Bundles are one OrderLine each, so this
     # naturally counts a bundle as a single item — not its components.
     units_sold = db.execute(
@@ -253,6 +283,7 @@ def compute_window_pnl(
         - gmv_max_ad_spend
         + ad_credit_offset                # credits reduce ad expense
         - ship_cost
+        - sample_shipping_cost            # cash outflow for sample freight
         + ship_rev
     )
 
@@ -281,6 +312,7 @@ def compute_window_pnl(
         ad_credit_offset=ad_credit_offset,
         shipping_revenue=ship_rev,
         shipping_cost=ship_cost,
+        sample_shipping_cost=sample_shipping_cost,
         net_profit=net_profit,
         orders_count=int(row.orders_count or 0),
         orders_settled=int(row.orders_settled or 0),

@@ -60,12 +60,13 @@ def export_monthly_pnl_xlsx(
         ("    Campaign fees (resource + service)", -pnl.tiktok_campaign_fees),
         ("    Shop partner commission", -pnl.tiktok_partner_commission),
         ("    Managed service (incl. tax)", -pnl.tiktok_managed_service),
-        ("Affiliate commission", -pnl.affiliate_commission),
-        ("Affiliate Shop Ad Commission", -pnl.shop_ads_cost),
+        ("Affiliate Commissions", -pnl.affiliate_commission),
+        ("Affiliate Commission (Shop Ads)", -pnl.shop_ads_cost),
         ("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend),
         ("Less: Ad Credits", pnl.ad_credit_offset),
         ("Shipping revenue", pnl.shipping_revenue),
-        ("Shipping cost", -pnl.shipping_cost),
+        ("Shipping (to Customers)", -pnl.shipping_cost),
+        ("Shipping (to Creators)", -pnl.sample_shipping_cost),
         ("Net Profit", pnl.net_profit),
     ]
     for i, (label, value) in enumerate(rows, start=3):
@@ -343,8 +344,8 @@ def export_pnl_xlsx(
         _write_money_row(row, label, attr, -1, f_line_indent2, f_money_indent2); row += 1
 
     _write_section_header(row, "AFFILIATE / COMMISSION COSTS"); row += 1
-    _write_money_row(row, "Affiliate commission", "affiliate_commission", -1, f_line_indent, f_money_indent); row += 1
-    _write_money_row(row, "Affiliate Shop Ad Commission", "shop_ads_cost", -1, f_line_indent, f_money_indent); row += 1
+    _write_money_row(row, "Affiliate Commissions", "affiliate_commission", -1, f_line_indent, f_money_indent); row += 1
+    _write_money_row(row, "Affiliate Commission (Shop Ads)", "shop_ads_cost", -1, f_line_indent, f_money_indent); row += 1
 
     _write_section_header(row, "ADVERTISING"); row += 1
     _write_money_row(row, "TikTok Ads (GMV Max)", "gmv_max_ad_spend", -1, f_line_indent, f_money_indent); row += 1
@@ -353,7 +354,8 @@ def export_pnl_xlsx(
 
     _write_section_header(row, "SHIPPING / FULFILLMENT"); row += 1
     _write_money_row(row, "Shipping revenue", "shipping_revenue", 1, f_line_indent, f_money_indent); row += 1
-    _write_money_row(row, "Shipping cost", "shipping_cost", -1, f_line_indent, f_money_indent); row += 1
+    _write_money_row(row, "Shipping (to Customers)", "shipping_cost", -1, f_line_indent, f_money_indent); row += 1
+    _write_money_row(row, "Shipping (to Creators)", "sample_shipping_cost", -1, f_line_indent, f_money_indent); row += 1
 
     _write_money_row(row, "TOTAL OPERATING EXPENSES", "total_operating_expenses", -1, f_subtotal_label, f_subtotal_money); row += 1
     _write_money_row(row, "NET PROFIT", "net_profit", 1, f_netprofit_label, f_netprofit_money); row += 1

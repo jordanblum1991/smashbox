@@ -196,13 +196,14 @@
           </td>
         </tr>
 
-        {{ line("Affiliate commission", -pnl.affiliate_commission) }}
-        {{ line("Affiliate Shop Ad Commission", -pnl.shop_ads_cost) }}
+        {{ line("Affiliate Commissions", -pnl.affiliate_commission) }}
+        {{ line("Affiliate Commission (Shop Ads)", -pnl.shop_ads_cost) }}
         {{ line("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend) }}
         {% if pnl.ad_credit_offset > 0 %}
         {{ line("Less: Ad Credits", pnl.ad_credit_offset, indent=1) }}
         {% endif %}
-        {{ line("Shipping cost", -pnl.shipping_cost) }}
+        {{ line("Shipping (to Customers)", -pnl.shipping_cost) }}
+        {{ line("Shipping (to Creators)", -pnl.sample_shipping_cost) }}
         {{ line("Shipping revenue", pnl.shipping_revenue) }}
         {{ subtotal("Net Profit", pnl.net_profit, accent=("pos" if pnl.net_profit >= 0 else "neg")) }}
       </tbody>
@@ -355,8 +356,8 @@
       {{ line_row("Managed service (incl. tax)", "tiktok_managed_service", indent=2, deduction=true, detail=true) }}
 
       {{ section_header("Affiliate / Commission Costs") }}
-      {{ line_row("Affiliate commission", "affiliate_commission", indent=1, deduction=true) }}
-      {{ line_row("Affiliate Shop Ad Commission", "shop_ads_cost", indent=1, deduction=true) }}
+      {{ line_row("Affiliate Commissions", "affiliate_commission", indent=1, deduction=true) }}
+      {{ line_row("Affiliate Commission (Shop Ads)", "shop_ads_cost", indent=1, deduction=true) }}
 
       {{ section_header("Advertising") }}
       {{ line_row("TikTok Ads (GMV Max)", "gmv_max_ad_spend", indent=1, deduction=true) }}
@@ -366,7 +367,8 @@
 
       {{ section_header("Shipping / Fulfillment") }}
       {{ line_row("Shipping revenue", "shipping_revenue", indent=1) }}
-      {{ line_row("Shipping cost", "shipping_cost", indent=1, deduction=true) }}
+      {{ line_row("Shipping (to Customers)", "shipping_cost", indent=1, deduction=true) }}
+      {{ line_row("Shipping (to Creators)", "sample_shipping_cost", indent=1, deduction=true) }}
 
       {{ subtotal_row("Total Operating Expenses", "total_operating_expenses", deduction=true) }}
       {{ subtotal_row("Net Profit", "net_profit", accent=true, big=true) }}
