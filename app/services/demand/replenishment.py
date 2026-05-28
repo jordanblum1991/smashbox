@@ -32,6 +32,8 @@ from decimal import Decimal
 from enum import Enum
 from math import ceil
 
+from app.config import settings
+
 
 class ReplenishmentStatus(str, Enum):
     OUT_OF_STOCK = "out_of_stock"
@@ -41,6 +43,66 @@ class ReplenishmentStatus(str, Enum):
     OVERSTOCKED = "overstocked"
     DISCONTINUED = "discontinued"
     NO_VELOCITY = "no_velocity"   # never sold in the window — can't compute
+
+
+class TrendDirection(str, Enum):
+    """How the 14-day rate compares to the 60-day baseline. ACCELERATING
+    fires the trend-adjusted ROP branch; DECELERATING is informational only
+    (asymmetric by design — see settings.demand_trend_acceleration_threshold).
+    INSUFFICIENT_DATA covers no-velocity SKUs and cold-start SKUs where the
+    14-day window doesn't contain enough history to be meaningful.
+    """
+    ACCELERATING = "accelerating"
+    DECELERATING = "decelerating"
+    STABLE = "stable"
+    INSUFFICIENT_DATA = "insufficient_data"
+
+
+def poisson_safety_stock(mean_lead_demand: Decimal, service_level: Decimal) -> int:
+    """Safety stock for slow-mover SKUs whose demand is Poisson rather than
+    Gaussian. Returns `ppf(service_level, μ·L) − μ·L`, i.e. the buffer needed
+    so cumulative P(demand ≤ μ·L + buffer) ≥ service_level.
+
+    Pure-Python iterative implementation — Poisson PMF is built up from k=0
+    until cumulative probability crosses the threshold. For slow movers
+    (μ·L typically < 15) convergence is fast (~20 iterations); the k<200
+    sanity cap guards against pathological inputs and never fires in practice.
+
+    Returns an int >= 0. When μ·L is 0 or the inputs are degenerate, returns 0.
+    """
+    mu_l = float(mean_lead_demand)
+    target = float(service_level)
+    if mu_l <= 0 or target <= 0:
+        return 0
+
+    cumulative = math.exp(-mu_l)   # P(X = 0)
+    pmf = cumulative
+    k = 0
+    while cumulative < target and k < 200:
+        k += 1
+        pmf *= mu_l / k
+        cumulative += pmf
+    safety = k - mu_l
+    if safety < 0:
+        return 0
+    return int(round(safety))
+
+
+def _service_level_for(z_value: Decimal | None, fallback: Decimal | None) -> Decimal | None:
+    """Best-effort service level for the Poisson PPF call. Prefers an explicit
+    `service_level` from inputs; falls back to reverse-lookup from `z_value`
+    via the canonical table. Returns None if neither resolves — Poisson is
+    then skipped and the caller falls back to variance / flat.
+    """
+    if fallback is not None:
+        return fallback
+    if z_value is None:
+        return None
+    from app.config import SERVICE_LEVEL_Z_TABLE
+    for sl, z in SERVICE_LEVEL_Z_TABLE.items():
+        if z == z_value:
+            return sl
+    return None
 
 
 @dataclass(frozen=True)
@@ -85,6 +147,24 @@ class ReplenishmentInputs:
     # against. The caller in demand_planning.py reads SkuVelocity.sigma_daily_raw.
     sigma_daily: Decimal | None = None
     z_value: Decimal | None = None
+    # Explicit service level (e.g. 0.95) used for Poisson PPF on slow movers.
+    # Optional — when omitted we reverse-lookup from z_value via the table.
+    service_level: Decimal | None = None
+
+    # Cold-start inputs. `days_observed` is the number of days the SKU has
+    # existed within the 60-day window (= WINDOW_DAYS for mature SKUs). When
+    # below `settings.demand_cold_start_threshold_days`, the math re-means
+    # over observed days only and applies `cold_start_uplift`. Defaults
+    # preserve mature-SKU behavior for callers that don't supply these.
+    days_observed: int = 60
+    cold_start_uplift: Decimal | None = None  # None → settings default at use site
+
+    # Units actually sold in the window — needed so the cold-start branch
+    # can compute `daily_observed = units_observed / days_observed`. Defaults
+    # to None for callers that don't have it (in which case cold-start can
+    # still apply by using `daily_velocity * 60 / days_observed` as the
+    # numerator-equivalent reconstruction).
+    units_observed: int | None = None
 
 
 @dataclass
@@ -114,14 +194,46 @@ class ReplenishmentResult:
 
     # How the safety buffer was actually computed for this row — visible on
     # the drill-down "How the suggestion was computed" panel so the buyer
-    # can see whether variance or the flat % fallback applied. `method` is
-    # either "variance" (z × σ × √L) or "flat" (lead_demand × pct).
+    # can see whether variance, Poisson, or the flat % fallback applied.
+    # `method` is one of: "variance" (z × σ × √L), "poisson"
+    # (Poisson PPF for slow movers), or "flat" (lead_demand × pct).
     safety_stock_units: int = 0
     safety_method: str = "flat"
 
+    # How the velocity baseline was computed. "standard" = robust 60-day
+    # mean. "cold_start" = the SKU was sold for the first time within the
+    # 60-day window, so velocity is `units_observed / days_observed` × uplift.
+    velocity_method: str = "standard"
+
+    # 14d-vs-60d trend classification. Asymmetric in math: ACCELERATING
+    # triggers the trend-adjusted ROP branch; DECELERATING is a UI signal
+    # only (deceleration does NOT shrink ROP).
+    trend_direction: TrendDirection = TrendDirection.STABLE
+
+    # True iff the ROP base velocity was blended with the 14d rate because
+    # trend_direction was ACCELERATING. Visible on the drill-down so the
+    # buyer can see why ROP suddenly bumped.
+    trend_adjustment_applied: bool = False
+
 
 def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult:
-    """Single-SKU replenishment calculation."""
+    """Single-SKU replenishment calculation.
+
+    Velocity flow:
+      v_raw     — the displayed 60d (or observed-days, for cold-start) baseline.
+                  Drives trend_ratio and days_of_supply.
+      v         — the ROBUST rate driving SOQ. For cold-start SKUs this is
+                  `daily_observed × uplift`; for mature SKUs it's the
+                  spike-dampened 60d mean.
+      v_for_rop — v, optionally up-blended with the 14d rate when the SKU is
+                  ACCELERATING. Used only for ROP base + safety stock base.
+
+    Safety-stock branches (mutually exclusive, in order):
+      poisson   — when v_for_rop < settings.demand_slow_mover_threshold AND a
+                  service level resolves. Lead-time demand is Poisson(μ·L).
+      variance  — when σ > 0 AND z is supplied. safety = z × σ × √L.
+      flat      — fallback: safety = lead_demand × safety_stock_pct.
+    """
     available = inp.on_hand + inp.expected_receipts
     v = inp.daily_velocity                              # ROBUST — drives buying math
     v_raw = inp.daily_velocity_raw if inp.daily_velocity_raw is not None else v
@@ -144,34 +256,102 @@ def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult
             reorder_point=0, suggested_order_qty=0,
             investment=Decimal("0"),
             status=status,
+            trend_direction=TrendDirection.INSUFFICIENT_DATA,
         )
+
+    # Cold-start: if the SKU has fewer than the threshold days of history,
+    # replace v with `daily_observed × uplift`. Daily-observed reconstructed
+    # from units_observed when provided, else from daily_velocity_raw ×
+    # (WINDOW / days_observed) — preserves callers that don't supply units.
+    cold_start_threshold = settings.demand_cold_start_threshold_days
+    velocity_method = "standard"
+    is_cold_start = (
+        inp.days_observed is not None
+        and 0 < inp.days_observed < cold_start_threshold
+    )
+    if is_cold_start:
+        uplift = (inp.cold_start_uplift
+                  if inp.cold_start_uplift is not None
+                  else settings.demand_cold_start_uplift)
+        if inp.units_observed is not None and inp.days_observed > 0:
+            daily_observed = Decimal(inp.units_observed) / Decimal(inp.days_observed)
+        else:
+            # Reconstruct from v_raw, which the caller computed as
+            # units / WINDOW_DAYS for mature SKUs. For a cold-start SKU we
+            # need units / days_observed, so multiply back up by the ratio.
+            daily_observed = (v_raw * Decimal(60)) / Decimal(inp.days_observed)
+        v = (daily_observed * uplift).quantize(Decimal("0.01"))
+        velocity_method = "cold_start"
+        # v_raw also moves to the observed-days denominator — pre-existence
+        # zero days were polluting days_of_supply too.
+        v_raw = daily_observed.quantize(Decimal("0.01"))
 
     # Trend ratio: RAW vs RAW. Surfaces real demand shape — clipping would
     # muddy the very signal the trend is meant to reveal.
     trend = (inp.daily_velocity_14d / v_raw).quantize(Decimal("0.01"))
+
+    # Trend direction. Cold-start SKUs have INSUFFICIENT_DATA regardless of
+    # the ratio — the 14d window contains too few "post-existence" days for
+    # the comparison to be meaningful. For mature SKUs the threshold is
+    # symmetric around 1 (acceleration = ratio > T; deceleration = ratio < 1/T).
+    # STRICT inequalities: ratio at exactly T is STABLE, only strictly past it
+    # classifies as ACCELERATING or DECELERATING. Matches the spec.
+    accel_threshold = settings.demand_trend_acceleration_threshold
+    decel_threshold = Decimal("1") / accel_threshold
+    if is_cold_start:
+        trend_direction = TrendDirection.INSUFFICIENT_DATA
+    elif trend > accel_threshold:
+        trend_direction = TrendDirection.ACCELERATING
+    elif trend < decel_threshold:
+        trend_direction = TrendDirection.DECELERATING
+    else:
+        trend_direction = TrendDirection.STABLE
 
     # Days of supply / stockout: RAW. Pessimistic on risk — flag stockouts
     # early so a viral spike still pings the buyer.
     days_of_supply = (Decimal(available) / v_raw).quantize(Decimal("0.1"))
     stockout_date = as_of + timedelta(days=int(days_of_supply))
 
-    # Reorder point + order quantity: ROBUST velocity. Conservative on buying —
-    # outlier days don't inflate the projection for two months.
-    lead_demand = v * Decimal(inp.lead_time_days)
+    # Trend-adjusted ROP base velocity. Only blends up on ACCELERATING —
+    # asymmetric by design (deceleration shrinking ROP would risk stockouts
+    # on a recovery). The blend weights are settings-driven.
+    trend_adjustment_applied = False
+    if trend_direction == TrendDirection.ACCELERATING:
+        w_recent = settings.demand_trend_weight_recent
+        v_for_rop = (w_recent * inp.daily_velocity_14d
+                     + (Decimal("1") - w_recent) * v).quantize(Decimal("0.01"))
+        trend_adjustment_applied = True
+    else:
+        v_for_rop = v
 
-    # Safety stock: prefer variance-based (z × σ × √L) when σ is available.
-    # Falls back to the legacy flat-percent method otherwise so callers
-    # that don't supply σ (older tests, one-off analyses) keep working.
-    if inp.sigma_daily is not None and inp.sigma_daily > 0 and inp.z_value is not None:
+    # Reorder point base. v_for_rop already incorporates cold-start uplift
+    # (via v) and trend acceleration (when applicable).
+    lead_demand = v_for_rop * Decimal(inp.lead_time_days)
+
+    # Safety stock branch selection. Order matters: Poisson supersedes
+    # variance for slow movers; variance supersedes flat when σ is available.
+    slow_mover_threshold = settings.demand_slow_mover_threshold
+    is_slow_mover = v_for_rop < slow_mover_threshold
+    poisson_sl = _service_level_for(inp.z_value, inp.service_level)
+
+    if is_slow_mover and poisson_sl is not None:
+        safety_stock_units = poisson_safety_stock(lead_demand, poisson_sl)
+        safety_buffer = Decimal(safety_stock_units)
+        safety_method = "poisson"
+    elif inp.sigma_daily is not None and inp.sigma_daily > 0 and inp.z_value is not None:
         sqrt_lead = Decimal(str(math.sqrt(inp.lead_time_days)))
         safety_buffer = inp.z_value * inp.sigma_daily * sqrt_lead
+        safety_stock_units = int(safety_buffer.to_integral_value(rounding="ROUND_HALF_UP"))
         safety_method = "variance"
     else:
         safety_buffer = lead_demand * inp.safety_stock_pct
+        safety_stock_units = int(safety_buffer.to_integral_value(rounding="ROUND_HALF_UP"))
         safety_method = "flat"
-    safety_stock_units = int(safety_buffer.to_integral_value(rounding="ROUND_HALF_UP"))
     reorder_point = int((lead_demand + safety_buffer).to_integral_value(rounding="ROUND_HALF_UP"))
 
+    # Suggested order qty uses v (cold-start-adjusted but NOT trend-blended).
+    # Trend blending intentionally affects ROP only — we don't want to chase
+    # a 14-day spike across 60 days of forward cover.
     target_units = v * Decimal(inp.lead_time_days + inp.cover_days)
     raw_qty = int((target_units - Decimal(available)).to_integral_value(rounding="ROUND_HALF_UP"))
     raw_qty = max(raw_qty, 0)
@@ -219,6 +399,9 @@ def compute_one(inp: ReplenishmentInputs, *, as_of: date) -> ReplenishmentResult
         status=status,
         safety_stock_units=safety_stock_units,
         safety_method=safety_method,
+        velocity_method=velocity_method,
+        trend_direction=trend_direction,
+        trend_adjustment_applied=trend_adjustment_applied,
     )
 
 

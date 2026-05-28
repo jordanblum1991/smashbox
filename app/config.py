@@ -85,6 +85,36 @@ class Settings(BaseSettings):
     # Service level → z-score mapping is in SERVICE_LEVEL_Z_TABLE below.
     demand_service_level_default: Decimal = Decimal("0.95")
 
+    # ---- Slow-mover Poisson safety stock ---------------------------------
+    # Gaussian z·σ·√L assumes continuous, symmetric demand. For SKUs averaging
+    # <1 unit/day, real demand is Poisson (discrete, skewed); Gaussian
+    # under-buffers because it pretends the SKU can sell fractional units.
+    # When effective daily velocity is below this threshold we switch to
+    # Poisson safety stock (inverse-CDF at the service level). The threshold
+    # is evaluated on the post-cold-start velocity, so a new low-volume SKU
+    # gets the uplift first, then the Poisson buffer if it's still slow.
+    demand_slow_mover_threshold: Decimal = Decimal("1.0")
+
+    # ---- Trend-adjusted reorder point ------------------------------------
+    # When 14-day velocity is materially above the 60-day baseline (ratio
+    # above the threshold), blend the two for the ROP base velocity so the
+    # SKU trips reorder sooner. ASYMMETRIC: we ONLY blend up on acceleration.
+    # Deceleration is surfaced as a UI signal but doesn't shrink ROP —
+    # stocking out on a recovery is worse than tying up capital on a dip.
+    # `weight_recent` is the share given to the 14-day rate (0.5 = 50/50).
+    demand_trend_acceleration_threshold: Decimal = Decimal("1.2")
+    demand_trend_weight_recent: Decimal = Decimal("0.5")
+
+    # ---- Cold-start (new SKUs) -------------------------------------------
+    # A SKU sold for the first time fewer than N days ago has a 60-day mean
+    # polluted by pre-existence zero days. We re-mean over the days the SKU
+    # has actually existed (`daily_observed = units / days_observed`) and
+    # apply an uplift to widen the safety net while the buyer accumulates
+    # signal. Cold-start SKUs do NOT trip the trend-adjustment branch
+    # (insufficient 14d signal) — their entire velocity is already an estimate.
+    demand_cold_start_threshold_days: int = 30
+    demand_cold_start_uplift: Decimal = Decimal("1.5")
+
 
 settings = Settings()
 
