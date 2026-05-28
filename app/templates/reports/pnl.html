@@ -203,6 +203,7 @@
         {{ line("Less: Ad Credits", pnl.ad_credit_offset, indent=1) }}
         {% endif %}
         {{ line("Shipping cost", -pnl.shipping_cost) }}
+        {{ line("Sample shipping", -pnl.sample_shipping_cost) }}
         {{ line("Shipping revenue", pnl.shipping_revenue) }}
         {{ subtotal("Net Profit", pnl.net_profit, accent=("pos" if pnl.net_profit >= 0 else "neg")) }}
       </tbody>
@@ -367,6 +368,7 @@
       {{ section_header("Shipping / Fulfillment") }}
       {{ line_row("Shipping revenue", "shipping_revenue", indent=1) }}
       {{ line_row("Shipping cost", "shipping_cost", indent=1, deduction=true) }}
+      {{ line_row("Sample shipping", "sample_shipping_cost", indent=1, deduction=true) }}
 
       {{ subtotal_row("Total Operating Expenses", "total_operating_expenses", deduction=true) }}
       {{ subtotal_row("Net Profit", "net_profit", accent=true, big=true) }}

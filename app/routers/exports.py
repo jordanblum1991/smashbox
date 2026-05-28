@@ -66,6 +66,7 @@ def export_monthly_pnl_xlsx(
         ("Less: Ad Credits", pnl.ad_credit_offset),
         ("Shipping revenue", pnl.shipping_revenue),
         ("Shipping cost", -pnl.shipping_cost),
+        ("Sample shipping", -pnl.sample_shipping_cost),
         ("Net Profit", pnl.net_profit),
     ]
     for i, (label, value) in enumerate(rows, start=3):
@@ -354,6 +355,7 @@ def export_pnl_xlsx(
     _write_section_header(row, "SHIPPING / FULFILLMENT"); row += 1
     _write_money_row(row, "Shipping revenue", "shipping_revenue", 1, f_line_indent, f_money_indent); row += 1
     _write_money_row(row, "Shipping cost", "shipping_cost", -1, f_line_indent, f_money_indent); row += 1
+    _write_money_row(row, "Sample shipping", "sample_shipping_cost", -1, f_line_indent, f_money_indent); row += 1
 
     _write_money_row(row, "TOTAL OPERATING EXPENSES", "total_operating_expenses", -1, f_subtotal_label, f_subtotal_money); row += 1
     _write_money_row(row, "NET PROFIT", "net_profit", 1, f_netprofit_label, f_netprofit_money); row += 1
