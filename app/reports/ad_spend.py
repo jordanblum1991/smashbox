@@ -35,6 +35,9 @@ class AdSpendMonthRow:
     manual_credit: Decimal             # manually-entered offset (may be 0)
     credit_note: str | None
     credit_id: int | None              # so the row form can target the existing record
+    credit_applied_date: date | None   # specific day the credit lands on; the
+                                       # P&L filters on this. None when no
+                                       # credit row exists yet for this month.
 
     @property
     def net_total(self) -> Decimal:
@@ -83,17 +86,27 @@ def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
     ).all()
 
     credit_rows = db.execute(
-        select(AdCredit.year, AdCredit.month, AdCredit.amount, AdCredit.note, AdCredit.id)
+        select(
+            AdCredit.applied_date, AdCredit.year, AdCredit.month,
+            AdCredit.amount, AdCredit.note, AdCredit.id,
+        )
     ).all()
-    credits: dict[tuple[int, int], tuple[Decimal, str | None, int]] = {
-        (int(r.year), int(r.month)): (Decimal(str(r.amount)), r.note, int(r.id))
-        for r in credit_rows
-    }
+    # Month key is derived from applied_date when present, falling back to the
+    # legacy year/month columns for any row that somehow predates the backfill.
+    credits: dict[tuple[int, int], tuple[Decimal, str | None, int, date | None]] = {}
+    for r in credit_rows:
+        if r.applied_date is not None:
+            key = (r.applied_date.year, r.applied_date.month)
+        else:
+            key = (int(r.year), int(r.month))
+        credits[key] = (Decimal(str(r.amount)), r.note, int(r.id), r.applied_date)
 
     months_seen: dict[tuple[int, int], AdSpendMonthRow] = {}
     for r in spend_rows:
         key = (int(r.y), int(r.m))
-        credit_amt, credit_note, credit_id = credits.get(key, (Decimal("0"), None, None))
+        credit_amt, credit_note, credit_id, credit_dt = credits.get(
+            key, (Decimal("0"), None, None, None)
+        )
         months_seen[key] = AdSpendMonthRow(
             year=key[0],
             month=key[1],
@@ -104,10 +117,11 @@ def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
             manual_credit=credit_amt,
             credit_note=credit_note,
             credit_id=credit_id,
+            credit_applied_date=credit_dt,
         )
     # Months that have a credit but no spend row — surface them so the user
     # can still see/edit the credit they entered.
-    for key, (amt, note, cid) in credits.items():
+    for key, (amt, note, cid, credit_dt) in credits.items():
         if key not in months_seen:
             months_seen[key] = AdSpendMonthRow(
                 year=key[0],
@@ -119,6 +133,7 @@ def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
                 manual_credit=amt,
                 credit_note=note,
                 credit_id=cid,
+                credit_applied_date=credit_dt,
             )
 
     months = [months_seen[k] for k in sorted(months_seen.keys())]

@@ -5,10 +5,10 @@ Four areas:
      month must match compute_monthly_pnl field-for-field — proves the
      refactor (extracting compute_window_pnl + month version delegates) did
      not change month semantics.
-  2. Cross-month windows include FULL AdCredits from every month touched
-     (not prorated).
-  3. months_in_window boundary correctness: inclusive start, exclusive end —
-     a window ending exactly at month-start does NOT include that month.
+  2. Custom-range windows include AdCredits by `applied_date`, with the
+     same inclusive-start / exclusive-end convention as orders.
+  3. Cross-month windows pull in only the credits whose dates fall inside
+     the window — NOT every month's full credit (the old behavior).
   4. compute_pnl_view(CUSTOM) input validation + route error redirect.
 """
 from datetime import date, datetime
@@ -27,11 +27,7 @@ from app.models import (
     OrderLine,
     OrderType,
 )
-from app.reports.monthly_pnl import (
-    compute_monthly_pnl,
-    compute_window_pnl,
-    months_in_window,
-)
+from app.reports.monthly_pnl import compute_monthly_pnl, compute_window_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view
 from app.routers.reports import pnl_view
 
@@ -89,7 +85,7 @@ def _paid_order(
         seller_funded_smashbox=smashbox,
         refunds=refunds,
         tiktok_fees=tiktok_fees,
-        tiktok_referral_fee=tiktok_fees,  # populate one bucket so the sum stays sensible
+        tiktok_referral_fee=tiktok_fees,
         affiliate_commission=affiliate,
         shop_ads_cost=shop_ads,
         shipping_revenue=ship_rev,
@@ -109,9 +105,24 @@ def _paid_order(
     return order
 
 
+def _ad_credit(year: int, month: int, day: int, amount: str, note: str | None = None) -> AdCredit:
+    """Construct an AdCredit with both `applied_date` and the derived
+    (year, month) pair — matches what the route does on a real write."""
+    return AdCredit(
+        year=year, month=month,
+        applied_date=date(year, month, day),
+        amount=Decimal(amount),
+        note=note,
+    )
+
+
 def _seed_march_and_april(db) -> int:
     """Seed a varied set of paid orders + AdCredits + AdSpend across March
-    and April 2026. Returns the batch_id used."""
+    and April 2026. Returns the batch_id used.
+
+    Credits are dated MID-MONTH so the cross-month window tests have
+    something interesting to assert against (a Mar 15 credit is excluded
+    from a Mar 28+ window; an Apr 10 credit is included)."""
     batch = _batch(db)
     bid = batch.id
 
@@ -132,9 +143,9 @@ def _seed_march_and_april(db) -> int:
                 gross_sales=Decimal("90.00"), refunds=Decimal("10.00"),
                 tiktok_fees=Decimal("9.00"), units=1)
 
-    # AdCredits — distinct per month so we can prove which were included.
-    db.add(AdCredit(year=2026, month=3, amount=Decimal("100.00"), note="Mar credit"))
-    db.add(AdCredit(year=2026, month=4, amount=Decimal("200.00"), note="Apr credit"))
+    # AdCredits — dated mid-month.
+    db.add(_ad_credit(2026, 3, 15, "100.00", "Mar credit"))
+    db.add(_ad_credit(2026, 4, 10, "200.00", "Apr credit"))
 
     # AdSpend — a row in each month so gmv_max_ad_spend has data to filter.
     db.add(AdSpend(import_batch_id=bid, spend_date=datetime(2026, 3, 10),
@@ -169,11 +180,8 @@ _MATCH_FIELDS = (
 # ---------------------------------------------------------------------------
 
 def test_compute_window_pnl_matches_compute_monthly_pnl_for_march():
-    """The PRIMARY safety test for the refactor. compute_monthly_pnl(2026, 3)
-    is now a thin wrapper around compute_window_pnl over the same window.
-    If this test fails, the refactor changed month semantics and every existing
-    P&L number on production could shift. Every field — revenue, COGS, units,
-    ad_credit_offset, net — must match byte-for-byte."""
+    """compute_monthly_pnl(2026, 3) is a thin wrapper around compute_window_pnl.
+    If this fails, monthly P&L numbers shift. Every field must match."""
     with SessionLocal() as db:
         _seed_march_and_april(db)
 
@@ -183,7 +191,6 @@ def test_compute_window_pnl_matches_compute_monthly_pnl_for_march():
             db,
             datetime(2026, 3, 1),
             datetime(2026, 4, 1),
-            months_touched=[(2026, 3)],
             month_anchor=date(2026, 3, 1),
         )
 
@@ -195,8 +202,6 @@ def test_compute_window_pnl_matches_compute_monthly_pnl_for_march():
 
 
 def test_compute_window_pnl_matches_compute_monthly_pnl_for_april():
-    """Same regression guard, second month — confirms the match isn't a
-    coincidence of March data."""
     with SessionLocal() as db:
         _seed_march_and_april(db)
 
@@ -206,7 +211,6 @@ def test_compute_window_pnl_matches_compute_monthly_pnl_for_april():
             db,
             datetime(2026, 4, 1),
             datetime(2026, 5, 1),
-            months_touched=[(2026, 4)],
             month_anchor=date(2026, 4, 1),
         )
 
@@ -216,100 +220,133 @@ def test_compute_window_pnl_matches_compute_monthly_pnl_for_april():
         )
 
 
+def test_monthly_pnl_includes_credit_dated_mid_month():
+    """A mid-month credit (Mar 15) must still land in the March monthly P&L."""
+    with SessionLocal() as db:
+        _seed_march_and_april(db)
+    with SessionLocal() as db:
+        march = compute_monthly_pnl(db, 2026, 3)
+    assert march.ad_credit_offset == Decimal("100.00")
+
+
 # ---------------------------------------------------------------------------
-# 2. CROSS-MONTH — both months' full AdCredit included
+# 2. CROSS-MONTH — credits are filtered by date, NOT by "every month touched"
 # ---------------------------------------------------------------------------
 
-def test_cross_month_window_includes_full_credits_from_both_months():
-    """Mar 28 - Apr 27 spans two calendar months. Each month's AdCredit must
-    contribute IN FULL (no proration). Mar=$100, Apr=$200 → $300 combined."""
+def test_cross_month_window_includes_only_credits_inside_window():
+    """Mar 28 - Apr 27 spans two calendar months. The Mar 15 credit is BEFORE
+    the window (so excluded); the Apr 10 credit is INSIDE (so included).
+    Under the old month-touched logic this would have been $300; under
+    date-granularity it's $200."""
     with SessionLocal() as db:
         _seed_march_and_april(db)
 
     with SessionLocal() as db:
         start = datetime(2026, 3, 28)
         end = datetime(2026, 4, 28)              # exclusive — covers all of Apr 27
-        months = months_in_window(start, end)
-        view = compute_window_pnl(db, start, end, months_touched=months)
+        view = compute_window_pnl(db, start, end)
 
-    assert months == [(2026, 3), (2026, 4)]
-    assert view.ad_credit_offset == Decimal("300.00"), (
-        "Both March ($100) and April ($200) credits must be summed in full"
+    assert view.ad_credit_offset == Decimal("200.00"), (
+        "Only the April 10 credit falls inside Mar 28 – Apr 27; "
+        "the March 15 credit is before the window."
     )
     # Order-level sums in the window: TT-M-3 (Mar 29) + TT-A-1 (Apr 5) + TT-A-2 (Apr 20).
-    # TT-M-1 (Mar 2) and TT-M-2 (Mar 15) are BEFORE the window and must be excluded.
     assert view.orders_count == 3
-    assert view.gross_sales == Decimal("440.00")    # 200 + 150 + 90
+    assert view.gross_sales == Decimal("440.00")
+
+
+def test_cross_month_window_includes_credits_from_both_months_when_dates_fit():
+    """When BOTH credit dates fall inside the window, both are summed.
+    Mar 10 – Apr 30: Mar 15 ($100) + Apr 10 ($200) = $300."""
+    with SessionLocal() as db:
+        _seed_march_and_april(db)
+    with SessionLocal() as db:
+        view = compute_window_pnl(
+            db, datetime(2026, 3, 10), datetime(2026, 4, 30)
+        )
+    assert view.ad_credit_offset == Decimal("300.00")
 
 
 def test_cross_month_window_excludes_orders_outside_dates():
-    """Confirm the date-bounded order filter is respected; only orders with
-    placed_at inside [start, end) contribute to gross_sales."""
+    """Tight 3-day window — only Mar 15 order (TT-M-2) should count."""
     with SessionLocal() as db:
         _seed_march_and_april(db)
-
     with SessionLocal() as db:
-        # Tight 3-day window — only Mar 15 order (TT-M-2) should count.
         view = compute_window_pnl(
-            db,
-            datetime(2026, 3, 14),
-            datetime(2026, 3, 17),
-            months_touched=[(2026, 3)],
+            db, datetime(2026, 3, 14), datetime(2026, 3, 17)
         )
-
     assert view.orders_count == 1
     assert view.gross_sales == Decimal("80.00")
 
 
 # ---------------------------------------------------------------------------
-# 3. months_in_window edge cases
+# 3. Boundary tests for the new date-bounded AdCredit filter
 # ---------------------------------------------------------------------------
 
-def test_months_in_window_within_single_month():
-    """Window entirely inside one month → single-element list."""
-    assert months_in_window(
-        datetime(2026, 3, 5), datetime(2026, 3, 20)
-    ) == [(2026, 3)]
+def _seed_just_one_credit(db, *, day: int) -> None:
+    """Seed a single AdCredit on 2026-03-<day> for boundary testing."""
+    db.add(_ad_credit(2026, 3, day, "100.00", "boundary test"))
+    db.commit()
 
 
-def test_months_in_window_spans_two_months_partial_to_partial():
-    """Window crossing one boundary → both months."""
-    assert months_in_window(
-        datetime(2026, 3, 28), datetime(2026, 4, 28)
-    ) == [(2026, 3), (2026, 4)]
+def test_credit_on_exact_window_start_is_included():
+    """Inclusive start: a credit dated 2026-03-15 IS in a window starting
+    2026-03-15 00:00. Matches Order.placed_at >= start convention."""
+    with SessionLocal() as db:
+        _seed_just_one_credit(db, day=15)
+    with SessionLocal() as db:
+        view = compute_window_pnl(
+            db, datetime(2026, 3, 15), datetime(2026, 3, 20)
+        )
+    assert view.ad_credit_offset == Decimal("100.00")
 
 
-def test_months_in_window_ending_exactly_on_first_excludes_that_month():
-    """Critical exclusive-end edge case: window ending at midnight on Apr 1
-    does NOT touch April, because no point of April time is inside the window.
-    If this were inclusive, every March end-bumped query would mistakenly
-    pull April's AdCredit."""
-    assert months_in_window(
-        datetime(2026, 3, 1), datetime(2026, 4, 1)
-    ) == [(2026, 3)]
+def test_credit_on_exclusive_end_day_is_excluded():
+    """Exclusive end: a credit dated 2026-03-20 is NOT in a window that ends
+    at midnight 2026-03-20 (the credit's day is one past the last included
+    day). Matches Order.placed_at < end convention."""
+    with SessionLocal() as db:
+        _seed_just_one_credit(db, day=20)
+    with SessionLocal() as db:
+        view = compute_window_pnl(
+            db, datetime(2026, 3, 10), datetime(2026, 3, 20)
+        )
+    assert view.ad_credit_offset == Decimal("0")
 
 
-def test_months_in_window_full_calendar_month():
-    """Whole-month window → exactly that month."""
-    assert months_in_window(
-        datetime(2026, 3, 1), datetime(2026, 4, 1)
-    ) == [(2026, 3)]
+def test_credit_just_before_window_start_is_excluded():
+    """Credit dated one day before start → excluded."""
+    with SessionLocal() as db:
+        _seed_just_one_credit(db, day=14)
+    with SessionLocal() as db:
+        view = compute_window_pnl(
+            db, datetime(2026, 3, 15), datetime(2026, 3, 20)
+        )
+    assert view.ad_credit_offset == Decimal("0")
 
 
-def test_months_in_window_ending_one_second_into_april_includes_april():
-    """Symmetry check: a window that DOES poke even one second into April
-    must include April. Confirms the exclusive-end rule isn't off-by-one
-    in the other direction."""
-    assert months_in_window(
-        datetime(2026, 3, 1), datetime(2026, 4, 1, 0, 0, 1)
-    ) == [(2026, 3), (2026, 4)]
+def test_credit_in_middle_of_window_is_included():
+    """Credit strictly inside the window → included."""
+    with SessionLocal() as db:
+        _seed_just_one_credit(db, day=17)
+    with SessionLocal() as db:
+        view = compute_window_pnl(
+            db, datetime(2026, 3, 15), datetime(2026, 3, 20)
+        )
+    assert view.ad_credit_offset == Decimal("100.00")
 
 
-def test_months_in_window_year_boundary():
-    """December → next January window crosses a year. Both pairs returned."""
-    assert months_in_window(
-        datetime(2025, 12, 15), datetime(2026, 1, 15)
-    ) == [(2025, 12), (2026, 1)]
+def test_custom_mode_route_pulls_credit_by_applied_date():
+    """End-to-end: compute_pnl_view(CUSTOM) with an inclusive end-date of
+    Mar 19 (route bumps to exclusive Mar 20) includes a credit dated Mar 17."""
+    with SessionLocal() as db:
+        _seed_just_one_credit(db, day=17)
+    with SessionLocal() as db:
+        view = compute_pnl_view(
+            db, PeriodKind.CUSTOM,
+            start_date=date(2026, 3, 15), end_date=date(2026, 3, 19),
+        )
+    assert view.total.ad_credit_offset == Decimal("100.00")
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +359,7 @@ def test_compute_pnl_view_custom_rejects_inverted_dates():
             compute_pnl_view(
                 db, PeriodKind.CUSTOM,
                 start_date=date(2026, 4, 27),
-                end_date=date(2026, 3, 28),     # before start — illegal
+                end_date=date(2026, 3, 28),
             )
 
 
@@ -333,8 +370,6 @@ def test_compute_pnl_view_custom_rejects_missing_dates():
 
 
 def test_route_redirects_on_inverted_dates():
-    """The route catches the start>end case and returns a 303 with an error
-    flash, rather than letting the ValueError propagate as a 500."""
     with SessionLocal() as db:
         resp = pnl_view(
             request=None,
