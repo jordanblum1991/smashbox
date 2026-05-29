@@ -199,6 +199,9 @@
         {{ line("Affiliate Commissions", -pnl.affiliate_commission) }}
         {{ line("Affiliate Commission (Shop Ads)", -pnl.shop_ads_cost) }}
         {{ line("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend) }}
+        {% if pnl.gmv_max_reimbursement and pnl.gmv_max_reimbursement > 0 %}
+        {{ line("Less: GMV Max Reimbursement", pnl.gmv_max_reimbursement, indent=1) }}
+        {% endif %}
         {% if pnl.ad_credit_offset > 0 %}
         {{ line("Less: Ad Credits", pnl.ad_credit_offset, indent=1) }}
         {% endif %}
@@ -304,10 +307,14 @@
   </tr>
 {% endmacro %}
 
-{# Pre-compute whether any month has an ad-credit, to decide whether to render that line at all #}
-{% set ns = namespace(has_credit=false) %}
+{# Pre-compute whether any month has an ad-credit / gmv-max-reimbursement,
+   to decide whether to render those lines at all. The two flags are
+   independent — both lines can show simultaneously, or neither, or just one. #}
+{% set ns = namespace(has_credit=false, has_gmv_reimb=false) %}
 {% if view.total.ad_credit_offset > 0 %}{% set ns.has_credit = true %}{% endif %}
 {% for m in months %}{% if m.ad_credit_offset > 0 %}{% set ns.has_credit = true %}{% endif %}{% endfor %}
+{% if view.total.gmv_max_reimbursement and view.total.gmv_max_reimbursement > 0 %}{% set ns.has_gmv_reimb = true %}{% endif %}
+{% for m in months %}{% if m.gmv_max_reimbursement and m.gmv_max_reimbursement > 0 %}{% set ns.has_gmv_reimb = true %}{% endif %}{% endfor %}
 
 <div id="pnl-table-wrap"
      class="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm print:rounded-none print:border-0 print:shadow-none print:overflow-visible"
@@ -361,6 +368,9 @@
 
       {{ section_header("Advertising") }}
       {{ line_row("TikTok Ads (GMV Max)", "gmv_max_ad_spend", indent=1, deduction=true) }}
+      {% if ns.has_gmv_reimb %}
+      {{ line_row("Less: GMV Max Reimbursement", "gmv_max_reimbursement", indent=2) }}
+      {% endif %}
       {% if ns.has_credit %}
       {{ line_row("Less: Ad Credits", "ad_credit_offset", indent=2) }}
       {% endif %}

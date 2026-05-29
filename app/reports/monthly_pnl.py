@@ -17,11 +17,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
+from app.models.gmv_max_reimbursement import GmvMaxReimbursement
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
 from app.models.sku import Sku
@@ -54,6 +55,10 @@ class MonthlyPnL:
     affiliate_commission: Decimal
     shop_ads_cost: Decimal
     gmv_max_ad_spend: Decimal                  # TikTok Ads (GMV Max) — from Cost export
+    gmv_max_reimbursement: Decimal             # Manually-entered Smashbox-paid
+                                               # reimbursement to Outlandish for GMV
+                                               # Max spend. Independent pipeline from
+                                               # ad_credit_offset; both can coexist.
     ad_credit_offset: Decimal                  # Manually-entered ad credits for the month
     shipping_revenue: Decimal
     shipping_cost: Decimal                     # PAID orders only (existing behavior)
@@ -227,6 +232,37 @@ def compute_window_pnl(
         ).scalar() or 0
     ))
 
+    # GmvMaxReimbursement: (year, month) keyed (no date column). Determine
+    # which (year, month) pairs the window touches and OR them together —
+    # each touched month contributes its FULL reimbursement (no proration).
+    # This is the same convention AdCredit used before it gained a date
+    # column. For calendar-month windows this is a single (year, month);
+    # for multi-month CUSTOM ranges every month touched sums in.
+    last_y, last_m = end.year, end.month
+    # If end is exactly month-start (Y-M-01 00:00:00), back up one month —
+    # the boundary doesn't actually overlap M.
+    if end.day == 1 and end.hour == 0 and end.minute == 0 and end.second == 0 and end.microsecond == 0:
+        last_y, last_m = (last_y - 1, 12) if last_m == 1 else (last_y, last_m - 1)
+    months_touched: list[tuple[int, int]] = []
+    if end > start:
+        yy, mm = start.year, start.month
+        while (yy, mm) <= (last_y, last_m):
+            months_touched.append((yy, mm))
+            yy, mm = (yy + 1, 1) if mm == 12 else (yy, mm + 1)
+
+    if months_touched:
+        gmv_max_reimbursement = Decimal(str(
+            db.execute(
+                select(func.coalesce(func.sum(GmvMaxReimbursement.amount), 0))
+                .where(or_(*[
+                    and_(GmvMaxReimbursement.year == y, GmvMaxReimbursement.month == m)
+                    for y, m in months_touched
+                ]))
+            ).scalar() or 0
+        ))
+    else:
+        gmv_max_reimbursement = Decimal("0")
+
     # Sample shipping cost — captured separately from operational Shipping cost
     # (which stays PAID-only). Two channels summed:
     #   (a) Order.shipping_cost on SAMPLE / PAID_SAMPLE rows (TikTok-channel
@@ -281,7 +317,8 @@ def compute_window_pnl(
         - affiliate
         - shop_ads
         - gmv_max_ad_spend
-        + ad_credit_offset                # credits reduce ad expense
+        + gmv_max_reimbursement           # Smashbox reimburses GMV Max spend
+        + ad_credit_offset                # TikTok-issued credits reduce ad expense
         - ship_cost
         - sample_shipping_cost            # cash outflow for sample freight
         + ship_rev
@@ -309,6 +346,7 @@ def compute_window_pnl(
         affiliate_commission=affiliate,
         shop_ads_cost=shop_ads,
         gmv_max_ad_spend=gmv_max_ad_spend,
+        gmv_max_reimbursement=gmv_max_reimbursement,
         ad_credit_offset=ad_credit_offset,
         shipping_revenue=ship_rev,
         shipping_cost=ship_cost,

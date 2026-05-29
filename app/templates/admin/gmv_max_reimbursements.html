@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}GMV Max Reimbursements · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="GMV Max Reimbursements",
+  subtitle="Manually record the amount Smashbox reimburses Outlandish for GMV Max ad spend each month. Entries appear on the P&L as a 'Less: GMV Max Reimbursement' row that offsets the TikTok Ads (GMV Max) expense. Separate pipeline from TikTok-issued Ad Credits — both can coexist for the same month.",
+) %}
+{% endcall %}
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+  {{ notice }}
+</div>
+{% endif %}
+
+{# Add / update form. Submitting a (year, month) that already has an entry
+   overwrites the existing amount/note via the unique constraint. #}
+<section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="mb-4 text-sm font-semibold text-slate-900">Add or update a reimbursement</h2>
+  <form action="/admin/gmv-max-reimbursements" method="post" class="grid grid-cols-1 gap-3 md:grid-cols-6">
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Year</span>
+      <input type="number" name="year" required min="2020" max="2099" placeholder="e.g. 2026"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Month</span>
+      <select name="month" required
+              class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <option value="1">January</option>
+        <option value="2">February</option>
+        <option value="3">March</option>
+        <option value="4">April</option>
+        <option value="5">May</option>
+        <option value="6">June</option>
+        <option value="7">July</option>
+        <option value="8">August</option>
+        <option value="9">September</option>
+        <option value="10">October</option>
+        <option value="11">November</option>
+        <option value="12">December</option>
+      </select>
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+      <input type="number" name="amount" required step="0.01" min="0.01" placeholder="0.00"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-2">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Note <span class="font-normal normal-case text-slate-400">(optional)</span></span>
+      <input type="text" name="note" maxlength="512" placeholder="e.g. Smashbox confirmed via email 6/2/2026"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <div class="md:col-span-1 flex items-end">
+      <button type="submit"
+              class="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        Save
+      </button>
+    </div>
+  </form>
+  <p class="mt-2 text-xs text-slate-500">
+    Submitting a (year, month) that already has an entry overwrites the existing amount and note. Use the delete button on a row below to clear it instead.
+  </p>
+</section>
+
+{# Listing — most recent first. Each row has a delete button. To edit, just
+   resubmit the form above with the same year + month. #}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">
+      Reimbursements on file <span class="ml-2 text-xs font-normal text-slate-500">{{ rows | length }} entr{{ "y" if rows | length == 1 else "ies" }}</span>
+    </h2>
+  </header>
+
+  {% if rows | length == 0 %}
+  <div class="px-5 py-8 text-center">
+    <p class="text-sm text-slate-700">No reimbursements recorded yet.</p>
+    <p class="mt-1 text-xs text-slate-500">Add one using the form above. Until you do, the P&amp;L's GMV Max line shows the gross spend with no offset.</p>
+  </div>
+  {% else %}
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-5 py-2.5">Period</th>
+        <th class="px-3 py-2.5 text-right">Amount</th>
+        <th class="px-3 py-2.5">Note</th>
+        <th class="px-3 py-2.5 text-right">Updated</th>
+        <th class="px-3 py-2.5 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for r in rows %}
+      <tr>
+        <td class="px-5 py-3 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
+        <td class="px-3 py-3 text-right tabular-nums text-slate-900">${{ "%.2f" % r.amount }}</td>
+        <td class="px-3 py-3 text-slate-600">{{ r.note or "—" }}</td>
+        <td class="px-3 py-3 text-right text-xs text-slate-400 whitespace-nowrap">{{ r.updated_at.strftime("%Y-%m-%d") }}</td>
+        <td class="px-3 py-3 text-right">
+          <form action="/admin/gmv-max-reimbursements/{{ r.id }}/delete" method="post" class="inline">
+            <button type="submit"
+                    onclick="return confirm('Delete reimbursement for {{ r.month | month_short }} {{ r.year }}?')"
+                    class="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">
+              Delete
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}
