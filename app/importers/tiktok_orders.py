@@ -252,7 +252,14 @@ def _build_line(row: pd.Series) -> OrderLine:
     if post_tiktok < Decimal("0"):
         post_tiktok = Decimal("0.00")
 
-    split = split_seller_funded_discount(seller_disc, eligible_base=post_tiktok)
+    # Three-band split: 10% floor on post-TikTok, 30% ceiling on gross / MSRP.
+    # The 30% ceiling base intentionally matches violates_policy_cap so that
+    # over-policy dollars are absorbed by Outlandish, not Smashbox.
+    split = split_seller_funded_discount(
+        seller_disc,
+        eligible_base=post_tiktok,
+        policy_base=gross,
+    )
     # Policy ceiling uses MSRP (gross), not post-TikTok — conventional
     # discount-percentage language: "no SKU goes over 30% off retail."
     violation = violates_policy_cap(seller_disc, eligible_base=gross)
