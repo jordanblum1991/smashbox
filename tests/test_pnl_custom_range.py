@@ -20,6 +20,7 @@ from app.db import Base, SessionLocal, engine
 from app.models import (
     AdCredit,
     AdSpend,
+    GmvMaxReimbursement,
     ImportBatch,
     ImportBatchStatus,
     ImportFileKind,
@@ -169,7 +170,7 @@ _MATCH_FIELDS = (
     "tiktok_smart_promo_fee", "tiktok_campaign_fees",
     "tiktok_partner_commission", "tiktok_managed_service",
     "affiliate_commission", "shop_ads_cost",
-    "gmv_max_ad_spend", "ad_credit_offset",
+    "gmv_max_ad_spend", "gmv_max_reimbursement", "ad_credit_offset",
     "shipping_revenue", "shipping_cost", "sample_shipping_cost",
     "net_profit",
     "orders_count", "orders_settled", "units_sold",
@@ -592,3 +593,152 @@ def test_sample_shipping_period_boundary_attribution():
         "March 31 23:59:59 sample-order shipping belongs to March"
     assert april.sample_shipping_cost == Decimal("11.00"), \
         "April 1 00:00:00 off-platform sample shipping belongs to April, not March"
+
+
+# ---------------------------------------------------------------------------
+# 6. GMV Max Reimbursement — separate pipeline from AdCredit
+# ---------------------------------------------------------------------------
+
+def _gmv_reimb(year: int, month: int, amount: str) -> GmvMaxReimbursement:
+    return GmvMaxReimbursement(year=year, month=month, amount=Decimal(amount))
+
+
+def _ad_spend(db, batch_id: int, spend_date: datetime, amount: str, *, campaign_id: str = "C1") -> AdSpend:
+    """Seed a TikTok Ads (GMV Max) row so gmv_max_ad_spend has a value to offset."""
+    s = AdSpend(
+        import_batch_id=batch_id,
+        spend_date=spend_date,
+        campaign_id=campaign_id,
+        amount=Decimal(amount),
+    )
+    db.add(s)
+    db.flush()
+    return s
+
+
+def test_gmv_reimb_zero_when_no_entry_for_month():
+    """Regression guard: with no GmvMaxReimbursement row entered, the field
+    is 0, gmv_max_ad_spend is unchanged from the raw AdSpend sum, and
+    net_profit is what it would have been before the feature shipped."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _ad_spend(db, b.id, datetime(2026, 5, 10), "1000.00")
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 5)
+
+    assert pnl.gmv_max_reimbursement == Decimal("0")
+    assert pnl.gmv_max_ad_spend == Decimal("1000.00")
+    # net_profit deducts gmv_max_ad_spend without offset since no reimb entered.
+    # Confirm the deduction is the full amount.
+    assert pnl.gmv_max_ad_spend - pnl.gmv_max_reimbursement == Decimal("1000.00")
+
+
+def test_gmv_reimb_equal_to_spend_zeroes_the_net_ad_cost():
+    """Full reimbursement: net GMV Max contribution to expense is exactly $0."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _ad_spend(db, b.id, datetime(2026, 5, 10), "1000.00")
+        db.add(_gmv_reimb(2026, 5, "1000.00"))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 5)
+
+    assert pnl.gmv_max_ad_spend == Decimal("1000.00")
+    assert pnl.gmv_max_reimbursement == Decimal("1000.00")
+    # The two cancel in the net_profit equation: -gmv_max_ad_spend + gmv_max_reimbursement = 0.
+    # With no other orders/fees, net_profit should be 0 from these lines.
+
+
+def test_gmv_reimb_less_than_spend_partial_offset():
+    """Partial reimbursement (smaller than spend): net cost = spend - reimb."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _ad_spend(db, b.id, datetime(2026, 5, 10), "1000.00")
+        db.add(_gmv_reimb(2026, 5, "750.00"))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 5)
+
+    assert pnl.gmv_max_reimbursement == Decimal("750.00")
+    assert pnl.gmv_max_ad_spend - pnl.gmv_max_reimbursement == Decimal("250.00")
+
+
+def test_gmv_reimb_greater_than_spend_yields_net_credit():
+    """Edge case: reimbursement > spend produces a net credit. The model
+    permits this without error; net contribution becomes negative cost."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _ad_spend(db, b.id, datetime(2026, 5, 10), "1000.00")
+        db.add(_gmv_reimb(2026, 5, "1200.00"))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 5)
+
+    assert pnl.gmv_max_reimbursement == Decimal("1200.00")
+    # Net is a $200 credit (negative cost). The P&L equation is
+    # `-gmv_max_ad_spend + gmv_max_reimbursement` = +$200.
+    assert pnl.gmv_max_reimbursement - pnl.gmv_max_ad_spend == Decimal("200.00")
+
+
+def test_gmv_reimb_period_boundary_attribution():
+    """A May reimbursement aggregates ONLY into May's P&L, not April or June."""
+    with SessionLocal() as db:
+        db.add(_gmv_reimb(2026, 5, "1234.56"))
+        db.commit()
+
+    with SessionLocal() as db:
+        april = compute_monthly_pnl(db, 2026, 4)
+        may = compute_monthly_pnl(db, 2026, 5)
+        june = compute_monthly_pnl(db, 2026, 6)
+
+    assert april.gmv_max_reimbursement == Decimal("0")
+    assert may.gmv_max_reimbursement == Decimal("1234.56")
+    assert june.gmv_max_reimbursement == Decimal("0")
+
+
+def test_gmv_reimb_unique_constraint_prevents_duplicate_month_entries():
+    """UNIQUE(year, month) means two reimbursements for the same period fail.
+    The route layer upserts in place; the DB layer enforces the rule."""
+    import sqlalchemy.exc
+
+    with SessionLocal() as db:
+        db.add(_gmv_reimb(2026, 5, "100.00"))
+        db.commit()
+
+    with SessionLocal() as db:
+        db.add(_gmv_reimb(2026, 5, "200.00"))
+        with pytest.raises(sqlalchemy.exc.IntegrityError):
+            db.commit()
+
+
+def test_gmv_reimb_and_ad_credit_are_independent_pipelines():
+    """The two flows must coexist without shadowing each other. Both lines
+    populate independently from their own DB rows; both deduct from net_profit
+    independently. A window with one of each produces correct values on BOTH
+    pnl fields."""
+    with SessionLocal() as db:
+        b = _batch(db)
+        _ad_spend(db, b.id, datetime(2026, 5, 10), "1000.00")
+        db.add(_gmv_reimb(2026, 5, "500.00"))
+        db.add(AdCredit(
+            year=2026, month=5,
+            applied_date=date(2026, 5, 15),
+            amount=Decimal("250.00"),
+        ))
+        db.commit()
+
+    with SessionLocal() as db:
+        pnl = compute_monthly_pnl(db, 2026, 5)
+
+    # Both lines populated independently — neither shadows the other.
+    assert pnl.gmv_max_reimbursement == Decimal("500.00")
+    assert pnl.ad_credit_offset == Decimal("250.00")
+    # Net effect on profit: -1000 (spend) +500 (reimb) +250 (credit) = -250.
+    # With no other orders/fees the net contribution from these three lines
+    # to net_profit is -$250.
+

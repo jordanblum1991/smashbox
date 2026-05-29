@@ -49,6 +49,7 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
         affiliate_commission=s("affiliate_commission"),
         shop_ads_cost=s("shop_ads_cost"),
         gmv_max_ad_spend=s("gmv_max_ad_spend"),
+        gmv_max_reimbursement=s("gmv_max_reimbursement"),
         ad_credit_offset=s("ad_credit_offset"),
         shipping_revenue=s("shipping_revenue"),
         shipping_cost=s("shipping_cost"),

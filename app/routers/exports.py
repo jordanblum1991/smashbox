@@ -63,6 +63,7 @@ def export_monthly_pnl_xlsx(
         ("Affiliate Commissions", -pnl.affiliate_commission),
         ("Affiliate Commission (Shop Ads)", -pnl.shop_ads_cost),
         ("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend),
+        ("Less: GMV Max Reimbursement", pnl.gmv_max_reimbursement),
         ("Less: Ad Credits", pnl.ad_credit_offset),
         ("Shipping revenue", pnl.shipping_revenue),
         ("Shipping (to Customers)", -pnl.shipping_cost),
@@ -201,6 +202,13 @@ def export_pnl_xlsx(
     # Determine if any month has an ad credit; controls whether we render the
     # "Less: Ad Credits" line at all.
     any_credit = pnl.ad_credit_offset > 0 or any(m.ad_credit_offset > 0 for m in months)
+
+    # Same any-month check for GMV Max reimbursements. Independent flag from
+    # any_credit — both lines render iff their respective flag is true.
+    any_gmv_reimb = (
+        pnl.gmv_max_reimbursement > 0
+        or any(m.gmv_max_reimbursement > 0 for m in months)
+    )
 
     buf = BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
@@ -349,6 +357,8 @@ def export_pnl_xlsx(
 
     _write_section_header(row, "ADVERTISING"); row += 1
     _write_money_row(row, "TikTok Ads (GMV Max)", "gmv_max_ad_spend", -1, f_line_indent, f_money_indent); row += 1
+    if any_gmv_reimb:
+        _write_money_row(row, "Less: GMV Max Reimbursement", "gmv_max_reimbursement", 1, f_line_indent2, f_money_indent2); row += 1
     if any_credit:
         _write_money_row(row, "Less: Ad Credits", "ad_credit_offset", 1, f_line_indent2, f_money_indent2); row += 1
 
