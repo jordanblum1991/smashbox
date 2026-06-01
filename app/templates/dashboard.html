@@ -73,19 +73,19 @@
 {# ===========================================================================
    KPI GRID — hero Net Profit card + supporting financial + operating metrics
    =========================================================================== #}
-{% set net_tone = 'pos' if pnl.net_profit >= 0 else 'neg' %}
+{% set net_tone = 'pos' if pnl.managed_net_profit >= 0 else 'neg' %}
 
 <section aria-label="Headline metrics" class="mb-4 grid grid-cols-12 gap-3">
   {# Hero #}
   {% call ui.kpi_hero(
       label="Net Profit",
-      value=pnl.net_profit | money,
+      value=pnl.managed_net_profit | money,
       tone=net_tone,
-      badge=(pnl.net_margin | pct) ~ " margin",
+      badge=(pnl.managed_net_margin | pct) ~ " margin",
       href="/reports/pnl" ~ pnl_qs,
       col_span="col-span-12 md:col-span-6 lg:col-span-4"
   ) %}
-    Net Customer Sales of <span class="font-medium text-slate-700">{{ pnl.net_customer_sales | money }}</span>
+    Net Customer Sales of <span class="font-medium text-slate-700">{{ pnl.managed_net_customer_sales | money }}</span>
     after COGS of <span class="font-medium text-slate-700">{{ pnl.cogs | money }}</span>,
     TikTok fees, ads (net of credits), affiliate, and shipping.
   {% endcall %}
@@ -93,7 +93,7 @@
   {# Supporting financial metrics #}
   {{ ui.kpi(
       label="Net Customer Sales",
-      value=pnl.net_customer_sales | money,
+      value=pnl.managed_net_customer_sales | money,
       hint="After all discounts & refunds",
       href="/reports/pnl" ~ pnl_qs,
       col_span="col-span-6 md:col-span-3 lg:col-span-2"
@@ -101,7 +101,7 @@
 
   {{ ui.kpi(
       label="Gross Margin",
-      value=pnl.gross_margin | pct,
+      value=pnl.managed_gross_margin | pct,
       hint="Gross Profit ÷ Net Sales",
       href="/reports/pnl" ~ pnl_qs,
       col_span="col-span-6 md:col-span-3 lg:col-span-2"

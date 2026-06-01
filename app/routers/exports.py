@@ -46,11 +46,13 @@ def export_monthly_pnl_xlsx(
         ("Less: TikTok-Funded Discount", -pnl.platform_discount),
         ("Less: Outlandish-Funded Discount", -pnl.outlandish_discount),
         ("Less: Smashbox-Funded Discount", -pnl.smashbox_discount),
-        ("Sales (TikTok-equivalent)", pnl.sales_pre_refund),
+        ("Smashbox-Funded Discount Reimbursed by Smashbox (contra entry)", pnl.smashbox_discount_offset),
+        ("    Smashbox funds this discount directly. It is shown for transparency and offset below so it does not reduce the managed P&L.", None),
+        ("Sales (after Discounts)", pnl.managed_sales_pre_refund),
         ("Less: Refunds", -pnl.refunds),
-        ("Net Customer Sales", pnl.net_customer_sales),
+        ("Net Customer Sales", pnl.managed_net_customer_sales),
         ("COGS", -pnl.cogs),
-        ("Gross Profit", pnl.gross_profit),
+        ("Gross Profit", pnl.managed_gross_profit),
         ("TikTok fees", -pnl.tiktok_fees),
         ("    Referral fee", -pnl.tiktok_referral_fee),
         ("    Transaction fee", -pnl.tiktok_transaction_fee),
@@ -68,11 +70,13 @@ def export_monthly_pnl_xlsx(
         ("Shipping revenue", pnl.shipping_revenue),
         ("Shipping (to Customers)", -pnl.shipping_cost),
         ("Shipping (to Creators)", -pnl.sample_shipping_cost),
-        ("Net Profit", pnl.net_profit),
+        ("Net Profit", pnl.managed_net_profit),
     ]
     for i, (label, value) in enumerate(rows, start=3):
         ws.write(f"A{i}", label)
-        ws.write_number(f"B{i}", float(value), money)
+        # value=None marks a note row (label only, no number).
+        if value is not None:
+            ws.write_number(f"B{i}", float(value), money)
     ws.set_column(0, 0, 36)
     ws.set_column(1, 1, 18)
     wb.close()
@@ -274,12 +278,12 @@ def export_pnl_xlsx(
     ws.write(kpi_row, 0, "Summary", wb.add_format({"bold": True, "font_size": 10}))
     kpis = [
         ("Gross Sales", float(pnl.gross_sales), f_kpi_money),
-        ("Net Customer Sales", float(pnl.net_customer_sales), f_kpi_money),
-        ("Gross Profit", float(pnl.gross_profit), f_kpi_money),
+        ("Net Customer Sales", float(pnl.managed_net_customer_sales), f_kpi_money),
+        ("Gross Profit", float(pnl.managed_gross_profit), f_kpi_money),
         ("Total Ad Spend (net)", float(pnl.net_ad_spend), f_kpi_money),
-        ("Net Profit", float(pnl.net_profit), f_kpi_money),
-        ("Gross Margin", float(pnl.gross_margin), f_kpi_pct),
-        ("Net Margin", float(pnl.net_margin), f_kpi_pct),
+        ("Net Profit", float(pnl.managed_net_profit), f_kpi_money),
+        ("Gross Margin", float(pnl.managed_gross_margin), f_kpi_pct),
+        ("Net Margin", float(pnl.managed_net_margin), f_kpi_pct),
     ]
     for i, (label, value, fmt) in enumerate(kpis):
         ws.write(kpi_row + 1 + i, 0, label, f_kpi_label)
@@ -326,15 +330,23 @@ def export_pnl_xlsx(
     _write_money_row(row, "TikTok-Funded Discount", "platform_discount", -1, f_line_indent, f_money_indent); row += 1
     _write_money_row(row, "Outlandish-Funded Discount", "outlandish_discount", -1, f_line_indent, f_money_indent); row += 1
     _write_money_row(row, "Smashbox-Funded Discount", "smashbox_discount", -1, f_line_indent, f_money_indent); row += 1
-    _write_money_row(row, "SALES (TIKTOK-EQUIVALENT)", "sales_pre_refund", 1, f_subtotal_label, f_subtotal_money); row += 1
+    _write_money_row(row, "Smashbox-Funded Discount Reimbursed by Smashbox (contra entry)", "smashbox_discount_offset", 1, f_line_indent, f_money_indent); row += 1
+    # Inline note explaining the contra pair, directly under the offset row.
+    ws.write(
+        row, 0,
+        "    Smashbox funds this discount directly. It is shown for transparency "
+        "and offset below so it does not reduce the managed P&L.",
+        f_line_indent2,
+    ); row += 1
+    _write_money_row(row, "SALES (AFTER DISCOUNTS)", "managed_sales_pre_refund", 1, f_subtotal_label, f_subtotal_money); row += 1
     _write_money_row(row, "Refunds", "refunds", -1, f_line_indent, f_money_indent); row += 1
 
-    _write_money_row(row, "NET CUSTOMER SALES", "net_customer_sales", 1, f_subtotal_label, f_subtotal_money); row += 1
+    _write_money_row(row, "NET CUSTOMER SALES", "managed_net_customer_sales", 1, f_subtotal_label, f_subtotal_money); row += 1
 
     _write_section_header(row, "COST OF GOODS SOLD"); row += 1
     _write_money_row(row, "COGS", "cogs", -1, f_line_indent, f_money_indent); row += 1
 
-    _write_money_row(row, "GROSS PROFIT", "gross_profit", 1, f_subtotal_label, f_subtotal_money); row += 1
+    _write_money_row(row, "GROSS PROFIT", "managed_gross_profit", 1, f_subtotal_label, f_subtotal_money); row += 1
 
     _write_section_header(row, "TIKTOK FEES"); row += 1
     _write_money_row(row, "TikTok fees (total)", "tiktok_fees", -1, f_line_indent, f_money_indent); row += 1
@@ -368,7 +380,7 @@ def export_pnl_xlsx(
     _write_money_row(row, "Shipping (to Creators)", "sample_shipping_cost", -1, f_line_indent, f_money_indent); row += 1
 
     _write_money_row(row, "TOTAL OPERATING EXPENSES", "total_operating_expenses", -1, f_subtotal_label, f_subtotal_money); row += 1
-    _write_money_row(row, "NET PROFIT", "net_profit", 1, f_netprofit_label, f_netprofit_money); row += 1
+    _write_money_row(row, "NET PROFIT", "managed_net_profit", 1, f_netprofit_label, f_netprofit_money); row += 1
 
     # ---- Layout ---- -------------------------------------------------------
     ws.set_column(0, 0, 40)
