@@ -14,6 +14,10 @@ def client() -> TestClient:
     "path",
     [
         "/",
+        # Regression guard for the CUSTOM-range 500 fixed in
+        # hotfix/dashboard-custom-range-500: dashboard now parses + validates
+        # start_date / end_date instead of letting compute_pnl_view raise.
+        "/?period=custom&start_date=2026-04-27&end_date=2026-05-28",
         "/uploads",
         "/reports/pnl",
         "/reports/pnl?period=year&year=2026",

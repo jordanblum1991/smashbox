@@ -47,6 +47,12 @@
 {% include "partials/period_selector.html" %}
 
 {# ---- Alerts ---- #}
+{% if error %}
+{% call ui.banner(tone="error", title="Couldn't load custom range") %}
+  {{ error }}
+{% endcall %}
+{% endif %}
+
 {% if last_failed %}
 {% call ui.banner(tone="error", title="Last import failed",
                   action_label="View imports", action_href="/uploads") %}
