@@ -91,10 +91,82 @@ class MonthlyPnL:
     @property
     def aov_after_discounts(self) -> Decimal:
         """Average order value AFTER both TikTok-funded and seller-funded
-        discounts (i.e. Net Customer Sales / orders_count)."""
+        discounts (i.e. Net Customer Sales / orders_count). Uses the
+        settlement-real net_customer_sales; use `managed_aov_after_discounts`
+        for the operator/managed-P&L view (which adds the Smashbox offset back)."""
         if self.orders_count == 0:
             return Decimal("0")
         return self.net_customer_sales / Decimal(self.orders_count)
+
+    # -----------------------------------------------------------------
+    # MANAGED-P&L PROPERTIES — contra-net-zero presentation of the
+    # Smashbox-Funded Discount.
+    #
+    # Smashbox funds the Smashbox-Funded portion of the seller discount
+    # directly. The P&L shows the deduction (for transparency) and offsets
+    # it in the same revenue grouping so the pair nets to $0 and no
+    # downstream operator subtotal is reduced by this item.
+    #
+    # Stored fields (net_customer_sales, gross_profit, net_profit) are
+    # left UNCHANGED — they remain settlement-real for reconciliation
+    # tie-out against TikTok Seller Center. The `managed_*` properties
+    # below add the offset back and are what the rendered P&L displays.
+    # -----------------------------------------------------------------
+
+    @property
+    def smashbox_discount_offset(self) -> Decimal:
+        """Contra credit equal in magnitude to smashbox_discount. Auto-derived
+        so the offset and the deduction are always equal-and-opposite by
+        construction — the pair nets to $0 on every line in every period."""
+        return self.smashbox_discount
+
+    @property
+    def managed_net_customer_sales(self) -> Decimal:
+        """Net Customer Sales for the rendered P&L — settlement-real value
+        plus the Smashbox offset."""
+        return self.net_customer_sales + self.smashbox_discount_offset
+
+    @property
+    def managed_gross_profit(self) -> Decimal:
+        return self.gross_profit + self.smashbox_discount_offset
+
+    @property
+    def managed_net_profit(self) -> Decimal:
+        """Net Profit for the rendered P&L. Equals net_profit computed as if
+        the Smashbox-funded discount were $0 — the load-bearing invariant."""
+        return self.net_profit + self.smashbox_discount_offset
+
+    @property
+    def managed_gross_margin(self) -> Decimal:
+        if self.managed_net_customer_sales == 0:
+            return Decimal("0")
+        return self.managed_gross_profit / self.managed_net_customer_sales
+
+    @property
+    def managed_net_margin(self) -> Decimal:
+        if self.managed_net_customer_sales == 0:
+            return Decimal("0")
+        return self.managed_net_profit / self.managed_net_customer_sales
+
+    @property
+    def managed_aov_after_discounts(self) -> Decimal:
+        if self.orders_count == 0:
+            return Decimal("0")
+        return self.managed_net_customer_sales / Decimal(self.orders_count)
+
+    @property
+    def managed_roas(self) -> Decimal:
+        """Sales per $1 net ad spend, using the managed net customer sales."""
+        if self.net_ad_spend <= 0:
+            return Decimal("0")
+        return self.managed_net_customer_sales / self.net_ad_spend
+
+    @property
+    def managed_sales_pre_refund(self) -> Decimal:
+        """Sales (TikTok-equivalent) line of the rendered P&L — includes the
+        Smashbox offset. Use `sales_pre_refund` (the settlement-real
+        sibling) for tie-out against TikTok Seller Center's reported sales."""
+        return self.managed_net_customer_sales + self.refunds
 
     # Convenience aggregate for reconciliation against TikTok's reported total.
     @property

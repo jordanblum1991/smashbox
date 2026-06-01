@@ -50,12 +50,12 @@
 <section aria-label="Period summary" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
   {% set summary_cards = [
     ("Gross Sales", pnl.gross_sales | money, none),
-    ("Net Customer Sales", pnl.net_customer_sales | money, none),
-    ("Gross Profit", pnl.gross_profit | money, "emerald" if pnl.gross_profit >= 0 else "rose"),
+    ("Net Customer Sales", pnl.managed_net_customer_sales | money, none),
+    ("Gross Profit", pnl.managed_gross_profit | money, "emerald" if pnl.managed_gross_profit >= 0 else "rose"),
     ("Total Ad Spend", pnl.net_ad_spend | money, none),
-    ("Net Profit", pnl.net_profit | money, "emerald" if pnl.net_profit >= 0 else "rose"),
-    ("Gross Margin", pnl.gross_margin | pct, none),
-    ("Net Margin", pnl.net_margin | pct, "emerald" if pnl.net_margin >= 0 else "rose"),
+    ("Net Profit", pnl.managed_net_profit | money, "emerald" if pnl.managed_net_profit >= 0 else "rose"),
+    ("Gross Margin", pnl.managed_gross_margin | pct, none),
+    ("Net Margin", pnl.managed_net_margin | pct, "emerald" if pnl.managed_net_margin >= 0 else "rose"),
   ] %}
   {% for label, value, accent in summary_cards %}
   <div class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
@@ -96,11 +96,11 @@
   {%- endif -%}
 {%- endmacro %}
 
-{# % of Net Customer Sales — same paren convention as acct() #}
+{# % of Net Customer Sales (managed view) — same paren convention as acct() #}
 {% macro pct_of_sales(v) -%}
-  {%- if pnl.net_customer_sales == 0 or v is none -%}—
+  {%- if pnl.managed_net_customer_sales == 0 or v is none -%}—
   {%- else -%}
-    {%- set p = (v / pnl.net_customer_sales) -%}
+    {%- set p = (v / pnl.managed_net_customer_sales) -%}
     {%- if p < 0 -%}<span class="text-rose-700">({{ ((-p) * 100) | round(1) }}%)</span>
     {%- else -%}{{ (p * 100) | round(1) }}%
     {%- endif -%}
@@ -158,13 +158,19 @@
         {{ line("Less: TikTok-Funded Discount", -pnl.platform_discount, indent=1) }}
         {{ line("Less: Outlandish-Funded Discount", -pnl.outlandish_discount, indent=1) }}
         {{ line("Less: Smashbox-Funded Discount", -pnl.smashbox_discount, indent=1) }}
-        {{ subtotal("Sales (TikTok-equivalent)", pnl.sales_pre_refund) }}
+        {{ line("Smashbox-Funded Discount Reimbursed by Smashbox (contra entry)", pnl.smashbox_discount_offset, indent=1) }}
+        <tr>
+          <td colspan="3" class="pl-6 pr-1 pb-2 text-xs italic leading-relaxed text-slate-500">
+            Smashbox funds this discount directly. It is shown for transparency and offset below so it does not reduce the managed P&amp;L.
+          </td>
+        </tr>
+        {{ subtotal("Sales (after Discounts)", pnl.managed_sales_pre_refund) }}
         {{ line("Less: Refunds", -pnl.refunds, indent=1) }}
-        {{ subtotal("Net Customer Sales", pnl.net_customer_sales) }}
+        {{ subtotal("Net Customer Sales", pnl.managed_net_customer_sales) }}
 
         {{ section("Cost of Goods Sold") }}
         {{ line("COGS", -pnl.cogs) }}
-        {{ subtotal("Gross Profit", pnl.gross_profit, accent=("pos" if pnl.gross_profit >= 0 else "neg")) }}
+        {{ subtotal("Gross Profit", pnl.managed_gross_profit, accent=("pos" if pnl.managed_gross_profit >= 0 else "neg")) }}
 
         {{ section("Operating Expenses") }}
         {# TikTok fees — single line, expandable detail below #}
@@ -208,7 +214,7 @@
         {{ line("Shipping (to Customers)", -pnl.shipping_cost) }}
         {{ line("Shipping (to Creators)", -pnl.sample_shipping_cost) }}
         {{ line("Shipping revenue", pnl.shipping_revenue) }}
-        {{ subtotal("Net Profit", pnl.net_profit, accent=("pos" if pnl.net_profit >= 0 else "neg")) }}
+        {{ subtotal("Net Profit", pnl.managed_net_profit, accent=("pos" if pnl.managed_net_profit >= 0 else "neg")) }}
       </tbody>
     </table>
   </div>
@@ -340,16 +346,23 @@
       {{ line_row("TikTok-Funded Discount", "platform_discount", indent=1, deduction=true) }}
       {{ line_row("Outlandish-Funded Discount", "outlandish_discount", indent=1, deduction=true) }}
       {{ line_row("Smashbox-Funded Discount", "smashbox_discount", indent=1, deduction=true) }}
+      {{ line_row("Smashbox-Funded Discount Reimbursed by Smashbox (contra entry)", "smashbox_discount_offset", indent=1) }}
+      <tr>
+        <td colspan="{{ months | length + 2 }}"
+            class="sticky left-0 bg-white pl-9 pr-4 pb-2 text-xs italic leading-relaxed text-slate-500">
+          Smashbox funds this discount directly. It is shown for transparency and offset below so it does not reduce the managed P&amp;L.
+        </td>
+      </tr>
 
-      {{ subtotal_row("Sales (TikTok-equivalent)", "sales_pre_refund") }}
+      {{ subtotal_row("Sales (after Discounts)", "managed_sales_pre_refund") }}
       {{ line_row("Refunds", "refunds", indent=1, deduction=true) }}
 
-      {{ subtotal_row("Net Customer Sales", "net_customer_sales") }}
+      {{ subtotal_row("Net Customer Sales", "managed_net_customer_sales") }}
 
       {{ section_header("Cost of Goods Sold") }}
       {{ line_row("COGS", "cogs", indent=1, deduction=true) }}
 
-      {{ subtotal_row("Gross Profit", "gross_profit", accent=true) }}
+      {{ subtotal_row("Gross Profit", "managed_gross_profit", accent=true) }}
 
       {{ section_header("TikTok Fees", toggle_id="tiktok-fee") }}
       {{ line_row("TikTok fees (total)", "tiktok_fees", indent=1, deduction=true) }}
@@ -381,7 +394,7 @@
       {{ line_row("Shipping (to Creators)", "sample_shipping_cost", indent=1, deduction=true) }}
 
       {{ subtotal_row("Total Operating Expenses", "total_operating_expenses", deduction=true) }}
-      {{ subtotal_row("Net Profit", "net_profit", accent=true, big=true) }}
+      {{ subtotal_row("Net Profit", "managed_net_profit", accent=true, big=true) }}
     </tbody>
   </table>
 </div>
