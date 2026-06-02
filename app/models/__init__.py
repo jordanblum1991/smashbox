@@ -6,6 +6,7 @@ from app.models.creator import Creator
 from app.models.gmv_max_reimbursement import GmvMaxReimbursement
 from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.inventory_snapshot import InventorySnapshot
+from app.models.invoice import Invoice
 from app.models.order import Order, OrderLine, OrderType
 from app.models.payout import Payout
 from app.models.sample import Sample
@@ -29,6 +30,7 @@ __all__ = [
     "ImportBatchStatus",
     "ImportFileKind",
     "InventorySnapshot",
+    "Invoice",
     "Order",
     "OrderLine",
     "OrderType",

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Invoice {{ invoice.number }} · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin · Invoice",
+  title=invoice.number,
+  period=invoice.issue_date.strftime("%B %d, %Y"),
+) %}
+  <a href="/admin/invoices/{{ invoice.id }}/pdf"
+     class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+    Download PDF
+  </a>
+  {% if invoice.status != "paid" %}
+  <form action="/admin/invoices/{{ invoice.id }}/mark-paid" method="post" class="inline">
+    <button type="submit"
+            class="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700">
+      Mark Paid
+    </button>
+  </form>
+  {% endif %}
+  <a href="/admin/invoices"
+     class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+    ← Back to list
+  </a>
+{% endcall %}
+
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+  {{ notice }}
+</div>
+{% endif %}
+
+{# Status + quick facts summary card #}
+<section class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+  <div class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</div>
+    <div class="mt-1">
+      {% if invoice.status == "paid" %}
+      <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200">Paid</span>
+      {% else %}
+      <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-sm font-semibold text-amber-700 ring-1 ring-amber-200">Issued</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount</div>
+    <div class="mt-1 text-lg font-semibold tabular-nums text-slate-900">{{ invoice.amount | money }}</div>
+  </div>
+  <div class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Issued</div>
+    <div class="mt-1 text-sm text-slate-700">{{ invoice.issue_date.strftime("%b %d, %Y") }}</div>
+  </div>
+  <div class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Created</div>
+    <div class="mt-1 text-sm text-slate-700">{{ invoice.created_at.strftime("%b %d, %Y") }}</div>
+  </div>
+</section>
+
+{# Embedded preview — the iframe loads the bare invoice HTML at /preview,
+   which is visually identical to the downloaded PDF. The iframe has no
+   chrome, so the preview looks like the actual document. #}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">Preview</h2>
+    <p class="text-xs text-slate-500">Same render as the downloaded PDF.</p>
+  </header>
+  <iframe src="/admin/invoices/{{ invoice.id }}/preview"
+          title="Invoice {{ invoice.number }} preview"
+          class="w-full border-0"
+          style="min-height: 900px; background: #f8fafc;">
+  </iframe>
+</section>
+{% endblock %}

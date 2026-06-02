@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Create invoice · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Create invoice",
+  subtitle="Issue a new invoice. Saved invoices are downloadable as PDF and can be marked paid later. Bill To defaults to Smashbox but is editable per invoice.",
+) %}
+  <a href="/admin/invoices"
+     class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+    ← Back to list
+  </a>
+{% endcall %}
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+  <form action="/admin/invoices" method="post" class="space-y-5">
+
+    {# Number + Issue date row #}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <label>
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice number</span>
+        <input type="text" name="number" required value="{{ number }}" maxlength="32"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <span class="mt-1 block text-xs text-slate-500">Format: OL-YYYY-NNN. Suggestion: next available number, but editable.</span>
+      </label>
+      <label>
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Issue date</span>
+        <input type="date" name="issue_date" id="issue_date" required value="{{ issue_date }}"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+    </div>
+
+    {# Description preset + headline #}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <label class="md:col-span-1">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Description preset</span>
+        <select name="description_preset" id="description_preset"
+                class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <option value="ad_spend"          {% if description_preset == "ad_spend" %}selected{% endif %}>TikTok Shop Advertising Spend</option>
+          <option value="customer_discount" {% if description_preset == "customer_discount" %}selected{% endif %}>Smashbox Co-Funded Customer Discount</option>
+          <option value="custom"            {% if description_preset == "custom" %}selected{% endif %}>Custom</option>
+        </select>
+        <span class="mt-1 block text-xs text-slate-500">Picking a preset pre-fills the headline; you can still edit it.</span>
+      </label>
+      <label class="md:col-span-2">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Description headline</span>
+        <input type="text" name="description_headline" id="description_headline" required value="{{ description_headline }}" maxlength="256"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+    </div>
+
+    {# Subtitle + period label #}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <label>
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Subtitle <span class="font-normal normal-case text-slate-400">(optional)</span>
+        </span>
+        <textarea name="description_subtitle" rows="2"
+                  class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  placeholder="e.g. Smashbox-funded portion of seller discounts applied to customer orders.">{{ description_subtitle }}</textarea>
+      </label>
+      <label>
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Period label <span class="font-normal normal-case text-slate-400">(optional)</span>
+        </span>
+        <input type="text" name="period_label" value="{{ period_label }}" maxlength="128"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+               placeholder="e.g. Data period: April 27 – May 28, 2026">
+      </label>
+    </div>
+
+    {# Bill To + Amount #}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <label class="md:col-span-2">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Bill To</span>
+        <textarea name="bill_to_block" required rows="4"
+                  class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">{{ bill_to_block }}</textarea>
+        <span class="mt-1 block text-xs text-slate-500">First line is the company name (rendered bold on the invoice); remaining lines are the address.</span>
+      </label>
+      <label class="md:col-span-1">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount (USD)</span>
+        <input type="number" name="amount" required step="0.01" min="0.01" value="{{ amount }}"
+               class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+               placeholder="0.00">
+        <span class="mt-1 block text-xs text-slate-500">Qty is always 1; Tax is always $0.00. Amount = subtotal = total due.</span>
+      </label>
+    </div>
+
+    <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+      <a href="/admin/invoices"
+         class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+        Cancel
+      </a>
+      <button type="submit"
+              class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        Create invoice
+      </button>
+    </div>
+  </form>
+</section>
+
+{# Description preset → headline auto-fill. Vanilla DOM events; mirrors
+   the toggle scripts already in pnl.html. Computes the month/year from
+   the issue_date input so the headline reflects whatever date the user
+   ultimately picks. The "custom" preset clears the field to let the user
+   type freely. The user can also overwrite the auto-filled headline at
+   any time — we never overwrite after the user has typed manually. #}
+<script>
+(function () {
+  var preset = document.getElementById("description_preset");
+  var headline = document.getElementById("description_headline");
+  var issueDate = document.getElementById("issue_date");
+  if (!preset || !headline || !issueDate) return;
+
+  var months = ["January","February","March","April","May","June",
+                "July","August","September","October","November","December"];
+
+  function monthYearLabel() {
+    var v = issueDate.value;
+    if (!v) return "";
+    // HTML date inputs emit "YYYY-MM-DD".
+    var parts = v.split("-");
+    if (parts.length !== 3) return "";
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10);
+    if (isNaN(y) || isNaN(m) || m < 1 || m > 12) return "";
+    return months[m - 1] + " " + y;
+  }
+
+  function fillFromPreset() {
+    var label = monthYearLabel();
+    if (preset.value === "ad_spend") {
+      headline.value = "TikTok Shop Advertising Spend" + (label ? " — " + label : "");
+    } else if (preset.value === "customer_discount") {
+      headline.value = "Smashbox Co-Funded Customer Discount" +
+                       (label ? " — TikTok Shop " + label : "");
+    } else if (preset.value === "custom") {
+      headline.value = "";
+    }
+  }
+
+  preset.addEventListener("change", fillFromPreset);
+  // Recompute on issue_date change so the month/year stays current
+  // when the user adjusts the date.
+  issueDate.addEventListener("change", function () {
+    // Only auto-update if the current headline matches a preset shape;
+    // otherwise leave the user's manual edits alone.
+    var current = headline.value.trim();
+    var label = monthYearLabel();
+    if (preset.value === "ad_spend" && current.indexOf("TikTok Shop Advertising Spend") === 0) {
+      headline.value = "TikTok Shop Advertising Spend" + (label ? " — " + label : "");
+    } else if (preset.value === "customer_discount" && current.indexOf("Smashbox Co-Funded Customer Discount") === 0) {
+      headline.value = "Smashbox Co-Funded Customer Discount" +
+                       (label ? " — TikTok Shop " + label : "");
+    }
+  });
+})();
+</script>
+{% endblock %}

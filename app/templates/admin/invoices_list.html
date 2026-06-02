@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Invoices · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Invoices",
+  subtitle="Manually-created invoices for Outlandish's TikTok Shop management services. Create here, mark paid, download as PDF.",
+) %}
+  <a href="/admin/invoices/new"
+     class="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+    + Create invoice
+  </a>
+{% endcall %}
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+  {{ notice }}
+</div>
+{% endif %}
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">
+      All invoices <span class="ml-2 text-xs font-normal text-slate-500">{{ invoices | length }} entr{{ "y" if invoices | length == 1 else "ies" }}</span>
+    </h2>
+  </header>
+
+  {% if invoices | length == 0 %}
+  <div class="px-5 py-10 text-center">
+    <p class="text-sm text-slate-700">No invoices yet.</p>
+    <p class="mt-1 text-xs text-slate-500">Use “+ Create invoice” above to issue the first one.</p>
+  </div>
+  {% else %}
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-5 py-2.5">Number</th>
+        <th class="px-3 py-2.5">Date</th>
+        <th class="px-3 py-2.5">Description</th>
+        <th class="px-3 py-2.5 text-right">Amount</th>
+        <th class="px-3 py-2.5">Status</th>
+        <th class="px-3 py-2.5 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for inv in invoices %}
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-5 py-3 font-medium text-slate-900 whitespace-nowrap">
+          <a href="/admin/invoices/{{ inv.id }}" class="hover:underline">{{ inv.number }}</a>
+        </td>
+        <td class="px-3 py-3 text-slate-700 whitespace-nowrap">{{ inv.issue_date.strftime("%b %d, %Y") }}</td>
+        <td class="px-3 py-3 text-slate-700">
+          <span class="block max-w-md truncate">{{ inv.description_headline }}</span>
+        </td>
+        <td class="px-3 py-3 text-right tabular-nums text-slate-900 whitespace-nowrap">{{ inv.amount | money }}</td>
+        <td class="px-3 py-3">
+          {% if inv.status == "paid" %}
+          <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">Paid</span>
+          {% else %}
+          <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">Issued</span>
+          {% endif %}
+        </td>
+        <td class="px-3 py-3 text-right whitespace-nowrap">
+          <a href="/admin/invoices/{{ inv.id }}"
+             class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">View</a>
+          <a href="/admin/invoices/{{ inv.id }}/pdf"
+             class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">PDF</a>
+          {% if inv.status != "paid" %}
+          <form action="/admin/invoices/{{ inv.id }}/mark-paid" method="post" class="inline">
+            <button type="submit"
+                    class="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50">
+              Mark Paid
+            </button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

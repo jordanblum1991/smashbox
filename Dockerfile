@@ -11,10 +11,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# System deps: gcc + libpq for any wheel that builds from source (xlsxwriter,
-# pydantic-core fallback). Trimmed after install to keep the image small.
+# System deps:
+#   - gcc + libpq: for any wheel that builds from source (xlsxwriter,
+#     pydantic-core fallback).
+#   - libpango / libpangoft2 / libharfbuzz / libcairo / libffi: WeasyPrint's
+#     runtime (PDF rendering for /admin/invoices/{id}/pdf).
+#   - shared-mime-info + fonts-dejavu-core: WeasyPrint font + MIME resolution.
+# Apt lists trimmed after install to keep the image small.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc libpq-dev \
+ && apt-get install -y --no-install-recommends \
+      gcc libpq-dev \
+      libpango-1.0-0 libpangoft2-1.0-0 \
+      libharfbuzz0b libcairo2 \
+      libffi-dev \
+      shared-mime-info fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

@@ -1,0 +1,329 @@
+{# Standalone invoice document — no base.html, no Tailwind dependency.
+
+   Used by:
+     - GET /admin/invoices/{id}/preview  → returned as HTML, embedded
+                                            in the detail page iframe.
+     - GET /admin/invoices/{id}/pdf      → fed to WeasyPrint, returned
+                                            as application/pdf.
+
+   Plain CSS in the <style> block so WeasyPrint can render without
+   any external CSS resolution. Layout mirrors the example PDFs
+   under data/invoices/ — six stacked blocks:
+     1. Header band (Outlandish wordmark + INVOICE heading)
+     2. Sub-header (address column + meta column)
+     3. BILL TO band
+     4. Line item table (navy header band, single line item with
+        optional subtitle / period lines beneath)
+     5. Totals (right-aligned subtotal / tax / TOTAL DUE)
+     6. Footer (single italic line, centered)
+
+   The navy color (#0f172a) matches slate-900 already used throughout
+   the app. DejaVu Sans is the system font on the Fly container; no
+   webfont fetching at render time.
+#}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice {{ invoice.number }}</title>
+<style>
+  /* Page setup — WeasyPrint reads these for PDF margins; browsers ignore. */
+  @page {
+    size: Letter;
+    margin: 0.75in;
+  }
+
+  /* Reset + base typography */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "DejaVu Sans", Helvetica, Arial, sans-serif;
+    color: #334155;        /* slate-700 */
+    font-size: 11pt;
+    line-height: 1.4;
+    background: #ffffff;
+    /* Browser preview only — give the page some breathing room when
+       viewed via the iframe (no @page rule applied). WeasyPrint
+       ignores this because the @page margin takes precedence. */
+    padding: 0.75in;
+  }
+  /* When WeasyPrint renders, the @page margin handles padding so we
+     remove the body padding for PDFs. The .pdf-mode class is added
+     by WeasyPrint runtime? No — simpler: just rely on the @page
+     overriding the body padding in PDF output. Actually @page margin
+     doesn't override body padding in WeasyPrint. So we use a media
+     query so the body padding only applies in browser. */
+  @media print {
+    body { padding: 0; }
+  }
+
+  /* Block 1 — Header band */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 32px;
+  }
+  .header .brand-name {
+    font-size: 36pt;
+    font-weight: 800;
+    color: #0f172a;        /* slate-900 navy */
+    line-height: 1;
+    margin: 0;
+  }
+  .header .brand-subtitle {
+    font-style: italic;
+    color: #64748b;        /* slate-500 */
+    font-size: 10pt;
+    margin-top: 4px;
+  }
+  .header .invoice-label {
+    font-size: 32pt;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1;
+    letter-spacing: 0.02em;
+  }
+
+  /* Block 2 — Sub-header (two columns) */
+  .subheader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+  }
+  .subheader .address-block {
+    color: #475569;        /* slate-600 */
+    font-size: 10pt;
+  }
+  .subheader .address-block p { margin: 0; }
+  .subheader .meta {
+    /* Right-aligned label/value rows */
+    text-align: left;
+    font-size: 10pt;
+  }
+  .subheader .meta table { border-collapse: collapse; }
+  .subheader .meta th {
+    text-align: left;
+    padding: 0 12px 4px 0;
+    font-weight: 700;
+    color: #0f172a;
+    white-space: nowrap;
+  }
+  .subheader .meta td {
+    padding: 0 0 4px 0;
+    color: #475569;
+    white-space: nowrap;
+  }
+
+  /* Block 3 — BILL TO band */
+  .billto-band {
+    background: #f1f5f9;   /* slate-100 */
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    border-radius: 3px;
+  }
+  .billto-label {
+    font-size: 9pt;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.08em;
+  }
+  .billto-content {
+    padding: 0 12px;
+    margin-bottom: 24px;
+  }
+  .billto-content .name {
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 2px;
+  }
+  .billto-content .address {
+    color: #475569;
+    white-space: pre-line;  /* respects \n in the bill_to_block */
+    margin: 0;
+  }
+
+  /* Block 4 — Line item table */
+  table.lineitems {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  table.lineitems thead th {
+    background: #0f172a;
+    color: #ffffff;
+    text-align: left;
+    text-transform: uppercase;
+    font-size: 9pt;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 8px 12px;
+  }
+  table.lineitems thead th.numeric { text-align: right; }
+  table.lineitems tbody td {
+    padding: 16px 12px 4px 12px;
+    vertical-align: top;
+  }
+  table.lineitems tbody td.numeric {
+    text-align: right;
+    color: #334155;
+    font-variant-numeric: tabular-nums;
+  }
+  table.lineitems .desc-headline {
+    font-weight: 700;
+    color: #0f172a;
+  }
+  table.lineitems .desc-sub {
+    margin: 4px 0 0 0;
+    color: #64748b;
+    font-size: 10pt;
+    line-height: 1.5;
+  }
+
+  /* Block 5 — Totals (right-aligned, hugs the right edge) */
+  .totals {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 48px;
+  }
+  .totals table {
+    border-collapse: collapse;
+    min-width: 260px;
+  }
+  .totals th {
+    text-align: right;
+    padding: 4px 16px 4px 0;
+    font-weight: 400;
+    color: #475569;
+  }
+  .totals td {
+    text-align: right;
+    padding: 4px 0;
+    color: #334155;
+    font-variant-numeric: tabular-nums;
+    min-width: 110px;
+  }
+  .totals .total-due th,
+  .totals .total-due td {
+    border-top: 1px solid #cbd5e1;   /* slate-300 */
+    padding-top: 8px;
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 12pt;
+  }
+
+  /* Block 6 — Footer */
+  .footer {
+    text-align: center;
+    font-style: italic;
+    color: #64748b;
+    font-size: 9pt;
+    margin-top: 24px;
+  }
+</style>
+</head>
+<body>
+
+{# ---- Block 1: header band ---------------------------------------------- #}
+<div class="header">
+  <div>
+    <h1 class="brand-name">Outlandish</h1>
+    <div class="brand-subtitle">TikTok Shop Management</div>
+  </div>
+  <div class="invoice-label">INVOICE</div>
+</div>
+
+{# ---- Block 2: address + invoice meta ----------------------------------- #}
+<div class="subheader">
+  <div class="address-block">
+    <p>1228 3rd Street Promenade</p>
+    <p>Santa Monica, CA 90401</p>
+  </div>
+  <div class="meta">
+    <table>
+      <tr>
+        <th>Invoice #</th>
+        <td>{{ invoice.number }}</td>
+      </tr>
+      <tr>
+        <th>Date</th>
+        <td>{{ invoice.issue_date.strftime("%B %d, %Y") }}</td>
+      </tr>
+      <tr>
+        <th>Due Date</th>
+        <td>Due on Receipt</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+{# ---- Block 3: BILL TO -------------------------------------------------- #}
+<div class="billto-band">
+  <span class="billto-label">BILL TO</span>
+</div>
+<div class="billto-content">
+  {# Render the first non-empty line in bold (the customer name), then the
+     remaining lines as the address. If only one line was entered, render
+     it bold and skip the address paragraph. #}
+  {% set bill_lines = invoice.bill_to_block.splitlines() %}
+  {% set name_line = (bill_lines[0] if bill_lines else "") | trim %}
+  {% set address_lines = bill_lines[1:] if bill_lines | length > 1 else [] %}
+  <div class="name">{{ name_line }}</div>
+  {% if address_lines %}
+  <p class="address">{{ address_lines | join("\n") }}</p>
+  {% endif %}
+</div>
+
+{# ---- Block 4: line item table ------------------------------------------ #}
+<table class="lineitems">
+  <thead>
+    <tr>
+      <th>Description</th>
+      <th class="numeric">Qty</th>
+      <th class="numeric">Unit Price</th>
+      <th class="numeric">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <div class="desc-headline">{{ invoice.description_headline }}</div>
+        {% if invoice.description_subtitle %}
+        <p class="desc-sub">{{ invoice.description_subtitle }}</p>
+        {% endif %}
+        {% if invoice.period_label %}
+        <p class="desc-sub">{{ invoice.period_label }}</p>
+        {% endif %}
+      </td>
+      <td class="numeric">1</td>
+      <td class="numeric">{{ invoice.amount | money }}</td>
+      <td class="numeric">{{ invoice.amount | money }}</td>
+    </tr>
+  </tbody>
+</table>
+
+{# ---- Block 5: totals (right-aligned) ----------------------------------- #}
+<div class="totals">
+  <table>
+    <tr>
+      <th>Subtotal</th>
+      <td>{{ invoice.amount | money }}</td>
+    </tr>
+    <tr>
+      <th>Tax</th>
+      <td>$0.00</td>
+    </tr>
+    <tr class="total-due">
+      <th>TOTAL DUE</th>
+      <td>{{ invoice.amount | money }}</td>
+    </tr>
+  </table>
+</div>
+
+{# ---- Block 6: footer --------------------------------------------------- #}
+<div class="footer">
+  Outlandish · 1228 3rd Street Promenade, Santa Monica, CA 90401 · Thank you for your continued partnership.
+</div>
+
+</body>
+</html>
