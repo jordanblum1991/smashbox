@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Edit invoice {{ invoice.number }} · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin · Invoice",
+  title="Edit " ~ invoice.number,
+  subtitle="Every field is editable, including paid invoices. To change status, use the Mark Paid button on the detail page.",
+) %}
+  <a href="/admin/invoices/{{ invoice.id }}"
+     class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+    ← Back to invoice
+  </a>
+{% endcall %}
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+
+{# action_url posts to /admin/invoices/{id}/edit (matches the existing
+   /admin/users/{id}/edit pattern). On success, the route redirects back
+   to /admin/invoices/{id}. Form values default to the stored Invoice;
+   the router preserves submitted values on validation error. #}
+{% set action_url = "/admin/invoices/" ~ invoice.id ~ "/edit" %}
+{% set submit_label = "Save changes" %}
+{% set cancel_url = "/admin/invoices/" ~ invoice.id %}
+
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+  {% include "admin/_invoice_form.html" %}
+</section>
+{% endblock %}

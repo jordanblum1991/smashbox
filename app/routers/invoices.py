@@ -83,6 +83,83 @@ def _new_error_redirect(reason: str, **form_values: str) -> RedirectResponse:
     )
 
 
+def _edit_error_redirect(
+    invoice_id: int, reason: str, **form_values: str
+) -> RedirectResponse:
+    """303 back to /admin/invoices/{id}/edit with the same error+preserve
+    convention as the create flow."""
+    params: dict[str, str] = {"error": reason}
+    for k, v in form_values.items():
+        if v is not None and v != "":
+            params[k] = v
+    return RedirectResponse(
+        f"/admin/invoices/{invoice_id}/edit?{urlencode(params)}", status_code=303
+    )
+
+
+def _detect_preset(headline: str) -> str:
+    """Map a stored headline back to the preset dropdown value that would
+    have generated it. Used to default the dropdown on the edit form so
+    the operator sees the "right" preset selected for the current line."""
+    h = (headline or "").strip()
+    if h.startswith("TikTok Shop Advertising Spend"):
+        return "ad_spend"
+    if h.startswith("Smashbox Co-Funded Customer Discount"):
+        return "customer_discount"
+    return "custom"
+
+
+def _validate_invoice_form(
+    *,
+    number: str,
+    issue_date: str,
+    description_headline: str,
+    bill_to_block: str,
+    amount: str,
+) -> tuple[dict | None, str | None]:
+    """Validate a create/edit submission.
+
+    Returns (parsed, None) on success — parsed is a dict with cleaned/parsed
+    values: number_clean, issue_date_obj, headline_clean, bill_to_clean,
+    amount_dec. Returns (None, error_message) on failure; caller routes
+    that to its own error-redirect (create vs edit have different targets).
+
+    Uniqueness is NOT checked here because the exclusion rule differs
+    (create: any match → error; edit: any match except self → error)."""
+    number_clean = (number or "").strip()
+    if not number_clean:
+        return None, "Invoice number is required."
+
+    try:
+        issue_date_obj = date.fromisoformat(issue_date)
+    except (TypeError, ValueError):
+        return None, "Issue date is required and must be a valid date."
+
+    headline_clean = (description_headline or "").strip()
+    if not headline_clean:
+        return None, "Description headline is required."
+
+    bill_to_clean = (bill_to_block or "").strip()
+    if not bill_to_clean:
+        return None, "Bill To block is required."
+
+    try:
+        amount_dec = Decimal((amount or "").strip())
+    except (InvalidOperation, AttributeError):
+        return None, f"Amount {amount!r} is not a valid number."
+    if amount_dec <= 0:
+        return None, "Amount must be greater than $0.00."
+    amount_dec = amount_dec.quantize(Decimal("0.01"))
+
+    return {
+        "number_clean": number_clean,
+        "issue_date_obj": issue_date_obj,
+        "headline_clean": headline_clean,
+        "bill_to_clean": bill_to_clean,
+        "amount_dec": amount_dec,
+    }, None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -161,62 +238,35 @@ def invoice_create(
         "amount": amount,
     }
 
-    # ----- Validation -----
-    number_clean = (number or "").strip()
-    if not number_clean:
-        return _new_error_redirect("Invoice number is required.", **submitted)
-
-    # Parse issue_date (HTML5 date input emits ISO YYYY-MM-DD).
-    try:
-        issue_date_obj = date.fromisoformat(issue_date)
-    except (TypeError, ValueError):
-        return _new_error_redirect(
-            "Issue date is required and must be a valid date.", **submitted
-        )
-
-    headline_clean = (description_headline or "").strip()
-    if not headline_clean:
-        return _new_error_redirect(
-            "Description headline is required.", **submitted
-        )
-
-    bill_to_clean = (bill_to_block or "").strip()
-    if not bill_to_clean:
-        return _new_error_redirect("Bill To block is required.", **submitted)
-
-    # Amount must parse and be strictly positive.
-    try:
-        amount_dec = Decimal((amount or "").strip())
-    except (InvalidOperation, AttributeError):
-        return _new_error_redirect(
-            f"Amount '{amount}' is not a valid number.", **submitted
-        )
-    if amount_dec <= 0:
-        return _new_error_redirect(
-            "Amount must be greater than $0.00.", **submitted
-        )
-    # Quantize to cents to match the column type.
-    amount_dec = amount_dec.quantize(Decimal("0.01"))
+    parsed, err = _validate_invoice_form(
+        number=number,
+        issue_date=issue_date,
+        description_headline=description_headline,
+        bill_to_block=bill_to_block,
+        amount=amount,
+    )
+    if err is not None:
+        return _new_error_redirect(err, **submitted)
 
     # Number uniqueness. Pre-check for a friendly error message; the DB's
     # UNIQUE constraint is the backstop if two requests race.
     existing = db.execute(
-        select(Invoice).where(Invoice.number == number_clean)
+        select(Invoice).where(Invoice.number == parsed["number_clean"])
     ).scalar_one_or_none()
     if existing is not None:
         return _new_error_redirect(
-            f"Invoice number {number_clean!r} is already in use.", **submitted
+            f"Invoice number {parsed['number_clean']!r} is already in use.",
+            **submitted,
         )
 
-    # ----- Persist -----
     inv = Invoice(
-        number=number_clean,
-        issue_date=issue_date_obj,
-        bill_to_block=bill_to_clean,
-        description_headline=headline_clean,
+        number=parsed["number_clean"],
+        issue_date=parsed["issue_date_obj"],
+        bill_to_block=parsed["bill_to_clean"],
+        description_headline=parsed["headline_clean"],
         description_subtitle=(description_subtitle or "").strip() or None,
         period_label=(period_label or "").strip() or None,
-        amount=amount_dec,
+        amount=parsed["amount_dec"],
         status="issued",
         brand_code="SMASHBOX",
     )
@@ -225,6 +275,141 @@ def invoice_create(
 
     return RedirectResponse(
         f"/admin/invoices/{inv.id}?{urlencode({'notice': 'Invoice created.'})}",
+        status_code=303,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Edit (GET form, POST update)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/admin/invoices/{invoice_id}/edit", dependencies=[Depends(require_admin)]
+)
+def invoice_edit_form(
+    invoice_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    error: str | None = None,
+    # Preserved-on-error form values — fall back to stored values otherwise.
+    number: str | None = None,
+    issue_date: str | None = None,
+    description_preset: str | None = None,
+    description_headline: str | None = None,
+    description_subtitle: str | None = None,
+    period_label: str | None = None,
+    bill_to_block: str | None = None,
+    amount: str | None = None,
+) -> Response:
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        return RedirectResponse(
+            f"/admin/invoices?{urlencode({'error': 'Invoice not found.'})}",
+            status_code=303,
+        )
+    return templates.TemplateResponse(
+        request,
+        "admin/invoices_edit.html",
+        {
+            "invoice": inv,
+            "error": error,
+            "number": number or inv.number,
+            "issue_date": issue_date or inv.issue_date.isoformat(),
+            "description_preset": (
+                description_preset or _detect_preset(inv.description_headline)
+            ),
+            "description_headline": (
+                description_headline
+                if description_headline is not None
+                else inv.description_headline
+            ),
+            "description_subtitle": (
+                description_subtitle
+                if description_subtitle is not None
+                else (inv.description_subtitle or "")
+            ),
+            "period_label": (
+                period_label if period_label is not None else (inv.period_label or "")
+            ),
+            "bill_to_block": bill_to_block or inv.bill_to_block,
+            "amount": amount or f"{inv.amount:.2f}",
+        },
+    )
+
+
+@router.post(
+    "/admin/invoices/{invoice_id}/edit", dependencies=[Depends(require_admin)]
+)
+def invoice_edit(
+    invoice_id: int,
+    request: Request,
+    number: str = Form(...),
+    issue_date: str = Form(...),
+    description_preset: str = Form(...),
+    description_headline: str = Form(...),
+    description_subtitle: str = Form(""),
+    period_label: str = Form(""),
+    bill_to_block: str = Form(...),
+    amount: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        return RedirectResponse(
+            f"/admin/invoices?{urlencode({'error': 'Invoice not found.'})}",
+            status_code=303,
+        )
+
+    submitted = {
+        "number": number,
+        "issue_date": issue_date,
+        "description_preset": description_preset,
+        "description_headline": description_headline,
+        "description_subtitle": description_subtitle,
+        "period_label": period_label,
+        "bill_to_block": bill_to_block,
+        "amount": amount,
+    }
+
+    parsed, err = _validate_invoice_form(
+        number=number,
+        issue_date=issue_date,
+        description_headline=description_headline,
+        bill_to_block=bill_to_block,
+        amount=amount,
+    )
+    if err is not None:
+        return _edit_error_redirect(invoice_id, err, **submitted)
+
+    # Number uniqueness — same row is allowed (no false-positive duplicate
+    # when the user submits without changing the number). Only another
+    # invoice with the new number causes a conflict.
+    existing = db.execute(
+        select(Invoice)
+        .where(Invoice.number == parsed["number_clean"])
+        .where(Invoice.id != invoice_id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return _edit_error_redirect(
+            invoice_id,
+            f"Invoice number {parsed['number_clean']!r} is already in use.",
+            **submitted,
+        )
+
+    # Apply changes. Status and brand_code are intentionally NOT updated
+    # here — status is the dedicated mark-paid endpoint's responsibility,
+    # and brand_code stays SMASHBOX until multi-tenant rebuild.
+    inv.number = parsed["number_clean"]
+    inv.issue_date = parsed["issue_date_obj"]
+    inv.bill_to_block = parsed["bill_to_clean"]
+    inv.description_headline = parsed["headline_clean"]
+    inv.description_subtitle = (description_subtitle or "").strip() or None
+    inv.period_label = (period_label or "").strip() or None
+    inv.amount = parsed["amount_dec"]
+    db.commit()
+
+    return RedirectResponse(
+        f"/admin/invoices/{inv.id}?{urlencode({'notice': 'Invoice updated.'})}",
         status_code=303,
     )
 

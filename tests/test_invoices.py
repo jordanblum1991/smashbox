@@ -22,9 +22,12 @@ from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models.invoice import Invoice
 from app.routers.invoices import (
+    _detect_preset,
     _suggest_next_number,
     invoice_create,
     invoice_detail,
+    invoice_edit,
+    invoice_edit_form,
     invoice_mark_paid,
     invoice_new_form,
     invoice_preview,
@@ -386,6 +389,7 @@ def test_unauthenticated_admin_invoices_blocked(monkeypatch, client: TestClient)
         "/admin/invoices",
         "/admin/invoices/new",
         "/admin/invoices/1",
+        "/admin/invoices/1/edit",
         "/admin/invoices/1/preview",
         "/admin/invoices/1/pdf",
     )
@@ -398,3 +402,203 @@ def test_unauthenticated_admin_invoices_blocked(monkeypatch, client: TestClient)
             assert "/login" in r.headers["location"], (
                 f"{path}: {r.headers['location']!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# 9. Edit — form rendering + update flow
+# ---------------------------------------------------------------------------
+
+def test_detect_preset_recognizes_known_headlines():
+    """The edit form pre-selects the preset dropdown by detecting which
+    preset (if any) the stored headline matches."""
+    assert _detect_preset("TikTok Shop Advertising Spend — May 2026") == "ad_spend"
+    assert _detect_preset("Smashbox Co-Funded Customer Discount — TikTok Shop May 2026") == "customer_discount"
+    assert _detect_preset("Some custom thing") == "custom"
+    assert _detect_preset("") == "custom"
+
+
+def test_edit_form_renders_with_current_values(client: TestClient):
+    """GET /admin/invoices/{id}/edit returns 200 with the stored values
+    pre-filled into the form."""
+    with SessionLocal() as db:
+        inv = _seed(
+            db, "OL-2026-007",
+            amount=Decimal("8710.33"),
+            description_headline="TikTok Shop Advertising Spend — May 2026",
+            description_subtitle="Smashbox-funded portion of seller discounts.",
+            period_label="Data period: April 27 – May 28, 2026",
+        )
+
+    r = client.get(f"/admin/invoices/{inv.id}/edit")
+    assert r.status_code == 200
+    # Pre-filled field values present in the rendered HTML.
+    assert 'value="OL-2026-007"' in r.text
+    assert 'value="8710.33"' in r.text
+    assert "TikTok Shop Advertising Spend — May 2026" in r.text
+    assert "Smashbox-funded portion of seller discounts." in r.text
+    # Submit label matches edit mode.
+    assert "Save changes" in r.text
+
+
+def test_edit_form_redirects_for_missing_invoice(client: TestClient):
+    r = client.get("/admin/invoices/99999/edit", follow_redirects=False)
+    assert r.status_code == 303
+    decoded = unquote_plus(r.headers["location"])
+    assert "Invoice not found" in decoded
+    assert r.headers["location"].startswith("/admin/invoices?")
+
+
+def test_edit_happy_path_updates_fields():
+    """POST /admin/invoices/{id}/edit with valid form persists every
+    editable field. Status and brand_code are NOT touched."""
+    with SessionLocal() as db:
+        inv = _seed(
+            db, "OL-2026-007",
+            amount=Decimal("100.00"),
+            description_headline="Original headline",
+            status="paid",  # confirm status stays "paid" through edit
+        )
+        original_id = inv.id
+
+    with SessionLocal() as db:
+        resp = invoice_edit(
+            invoice_id=original_id, request=None, db=db,
+            number="OL-2026-007-RENAMED",
+            issue_date="2026-06-15",
+            description_preset="customer_discount",
+            description_headline="Smashbox Co-Funded Customer Discount — TikTok Shop June 2026",
+            description_subtitle="Updated subtitle text.",
+            period_label="Data period: June 1 – June 14, 2026",
+            bill_to_block="Updated Customer\nNew Address Line\nCity, ST 00000",
+            amount="1234.56",
+        )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"].startswith(f"/admin/invoices/{original_id}")
+    decoded = unquote_plus(resp.headers["location"])
+    assert "Invoice updated." in decoded
+
+    with SessionLocal() as db:
+        inv = db.get(Invoice, original_id)
+    assert inv.number == "OL-2026-007-RENAMED"
+    assert inv.issue_date == date(2026, 6, 15)
+    assert inv.description_headline == "Smashbox Co-Funded Customer Discount — TikTok Shop June 2026"
+    assert inv.description_subtitle == "Updated subtitle text."
+    assert inv.period_label == "Data period: June 1 – June 14, 2026"
+    assert inv.bill_to_block.startswith("Updated Customer")
+    assert inv.amount == Decimal("1234.56")
+    # Untouched fields.
+    assert inv.status == "paid"
+    assert inv.brand_code == "SMASHBOX"
+
+
+@pytest.mark.parametrize("overrides,expected_phrase", [
+    ({"amount": "0"}, "Amount must be greater than $0.00"),
+    ({"amount": "-1"}, "Amount must be greater than $0.00"),
+    ({"amount": "abc"}, "is not a valid number"),
+    ({"issue_date": ""}, "Issue date is required"),
+    ({"description_headline": "  "}, "Description headline is required"),
+    ({"bill_to_block": "  "}, "Bill To block is required"),
+    ({"number": "  "}, "Invoice number is required"),
+])
+def test_edit_validation_reuses_create_rules(overrides, expected_phrase):
+    """Same validation rules as create — extracted into _validate_invoice_form."""
+    with SessionLocal() as db:
+        inv = _seed(db, "OL-2026-007")
+
+    payload = _create_form_payload(**overrides)
+    with SessionLocal() as db:
+        resp = invoice_edit(invoice_id=inv.id, request=None, db=db, **payload)
+    assert resp.status_code == 303
+    assert resp.headers["location"].startswith(f"/admin/invoices/{inv.id}/edit")
+    decoded = unquote_plus(resp.headers["location"])
+    assert expected_phrase in decoded
+
+
+def test_edit_allows_keeping_own_number():
+    """Submitting an edit with the SAME number as the current invoice is
+    allowed — uniqueness must exclude self."""
+    with SessionLocal() as db:
+        inv = _seed(db, "OL-2026-007", amount=Decimal("100"))
+
+    with SessionLocal() as db:
+        resp = invoice_edit(
+            invoice_id=inv.id, request=None, db=db,
+            number="OL-2026-007",            # unchanged
+            issue_date="2026-05-29",
+            description_preset="ad_spend",
+            description_headline="Updated headline",
+            description_subtitle="",
+            period_label="",
+            bill_to_block="Customer\nAddress",
+            amount="200.00",
+        )
+    assert resp.status_code == 303
+    assert resp.headers["location"].startswith(f"/admin/invoices/{inv.id}")
+
+    with SessionLocal() as db:
+        inv = db.get(Invoice, inv.id)
+    assert inv.amount == Decimal("200.00")
+    assert inv.description_headline == "Updated headline"
+
+
+def test_edit_rejects_number_used_by_another_invoice():
+    """If the user changes the number to one belonging to a DIFFERENT
+    invoice, the edit is rejected and nothing is written."""
+    with SessionLocal() as db:
+        other = _seed(db, "OL-2026-008", amount=Decimal("50"))
+        target = _seed(db, "OL-2026-007", amount=Decimal("100"))
+        # Capture ids before the session closes — instances detach when
+        # the `with` exits and attribute access requires the session.
+        target_id = target.id
+        other_id = other.id
+
+    with SessionLocal() as db:
+        resp = invoice_edit(
+            invoice_id=target_id, request=None, db=db,
+            number="OL-2026-008",            # other's number
+            issue_date="2026-05-29",
+            description_preset="ad_spend",
+            description_headline="Trying to steal a number",
+            description_subtitle="",
+            period_label="",
+            bill_to_block="Customer\nAddress",
+            amount="999.00",
+        )
+    assert resp.status_code == 303
+    decoded = unquote_plus(resp.headers["location"])
+    assert "'OL-2026-008' is already in use" in decoded
+
+    # Re-fetch + assert inside the session to keep instances attached.
+    with SessionLocal() as db:
+        target = db.get(Invoice, target_id)
+        other = db.get(Invoice, other_id)
+        assert target.number == "OL-2026-007"
+        assert target.amount == Decimal("100")
+        assert other.number == "OL-2026-008"     # other untouched too
+
+
+def test_edit_paid_invoice_succeeds_without_lock():
+    """Paid invoices have no lock — edits succeed and status stays 'paid'."""
+    with SessionLocal() as db:
+        inv = _seed(db, "OL-2026-007", amount=Decimal("100"), status="paid")
+
+    with SessionLocal() as db:
+        resp = invoice_edit(
+            invoice_id=inv.id, request=None, db=db,
+            number="OL-2026-007",
+            issue_date="2026-05-29",
+            description_preset="ad_spend",
+            description_headline="Edited after paid",
+            description_subtitle="",
+            period_label="",
+            bill_to_block="Customer\nAddress",
+            amount="42.00",
+        )
+    assert resp.status_code == 303
+
+    with SessionLocal() as db:
+        inv = db.get(Invoice, inv.id)
+    assert inv.amount == Decimal("42.00")
+    assert inv.description_headline == "Edited after paid"
+    assert inv.status == "paid"      # unchanged by edit
