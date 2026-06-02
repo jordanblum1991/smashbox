@@ -16,7 +16,10 @@ WORKDIR /app
 #     pydantic-core fallback).
 #   - libpango / libpangoft2 / libharfbuzz / libcairo / libffi: WeasyPrint's
 #     runtime (PDF rendering for /admin/invoices/{id}/pdf).
-#   - shared-mime-info + fonts-dejavu-core: WeasyPrint font + MIME resolution.
+#   - shared-mime-info: MIME-type resolution for WeasyPrint.
+#   - fonts-dejavu-core + fonts-dejavu-extra: DejaVu Sans family — `-core`
+#     ships Regular and Bold; `-extra` adds Italic and Bold Italic, which
+#     the invoice template uses for the subtitle and footer.
 # Apt lists trimmed after install to keep the image small.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -24,7 +27,7 @@ RUN apt-get update \
       libpango-1.0-0 libpangoft2-1.0-0 \
       libharfbuzz0b libcairo2 \
       libffi-dev \
-      shared-mime-info fonts-dejavu-core \
+      shared-mime-info fonts-dejavu-core fonts-dejavu-extra \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
