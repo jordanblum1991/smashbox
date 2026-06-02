@@ -43,6 +43,7 @@ def export_monthly_pnl_xlsx(
     ws.write("A1", f"Smashbox P&L — {month_name} {y}", bold)
     rows = [
         ("Gross Product Sales", pnl.gross_sales),
+        ("GMV (TikTok Seller Center)", pnl.gmv),
         ("Less: TikTok-Funded Discount", -pnl.platform_discount),
         ("Less: Outlandish-Funded Discount", -pnl.outlandish_discount),
         ("Less: Smashbox-Funded Discount", -pnl.smashbox_discount),
@@ -278,6 +279,7 @@ def export_pnl_xlsx(
     ws.write(kpi_row, 0, "Summary", wb.add_format({"bold": True, "font_size": 10}))
     kpis = [
         ("Gross Sales", float(pnl.gross_sales), f_kpi_money),
+        ("GMV (Seller Center)", float(pnl.gmv), f_kpi_money),
         ("Net Customer Sales", float(pnl.managed_net_customer_sales), f_kpi_money),
         ("Gross Profit", float(pnl.managed_gross_profit), f_kpi_money),
         ("Total Ad Spend (net)", float(pnl.net_ad_spend), f_kpi_money),

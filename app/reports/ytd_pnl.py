@@ -33,6 +33,7 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
         platform_discount=s("platform_discount"),
         outlandish_discount=s("outlandish_discount"),
         smashbox_discount=s("smashbox_discount"),
+        payment_platform_discount=s("payment_platform_discount"),
         refunds=s("refunds"),
         net_customer_sales=s("net_customer_sales"),
         cogs=s("cogs"),

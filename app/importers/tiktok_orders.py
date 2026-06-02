@@ -72,6 +72,7 @@ _ORDERS_FILE_FIELDS = (
     "seller_funded_outlandish",
     "seller_funded_smashbox",
     "discount_policy_violation",
+    "payment_platform_discount",
 )
 
 # "our internal name" -> "real TikTok header"
@@ -89,6 +90,7 @@ HEADER_MAP = {
     "line_platform_discount": "SKU Platform Discount",    # TikTok-funded, not split
     "shipping_after_discount": "Shipping Fee After Discount",
     "shipping_seller_discount": "Shipping Fee Seller Discount",
+    "payment_platform_discount": "Payment platform discount",
     "order_refund_amount": "Order Refund Amount",
 }
 
@@ -237,6 +239,8 @@ def _build_order(tiktok_order_id: str, group: pd.DataFrame, batch: ImportBatch) 
         seller_funded_outlandish=order_outlandish,
         seller_funded_smashbox=order_smashbox,
         discount_policy_violation=any_violation,
+        # Order-level discount, repeated on every line — MAX == the order's value.
+        payment_platform_discount=_max_decimal(group, HEADER_MAP["payment_platform_discount"]),
     )
     order.lines = lines
     return order

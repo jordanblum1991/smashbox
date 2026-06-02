@@ -66,6 +66,12 @@ class Order(Base):
     seller_funded_outlandish: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
     seller_funded_smashbox: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
 
+    # TikTok-funded "Payment platform discount" — separate from
+    # SKU Platform Discount (column 14 in the orders CSV). TikTok's GMV
+    # formula treats both as "Platform co-funding"; we store this one
+    # independently so the GMV property can subtract both.
+    payment_platform_discount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+
     # True if ANY line breached the seller-funded policy cap (default 30% of
     # the line's post-TikTok price). Smashbox still absorbs the excess so the
     # split invariant holds; the flag exposes the violation for investigation.

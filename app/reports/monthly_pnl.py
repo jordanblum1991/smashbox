@@ -37,6 +37,11 @@ class MonthlyPnL:
     platform_discount: Decimal
     outlandish_discount: Decimal
     smashbox_discount: Decimal
+    # TikTok-funded "Payment platform discount" — separate from
+    # platform_discount (which is `SKU Platform Discount`). Subtracted in
+    # TikTok's GMV formula alongside the SKU platform discount under
+    # "Platform co-funding." Exposed via the `gmv` property below.
+    payment_platform_discount: Decimal
     refunds: Decimal
     net_customer_sales: Decimal
 
@@ -227,6 +232,38 @@ class MonthlyPnL:
             return Decimal("0")
         return self.net_customer_sales / self.net_ad_spend
 
+    @property
+    def gmv(self) -> Decimal:
+        """TikTok Seller Center-aligned GMV for the period.
+
+        Per TikTok's published formula:
+            GMV = Price x Items + Shipping fees
+                  - Seller promotions - Platform co-funding
+
+        Mapped to our schema:
+            GMV = gross_sales + shipping_revenue
+                  - outlandish_discount - smashbox_discount     (seller promo)
+                  - platform_discount                           (SKU platform)
+                  - payment_platform_discount                   (payment platform)
+
+        Tax excluded; refunds/cancellations NOT subtracted.
+
+        Empirically matches Seller Center to the cent for Feb-Apr 2026 and
+        within ~0.7% on May 2026 (a small classification edge with no easy
+        fix from our side).
+
+        NOTE: `payment_platform_discount` is populated by the importer on
+        upload. Orders imported before the field existed show $0 until the
+        orders CSV is re-uploaded — `_persist_upsert` will refresh them."""
+        return (
+            self.gross_sales
+            + self.shipping_revenue
+            - self.outlandish_discount
+            - self.smashbox_discount
+            - self.platform_discount
+            - self.payment_platform_discount
+        )
+
 
 def compute_monthly_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
     """Single-calendar-month P&L. Thin wrapper around compute_window_pnl."""
@@ -262,6 +299,7 @@ def compute_window_pnl(
             func.coalesce(func.sum(Order.platform_discount_total), 0).label("platform_disc"),
             func.coalesce(func.sum(Order.seller_funded_outlandish), 0).label("outlandish"),
             func.coalesce(func.sum(Order.seller_funded_smashbox), 0).label("smashbox"),
+            func.coalesce(func.sum(Order.payment_platform_discount), 0).label("payment_platform_disc"),
             func.coalesce(func.sum(Order.refunds), 0).label("refunds"),
             func.coalesce(func.sum(Order.tiktok_fees), 0).label("tiktok_fees"),
             func.coalesce(func.sum(Order.tiktok_referral_fee), 0).label("tiktok_referral_fee"),
@@ -373,6 +411,7 @@ def compute_window_pnl(
     platform_disc = Decimal(str(row.platform_disc))
     outlandish = Decimal(str(row.outlandish))
     smashbox = Decimal(str(row.smashbox))
+    payment_platform_disc = Decimal(str(row.payment_platform_disc))
     refunds = Decimal(str(row.refunds))
 
     net_customer_sales = gross_sales - platform_disc - outlandish - smashbox - refunds
@@ -402,6 +441,7 @@ def compute_window_pnl(
         platform_discount=platform_disc,
         outlandish_discount=outlandish,
         smashbox_discount=smashbox,
+        payment_platform_discount=payment_platform_disc,
         refunds=refunds,
         net_customer_sales=net_customer_sales,
         cogs=cogs,

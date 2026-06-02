@@ -47,9 +47,10 @@
 
 <!-- Period summary cards — give the big picture before the line-level detail -->
 {% if pnl.orders_count > 0 %}
-<section aria-label="Period summary" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+<section aria-label="Period summary" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
   {% set summary_cards = [
     ("Gross Sales", pnl.gross_sales | money, none),
+    ("GMV", pnl.gmv | money, none),
     ("Net Customer Sales", pnl.managed_net_customer_sales | money, none),
     ("Gross Profit", pnl.managed_gross_profit | money, "emerald" if pnl.managed_gross_profit >= 0 else "rose"),
     ("Total Ad Spend", pnl.net_ad_spend | money, none),

@@ -35,7 +35,14 @@ def _ensure_columns() -> None:
             ("policy_violation_acknowledged", "BOOLEAN NOT NULL DEFAULT 0"),
             ("policy_violation_acknowledged_at", "DATETIME"),
         ],
-        "orders":               [shop_id_col],
+        "orders": [
+            shop_id_col,
+            # TikTok-funded "Payment platform discount" — separate from
+            # SKU Platform Discount. Subtracted in TikTok's GMV formula
+            # under "Platform co-funding". Re-imports populate; existing
+            # rows default to 0 until next CSV upload.
+            ("payment_platform_discount", "NUMERIC(14,2) NOT NULL DEFAULT 0"),
+        ],
         "settlements":          [shop_id_col],
         "adjustments":          [shop_id_col],
         "payouts":              [shop_id_col],
