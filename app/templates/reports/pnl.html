@@ -215,6 +215,7 @@
         {{ line("Shipping (to Customers)", -pnl.shipping_cost) }}
         {{ line("Shipping (to Creators)", -pnl.sample_shipping_cost) }}
         {{ line("Shipping revenue", pnl.shipping_revenue) }}
+        {{ line("TikTok Reimbursements & Adjustments", pnl.tiktok_adjustments_net) }}
         {{ subtotal("Net Profit", pnl.managed_net_profit, accent=("pos" if pnl.managed_net_profit >= 0 else "neg")) }}
       </tbody>
     </table>
@@ -395,6 +396,7 @@
       {{ line_row("Shipping (to Creators)", "sample_shipping_cost", indent=1, deduction=true) }}
 
       {{ subtotal_row("Total Operating Expenses", "total_operating_expenses", deduction=true) }}
+      {{ line_row("TikTok Reimbursements & Adjustments", "tiktok_adjustments_net", indent=1) }}
       {{ subtotal_row("Net Profit", "managed_net_profit", accent=true, big=true) }}
     </tbody>
   </table>
