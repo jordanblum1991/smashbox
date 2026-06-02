@@ -30,6 +30,10 @@ def client() -> TestClient:
         "/reports/samples",
         "/reports/policy-violations",
         "/reports/reconciliation",
+        # Admin-gated route — auth is disabled in tests
+        # (settings.session_secret == ""), so the smoke test can hit it
+        # like any other route.
+        "/admin/invoices",
     ],
 )
 def test_page_renders(client: TestClient, path: str) -> None:

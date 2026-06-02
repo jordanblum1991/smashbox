@@ -12,6 +12,7 @@ from app.models.user import User, UserRole
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
 from app.routers import gmv_max_reimbursements as gmv_max_reimbursements_router
+from app.routers import invoices as invoices_router
 from app.routers import dashboard, exports, reports, uploads
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -250,6 +251,7 @@ async def attach_data_health(request: Request, call_next):
 app.include_router(auth_router.router)
 app.include_router(admin_router.router)
 app.include_router(gmv_max_reimbursements_router.router)
+app.include_router(invoices_router.router)
 app.include_router(dashboard.router)
 app.include_router(uploads.router)
 app.include_router(reports.router)
