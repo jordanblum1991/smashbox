@@ -13,7 +13,7 @@ deduction so a reader can see exactly who funded what:
   − Refunds
   = Net Customer Sales         (a.k.a. Net Product Revenue)
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -78,6 +78,16 @@ class MonthlyPnL:
     # cancel by design. Flows into Net Profit as Other Income.
     tiktok_adjustments_net: Decimal
     net_profit: Decimal
+
+    # Per-type breakdown of the adjustments rollup above. Keys are
+    # `Adjustment.adjustment_type` strings (TikTok categories like
+    # "Logistics reimbursement", "TikTok Shop reimbursement", "Bill
+    # payment (negative balance)", paired "Net earnings balance" /
+    # "Net earnings deduction", etc.). Values are signed amounts —
+    # positive for credits to us, negative for deductions from us.
+    # Sum of all values equals `tiktok_adjustments_net`. The dashboard
+    # uses this for the expandable detail under the adjustments line.
+    tiktok_adjustments_by_type: dict[str, Decimal] = field(default_factory=dict)
 
     # Settlement coverage — what fraction of paid orders in this month have
     # been settled by TikTok (and therefore have fees / shipping / etc).
@@ -363,6 +373,23 @@ def compute_window_pnl(
             .where(Adjustment.create_time < end)
         ).scalar() or 0
     ))
+    # Per-type breakdown for the expandable P&L detail. Sorted by absolute
+    # value descending so the most impactful types appear first regardless
+    # of sign — a $1,338 bill payment ranks above a $86 Shop reimbursement.
+    type_rows = db.execute(
+        select(
+            Adjustment.adjustment_type,
+            func.coalesce(func.sum(Adjustment.amount), 0).label("amount"),
+        )
+        .where(Adjustment.create_time.isnot(None))
+        .where(Adjustment.create_time >= start)
+        .where(Adjustment.create_time < end)
+        .group_by(Adjustment.adjustment_type)
+    ).all()
+    tiktok_adjustments_by_type: dict[str, Decimal] = {
+        r.adjustment_type: Decimal(str(r.amount))
+        for r in sorted(type_rows, key=lambda r: abs(Decimal(str(r.amount))), reverse=True)
+    }
 
     # GmvMaxReimbursement: (year, month) keyed (no date column). Determine
     # which (year, month) pairs the window touches and OR them together —
@@ -488,6 +515,7 @@ def compute_window_pnl(
         sample_shipping_cost=sample_shipping_cost,
         tiktok_adjustments_net=tiktok_adjustments_net,
         net_profit=net_profit,
+        tiktok_adjustments_by_type=tiktok_adjustments_by_type,
         orders_count=int(row.orders_count or 0),
         orders_settled=int(row.orders_settled or 0),
         units_sold=int(units_sold),

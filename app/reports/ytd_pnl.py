@@ -27,6 +27,17 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
     def s(attr: str) -> Decimal:
         return sum((getattr(m, attr) for m in months), zero)
 
+    # Merge per-type adjustment breakdowns across months: sum amounts per
+    # adjustment_type, then re-sort by absolute value descending so the
+    # combined breakdown's ordering matches the single-month convention.
+    merged_adj: dict[str, Decimal] = {}
+    for m in months:
+        for t, amt in m.tiktok_adjustments_by_type.items():
+            merged_adj[t] = merged_adj.get(t, Decimal("0")) + amt
+    merged_adj_sorted = dict(sorted(
+        merged_adj.items(), key=lambda kv: abs(kv[1]), reverse=True
+    ))
+
     return MonthlyPnL(
         month=date(year, 1, 1),
         gross_sales=s("gross_sales"),
@@ -57,6 +68,7 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
         sample_shipping_cost=s("sample_shipping_cost"),
         tiktok_adjustments_net=s("tiktok_adjustments_net"),
         net_profit=s("net_profit"),
+        tiktok_adjustments_by_type=merged_adj_sorted,
         orders_count=sum((m.orders_count for m in months), 0),
         orders_settled=sum((m.orders_settled for m in months), 0),
         units_sold=sum((m.units_sold for m in months), 0),
