@@ -25,6 +25,7 @@ from app.models.ad_spend import AdSpend
 from app.models.gmv_max_reimbursement import GmvMaxReimbursement
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
+from app.models.settlement import Adjustment
 from app.models.sku import Sku
 
 
@@ -71,6 +72,11 @@ class MonthlyPnL:
                                                # off-platform Sample.shipping_cost
                                                # Captured separately so the operational
                                                # Shipping cost line stays paid-only.
+    # Net sum of settlement-level adjustments dated in the window — TikTok
+    # reimbursements (logistics/lost-package credits, Shop reimbursements,
+    # bill payments) net of any deductions. Paired balance/deduction rows
+    # cancel by design. Flows into Net Profit as Other Income.
+    tiktok_adjustments_net: Decimal
     net_profit: Decimal
 
     # Settlement coverage — what fraction of paid orders in this month have
@@ -198,11 +204,12 @@ class MonthlyPnL:
 
     @property
     def total_operating_expenses(self) -> Decimal:
-        """Everything between Gross Profit and Net Profit — TikTok fees,
-        affiliate, ads (net of credits), and net shipping. Defined as the
-        gap rather than re-summed so the math stays self-consistent with
-        the net_profit calculation."""
-        return self.gross_profit - self.net_profit
+        """Everything between Gross Profit and Net Profit EXCLUDING the
+        TikTok Reimbursements & Adjustments line (which is Other Income,
+        not an operating cost). Defined as the gap-minus-other-income so
+        the math stays self-consistent: Net Profit = Gross Profit -
+        Total Operating Expenses + tiktok_adjustments_net."""
+        return self.gross_profit - self.net_profit + self.tiktok_adjustments_net
 
     @property
     def net_margin(self) -> Decimal:
@@ -342,6 +349,21 @@ def compute_window_pnl(
         ).scalar() or 0
     ))
 
+    # TikTok settlement adjustments — logistics reimbursements, lost-package
+    # credits, TikTok Shop reimbursements, bill payments, etc. Paired
+    # balance/deduction rows (same adjustment_id) cancel by construction.
+    # Filtered on Adjustment.create_time (when TikTok registered the entry),
+    # matching the inclusive-start / exclusive-end convention used elsewhere.
+    # Adjustments with null create_time are skipped (no period to attribute).
+    tiktok_adjustments_net = Decimal(str(
+        db.execute(
+            select(func.coalesce(func.sum(Adjustment.amount), 0))
+            .where(Adjustment.create_time.isnot(None))
+            .where(Adjustment.create_time >= start)
+            .where(Adjustment.create_time < end)
+        ).scalar() or 0
+    ))
+
     # GmvMaxReimbursement: (year, month) keyed (no date column). Determine
     # which (year, month) pairs the window touches and OR them together —
     # each touched month contributes its FULL reimbursement (no proration).
@@ -433,6 +455,7 @@ def compute_window_pnl(
         - ship_cost
         - sample_shipping_cost            # cash outflow for sample freight
         + ship_rev
+        + tiktok_adjustments_net          # logistics/Shop reimbursements net of deductions
     )
 
     return MonthlyPnL(
@@ -463,6 +486,7 @@ def compute_window_pnl(
         shipping_revenue=ship_rev,
         shipping_cost=ship_cost,
         sample_shipping_cost=sample_shipping_cost,
+        tiktok_adjustments_net=tiktok_adjustments_net,
         net_profit=net_profit,
         orders_count=int(row.orders_count or 0),
         orders_settled=int(row.orders_settled or 0),

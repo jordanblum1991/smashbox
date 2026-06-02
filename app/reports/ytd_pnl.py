@@ -55,6 +55,7 @@ def _sum(months: list[MonthlyPnL], year: int) -> MonthlyPnL:
         shipping_revenue=s("shipping_revenue"),
         shipping_cost=s("shipping_cost"),
         sample_shipping_cost=s("sample_shipping_cost"),
+        tiktok_adjustments_net=s("tiktok_adjustments_net"),
         net_profit=s("net_profit"),
         orders_count=sum((m.orders_count for m in months), 0),
         orders_settled=sum((m.orders_settled for m in months), 0),

@@ -71,6 +71,7 @@ def export_monthly_pnl_xlsx(
         ("Shipping revenue", pnl.shipping_revenue),
         ("Shipping (to Customers)", -pnl.shipping_cost),
         ("Shipping (to Creators)", -pnl.sample_shipping_cost),
+        ("TikTok Reimbursements & Adjustments", pnl.tiktok_adjustments_net),
         ("Net Profit", pnl.managed_net_profit),
     ]
     for i, (label, value) in enumerate(rows, start=3):
@@ -382,6 +383,7 @@ def export_pnl_xlsx(
     _write_money_row(row, "Shipping (to Creators)", "sample_shipping_cost", -1, f_line_indent, f_money_indent); row += 1
 
     _write_money_row(row, "TOTAL OPERATING EXPENSES", "total_operating_expenses", -1, f_subtotal_label, f_subtotal_money); row += 1
+    _write_money_row(row, "TikTok Reimbursements & Adjustments", "tiktok_adjustments_net", 1, f_line_indent, f_money_indent); row += 1
     _write_money_row(row, "NET PROFIT", "managed_net_profit", 1, f_netprofit_label, f_netprofit_money); row += 1
 
     # ---- Layout ---- -------------------------------------------------------
