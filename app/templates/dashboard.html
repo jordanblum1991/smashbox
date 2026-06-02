@@ -92,6 +92,14 @@
 
   {# Supporting financial metrics #}
   {{ ui.kpi(
+      label="GMV",
+      value=pnl.gmv | money,
+      hint="Tie-out to TikTok Seller Center",
+      href="/reports/pnl" ~ pnl_qs,
+      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+  ) }}
+
+  {{ ui.kpi(
       label="Net Customer Sales",
       value=pnl.managed_net_customer_sales | money,
       hint="After all discounts & refunds",
