@@ -8,6 +8,10 @@
   title=invoice.number,
   period=invoice.issue_date.strftime("%B %d, %Y"),
 ) %}
+  <a href="/admin/invoices/{{ invoice.id }}/edit"
+     class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+    Edit
+  </a>
   <a href="/admin/invoices/{{ invoice.id }}/pdf"
      class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
     Download PDF
