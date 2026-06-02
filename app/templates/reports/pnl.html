@@ -215,7 +215,34 @@
         {{ line("Shipping (to Customers)", -pnl.shipping_cost) }}
         {{ line("Shipping (to Creators)", -pnl.sample_shipping_cost) }}
         {{ line("Shipping revenue", pnl.shipping_revenue) }}
+        {# TikTok Reimbursements & Adjustments — expandable per-type detail.
+           Mirrors the TikTok-fees pattern above. The <details> toggle is
+           wired up by the script at the bottom of the file. #}
+        {% if pnl.tiktok_adjustments_by_type %}
+        <tr>
+          <td class="py-1.5 text-slate-700">
+            <details class="inline-flex">
+              <summary class="cursor-pointer select-none text-slate-700 marker:text-slate-400 hover:text-slate-900">
+                TikTok Reimbursements &amp; Adjustments
+                <span class="ml-1 text-[10px] font-medium text-slate-400">▾ {{ pnl.tiktok_adjustments_by_type | length }} type{{ '' if pnl.tiktok_adjustments_by_type | length == 1 else 's' }}</span>
+              </summary>
+            </details>
+          </td>
+          <td class="py-1.5 text-right tabular-nums text-slate-800">{{ acct(pnl.tiktok_adjustments_net) }}</td>
+          <td class="py-1.5 pr-1 text-right text-xs tabular-nums text-slate-400">{{ pct_of_sales(pnl.tiktok_adjustments_net) }}</td>
+        </tr>
+        <tr class="adjustments-detail hidden">
+          <td colspan="3" class="px-0 py-0">
+            <table class="w-full">
+              {% for adj_type, amount in pnl.tiktok_adjustments_by_type.items() %}
+              {{ line(adj_type, amount, indent=2) }}
+              {% endfor %}
+            </table>
+          </td>
+        </tr>
+        {% else %}
         {{ line("TikTok Reimbursements & Adjustments", pnl.tiktok_adjustments_net) }}
+        {% endif %}
         {{ subtotal("Net Profit", pnl.managed_net_profit, accent=("pos" if pnl.managed_net_profit >= 0 else "neg")) }}
       </tbody>
     </table>
@@ -224,13 +251,18 @@
 </div>
 
 <script>
-  // Wire up the TikTok-fees disclosure: toggling the <details> shows/hides the
-  // detail row below. Standalone <details> only toggle their own content; we
-  // need to flip a sibling <tr> too.
+  // Wire up disclosure rows on the statement: toggling each <details> shows
+  // or hides the sibling <tr> with the matching `*-detail` class. Standalone
+  // <details> only toggle their own content; we need to flip the next <tr>.
   (function () {
+    var DETAIL_CLASSES = ["tiktok-fee-detail", "adjustments-detail"];
     document.querySelectorAll("details").forEach(function (d) {
       var detail = d.closest("tr") && d.closest("tr").nextElementSibling;
-      if (!detail || !detail.classList.contains("tiktok-fee-detail")) return;
+      if (!detail) return;
+      var match = DETAIL_CLASSES.find(function (c) {
+        return detail.classList.contains(c);
+      });
+      if (!match) return;
       d.addEventListener("toggle", function () {
         detail.classList.toggle("hidden", !d.open);
       });
