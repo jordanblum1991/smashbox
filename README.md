@@ -12,10 +12,16 @@ py -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 alembic upgrade head
+
+npm install                       # one-time: Tailwind build toolchain (package.json)
+npm run css                       # compile app/static/css/tailwind.css — REQUIRED before first run
+
 uvicorn app.main:app --reload
 ```
 
 Open http://127.0.0.1:8000.
+
+> **Tailwind is compiled, not CDN.** `app/static/css/tailwind.css` is a **gitignored build artifact**, so a fresh clone has no stylesheet until you run `npm run css` — skip it and every page renders unstyled (the file 404s). While doing UI work, run `npm run css:watch` in a second terminal so edits recompile automatically. (Production doesn't need this step — see [Production deployment](#production-deployment).)
 
 ## Run tests
 
@@ -31,7 +37,7 @@ See `CLAUDE.md` for the architecture map.
 
 ## Stack
 
-FastAPI · Jinja2 + HTMX · Tailwind (CDN) · SQLAlchemy + Alembic · SQLite (Postgres-ready) · pandas · openpyxl / xlsxwriter
+FastAPI · Jinja2 + HTMX · Tailwind (compiled via `npm run css`) · SQLAlchemy + Alembic · SQLite (Postgres-ready) · pandas · openpyxl / xlsxwriter
 
 ---
 
@@ -56,6 +62,8 @@ fly deploy --app smashbox      # ~30s redeploy of the Fly machine
 ```
 
 Everything in the repo is shipped except dev artifacts (see `.dockerignore`). The `fly.toml` in the repo root is the deploy config.
+
+**Tailwind CSS rebuilds automatically on deploy — no manual step.** The `Dockerfile` has a `node:24-slim` build stage that runs `npm ci && npm run css` and copies the compiled `app/static/css/tailwind.css` into the image. Because it's rebuilt from the current templates on every `fly deploy`, production can't ship stale CSS, and you never run `npm run css` by hand for a deploy (that's a local-dev-only step — see [Quick start](#quick-start)). If a deploy ever fails inside that stage (`npm ci` registry reach, or a Tailwind config error), the build aborts before a release is cut and the previous image keeps serving — no outage.
 
 ### Auth & user management (Phase 1)
 
