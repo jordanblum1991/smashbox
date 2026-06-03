@@ -66,6 +66,76 @@
 
 
 {# ==========================================================================
+   DELTA CHIP  —  a small month-over-month change pill shown beside a KPI value.
+
+   - `delta`    : an app.reports.dashboard_trends.Delta (state / pct / label)
+                  or None (renders nothing).
+   - `polarity` : how direction maps to good/bad coloring —
+                    higher_better : up = good (emerald), down = bad (rose)
+                                    [revenue, profit, margin, ROAS, orders…]
+                    lower_better  : up = bad (rose),  down = good (emerald)
+                                    [costs, return rate, refunds — none today]
+                    neutral       : never good/bad — slate, direction only
+                                    [ad spend: efficiency is ROAS's job]
+                  flat -> slate (no change); new -> sky (no prior to compare).
+
+   Tone resolution lives here on purpose (UI owns color). Every shade emitted
+   below — emerald/rose/sky/slate at 50/100/600/700 — is covered by the
+   tailwind.config.js safelist so the compiled build can't purge it.
+   ========================================================================== #}
+{% macro delta_chip(delta, polarity="higher_better") -%}
+  {% if delta %}
+  {% set tone = 'none' %}
+  {% if delta.state in ('up', 'down') and polarity != 'neutral' %}
+    {% set good = (delta.state == 'up') == (polarity == 'higher_better') %}
+    {% set tone = 'pos' if good else 'neg' %}
+  {% elif delta.state == 'new' %}
+    {% set tone = 'info' %}
+  {% endif %}
+  {% set chip = {
+    'pos':  'bg-emerald-50 text-emerald-700',
+    'neg':  'bg-rose-50 text-rose-700',
+    'info': 'bg-sky-50 text-sky-700',
+    'none': 'bg-slate-100 text-slate-600',
+  }[tone] %}
+  <span class="inline-flex items-center gap-0.5 rounded-full {{ chip }} px-1.5 py-0.5 text-[11px] font-semibold leading-none tabular-nums"
+        title="vs previous month">
+    {% if delta.state == 'up' %}<svg viewBox="0 0 8 8" class="h-2 w-2" fill="currentColor" aria-hidden="true"><path d="M4 0 8 7H0z"/></svg>
+    {% elif delta.state == 'down' %}<svg viewBox="0 0 8 8" class="h-2 w-2" fill="currentColor" aria-hidden="true"><path d="M4 8 0 1h8z"/></svg>
+    {% endif %}{{ delta.label }}
+  </span>
+  {% endif %}
+{%- endmacro %}
+
+
+{# ==========================================================================
+   SPARKLINE  —  zero-dep inline-SVG trend line for a KPI card.
+
+   - `points` : the pre-computed "x,y x,y …" string from
+                dashboard_trends.sparkline_points (coordinates are computed
+                server-side; this macro just draws them). Empty -> nothing.
+   - `tone`   : colors the stroke via currentColor + a text-* class.
+   - `label`  : optional <title> for a native hover tooltip.
+
+   viewBox + preserveAspectRatio="none" makes it fluidly responsive; the
+   non-scaling stroke keeps the 1.5px line crisp regardless of width.
+   ========================================================================== #}
+{% macro sparkline(points, tone="none", label="") -%}
+  {% if points %}
+  {% set stroke = {
+    'pos':'text-emerald-500', 'neg':'text-rose-500', 'warn':'text-amber-500',
+    'info':'text-sky-500', 'accent':'text-indigo-500', 'none':'text-slate-400',
+  }[tone] %}
+  <svg viewBox="0 0 100 32" preserveAspectRatio="none" class="h-7 w-full {{ stroke }}" fill="none" aria-hidden="true">
+    {% if label %}<title>{{ label }}</title>{% endif %}
+    <polyline points="{{ points }}" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+  </svg>
+  {% endif %}
+{%- endmacro %}
+
+
+{# ==========================================================================
    KPI / METRIC CARD  —  the small tiles used across Dashboard, P&L, Ad Spend.
 
    - `label`  : the small uppercase label above the value
@@ -76,7 +146,7 @@
    - `bar`    : when truthy, draws a thin colored bar at the top in the tone color
    - `size`   : 'sm' (compact) | 'md' (default) | 'lg' (hero — bigger value)
    ========================================================================== #}
-{% macro kpi(label, value, hint="", tone="none", href=none, bar=none, size="md", col_span="") -%}
+{% macro kpi(label, value, hint="", tone="none", href=none, bar=none, size="md", col_span="", delta=none, delta_polarity="higher_better", spark=none) -%}
   {# Supporting KPI card. Stripe-restraint: white surface, ring-1 ring-slate-900/5
      (no drawn-on border), shadow grows on hover with NO Y-translate, tone shows
      up as a thin top bar when set (auto-derived from tone; pass bar=False to
@@ -100,8 +170,12 @@
     class="{{ col_span }} relative block overflow-hidden rounded-2xl bg-white p-6 ring-1 ring-slate-900/5 shadow-sm{% if href %} transition hover:shadow-md hover:ring-slate-900/10{% endif %}">
     {% if show_bar %}<span class="absolute inset-x-0 top-0 h-0.5 {{ tone_bg }}"></span>{% endif %}
     <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{{ label }}</div>
-    <div class="mt-2 {{ value_size }} font-semibold tracking-tight tabular-nums {{ tone_text }}">{{ value }}</div>
+    <div class="mt-2 flex flex-wrap items-baseline gap-2">
+      <span class="{{ value_size }} font-semibold tracking-tight tabular-nums {{ tone_text }}">{{ value }}</span>
+      {% if delta %}{{ delta_chip(delta, delta_polarity) }}{% endif %}
+    </div>
     {% if hint %}<div class="mt-1.5 text-xs text-slate-400">{{ hint }}</div>{% endif %}
+    {% if spark %}<div class="mt-3">{{ sparkline(spark, tone, label) }}</div>{% endif %}
   </{{ tag }}>
 {%- endmacro %}
 
@@ -127,7 +201,7 @@
                   when the description needs embedded markup (e.g. inline
                   emphasis on specific dollar amounts).
    ========================================================================== #}
-{% macro kpi_hero(label, value, tone="none", badge=none, icon=none, href=none, col_span="col-span-12") -%}
+{% macro kpi_hero(label, value, tone="none", badge=none, icon=none, href=none, col_span="col-span-12", delta=none, delta_polarity="higher_better", spark=none) -%}
   {% set tone_grad = {
     'pos':    'from-emerald-50/40 via-white to-white',
     'neg':    'from-rose-50/40 via-white to-white',
@@ -172,10 +246,12 @@
           {% if badge %}
           <span class="rounded-full {{ tone_chip }} px-2 py-0.5 text-xs font-semibold">{{ badge }}</span>
           {% endif %}
+          {% if delta %}{{ delta_chip(delta, delta_polarity) }}{% endif %}
         </div>
         {% if caller %}
         <div class="mt-2 max-w-md text-xs leading-relaxed text-slate-500">{{ caller() }}</div>
         {% endif %}
+        {% if spark %}<div class="mt-3 max-w-md">{{ sparkline(spark, tone, label) }}</div>{% endif %}
       </div>
       {% if icon_path %}
       <div class="hidden shrink-0 rounded-xl bg-white/70 p-3 ring-1 ring-slate-200 md:block">
