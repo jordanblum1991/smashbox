@@ -5,7 +5,7 @@ always tie to the P&L page for the selected period. The full import history
 lives on /uploads; the dashboard only surfaces a small alert when the most
 recent import failed.
 """
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.import_batch import ImportBatch, ImportBatchStatus
+from app.reports.dashboard_trends import build_dashboard_trends
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.sample_tracking import count_samples_shipped, samples_by_sku_shipped
 from app.reports.sku_profitability import compute_top_skus
@@ -78,6 +79,16 @@ def home(
     samples_by_sku = samples_by_sku_shipped(db, start, end)
     freshness = compute_freshness(db)
 
+    # Trend affordances: trailing-6-month sparklines per headline KPI, plus a
+    # MoM delta vs the previous calendar month. `end` is exclusive, so the last
+    # included month is end - 1 day. Deltas only in single-month view (a MoM
+    # delta on a multi-month aggregate would be apples-to-oranges); aggregate
+    # views still get the sparkline trend.
+    ref = end - timedelta(days=1)
+    trends = build_dashboard_trends(
+        db, ref.year, ref.month, with_delta=(view.period_kind == PeriodKind.MONTH)
+    )
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -90,6 +101,7 @@ def home(
             "top_skus": top_skus,
             "samples_by_sku": samples_by_sku,
             "freshness": freshness,
+            "trends": trends,
             "error": error,
         },
     )

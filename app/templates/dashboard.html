@@ -75,7 +75,7 @@
    =========================================================================== #}
 {% set net_tone = 'pos' if pnl.managed_net_profit >= 0 else 'neg' %}
 
-<section aria-label="Headline metrics" class="mb-4 grid grid-cols-12 gap-3">
+<section aria-label="Headline metrics" class="stagger-in mb-4 grid grid-cols-12 gap-3">
   {# Hero #}
   {% call ui.kpi_hero(
       label="Net Profit",
@@ -83,7 +83,9 @@
       tone=net_tone,
       badge=(pnl.managed_net_margin | pct) ~ " margin",
       href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-12 md:col-span-6 lg:col-span-4"
+      col_span="col-span-12 md:col-span-6 lg:col-span-4",
+      delta=trends.net_profit.delta,
+      spark=trends.net_profit.spark
   ) %}
     Net Customer Sales of <span class="font-medium text-slate-700">{{ pnl.managed_net_customer_sales | money }}</span>
     after COGS of <span class="font-medium text-slate-700">{{ pnl.cogs | money }}</span>,
@@ -96,7 +98,9 @@
       value=pnl.gmv | money,
       hint="Tie-out to TikTok Seller Center",
       href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+      col_span="col-span-6 md:col-span-3 lg:col-span-2",
+      delta=trends.gmv.delta,
+      spark=trends.gmv.spark
   ) }}
 
   {{ ui.kpi(
@@ -104,7 +108,9 @@
       value=pnl.managed_net_customer_sales | money,
       hint="After all discounts & refunds",
       href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+      col_span="col-span-6 md:col-span-3 lg:col-span-2",
+      delta=trends.net_customer_sales.delta,
+      spark=trends.net_customer_sales.spark
   ) }}
 
   {{ ui.kpi(
@@ -112,7 +118,9 @@
       value=pnl.managed_gross_margin | pct,
       hint="Gross Profit ÷ Net Sales",
       href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+      col_span="col-span-6 md:col-span-3 lg:col-span-2",
+      delta=trends.gross_margin.delta,
+      spark=trends.gross_margin.spark
   ) }}
 
   {# ROAS — conditional tone based on derived signals from above #}
@@ -128,7 +136,9 @@
       hint="Sales per $1 net ad spend",
       tone=roas_tone,
       href="/reports/ad-spend",
-      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+      col_span="col-span-6 md:col-span-3 lg:col-span-2",
+      delta=trends.roas.delta,
+      spark=trends.roas.spark
   ) }}
 
   {{ ui.kpi(
@@ -136,19 +146,24 @@
       value=pnl.net_ad_spend | money,
       hint="Net of credits",
       href="/reports/ad-spend",
-      col_span="col-span-6 md:col-span-3 lg:col-span-2"
+      col_span="col-span-6 md:col-span-3 lg:col-span-2",
+      delta=trends.ad_spend.delta,
+      delta_polarity="neutral",
+      spark=trends.ad_spend.spark
   ) }}
 </section>
 
-<section aria-label="Operating metrics" class="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
+<section aria-label="Operating metrics" class="stagger-in mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
   {% set ops = [
-    ("Total Orders", "{:,}".format(pnl.orders_count), "Paid orders only", "/reports/pnl" ~ pnl_qs),
-    ("Total Units Sold", "{:,}".format(pnl.units_sold), "Bundles count as 1 unit", "/reports/pnl" ~ pnl_qs),
-    ("Samples Shipped", "{:,}".format(samples_shipped), "Free + paid sample units", "/reports/samples" ~ samples_qs),
-    ("Avg Order Value", pnl.aov_after_discounts | money, "Net Sales ÷ Orders", "/reports/pnl" ~ pnl_qs),
+    ("Total Orders", "{:,}".format(pnl.orders_count), "Paid orders only", "/reports/pnl" ~ pnl_qs, "orders"),
+    ("Total Units Sold", "{:,}".format(pnl.units_sold), "Bundles count as 1 unit", "/reports/pnl" ~ pnl_qs, "units"),
+    ("Samples Shipped", "{:,}".format(samples_shipped), "Free + paid sample units", "/reports/samples" ~ samples_qs, none),
+    ("Avg Order Value", pnl.aov_after_discounts | money, "Net Sales ÷ Orders", "/reports/pnl" ~ pnl_qs, "aov"),
   ] %}
-  {% for label, value, hint, href in ops %}
-    {{ ui.kpi(label=label, value=value, hint=hint, href=href) }}
+  {% for label, value, hint, href, tkey in ops %}
+    {% set t = trends[tkey] if tkey else none %}
+    {{ ui.kpi(label=label, value=value, hint=hint, href=href,
+              delta=(t.delta if t else none), spark=(t.spark if t else none)) }}
   {% endfor %}
 </section>
 
