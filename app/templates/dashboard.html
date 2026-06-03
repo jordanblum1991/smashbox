@@ -75,7 +75,7 @@
    =========================================================================== #}
 {% set net_tone = 'pos' if pnl.managed_net_profit >= 0 else 'neg' %}
 
-<section aria-label="Headline metrics" class="mb-4 grid grid-cols-12 gap-3">
+<section aria-label="Headline metrics" class="stagger-in mb-4 grid grid-cols-12 gap-3">
   {# Hero #}
   {% call ui.kpi_hero(
       label="Net Profit",
@@ -153,7 +153,7 @@
   ) }}
 </section>
 
-<section aria-label="Operating metrics" class="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
+<section aria-label="Operating metrics" class="stagger-in mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
   {% set ops = [
     ("Total Orders", "{:,}".format(pnl.orders_count), "Paid orders only", "/reports/pnl" ~ pnl_qs, "orders"),
     ("Total Units Sold", "{:,}".format(pnl.units_sold), "Bundles count as 1 unit", "/reports/pnl" ~ pnl_qs, "units"),
