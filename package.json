@@ -1,0 +1,30 @@
+{
+  "name": "smashbox",
+  "version": "1.0.0",
+  "description": "Internal full-stack web app for managing the Smashbox TikTok Shop P&L and operating reports.",
+  "main": "tailwind.config.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "css": "tailwindcss -i ./tailwind.input.css -o ./app/static/css/tailwind.css --minify",
+    "css:watch": "tailwindcss -i ./tailwind.input.css -o ./app/static/css/tailwind.css --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://jordanblum1991@github.com/jordanblum1991/smashbox.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/jordanblum1991/smashbox/issues"
+  },
+  "homepage": "https://github.com/jordanblum1991/smashbox#readme",
+  "devDependencies": {
+    "tailwindcss": "^3.4.19"
+  }
+}

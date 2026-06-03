@@ -1,0 +1,13 @@
+/* tailwind.input.css
+   Input for the Tailwind build. The CLI scans the templates listed in
+   tailwind.config.js, then emits only the utilities you actually use into
+   static/css/tailwind.css.
+
+   Keep your existing static/css/app.css separate for custom rules (the
+   AG Grid .ag-theme-quartz tuning, print overrides, etc.) — base.html
+   links both. You can merge app.css in below later if you'd rather ship
+   a single stylesheet. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

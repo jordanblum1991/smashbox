@@ -65,7 +65,7 @@ Layered, all under `app/`:
 ```
 routers/       FastAPI route handlers — HTTP in, template/file out
 templates/     Jinja2 (HTMX-ready) — base.html + partials/nav.html + per-page files
-static/        Tailwind via CDN; static/css/app.css holds only print rules
+static/        Tailwind compiled → css/tailwind.css (gitignored); css/app.css holds only print rules
 models/        SQLAlchemy 2.x ORM — one file per table
 importers/     File parsers: BaseImporter + one subclass per ImportFileKind
 reports/       Pure computation: takes a Session, returns dataclasses
@@ -164,7 +164,8 @@ Always `Decimal`, never `float`. `Numeric(14, 2)` in the ORM; quantize to `0.01`
 ## Stack pointers
 
 - FastAPI + Starlette 1.0 — **`TemplateResponse(request, "name.html", {...})`** — `request` is the first positional arg, NOT in the context dict. The old form silently turns the context into a Jinja cache key and crashes with "unhashable type: 'dict'".
-- Jinja2 + HTMX (CDN). Tailwind via CDN — no build step.
+- Jinja2 + HTMX (CDN).
+- **Tailwind is compiled, NOT CDN.** `npm run css` builds `app/static/css/tailwind.css` from `tailwind.input.css`, scanning the templates listed in `tailwind.config.js`. That output is a **gitignored build artifact** — production rebuilds it in the Dockerfile's `node:24-slim` stage on every `fly deploy`, so prod can't ship stale CSS. **Local dev must run `npm run css` (or `npm run css:watch`) once before `uvicorn`, or every page renders unstyled** (the file 404s). Do NOT re-add `<script src="cdn.tailwindcss.com">` to `base.html`/`login.html` — that reverts this. Classes built dynamically by string interpolation (only `monthly_pnl.html`'s `bg-{{ sev }}-50` etc. today) are invisible to the scanner and survive only via the `safelist` in `tailwind.config.js` — extend it if you add more interpolated classes.
 - SQLAlchemy 2.x with `Mapped[...]` annotations. `app/db.py` exports `engine`, `SessionLocal`, `Base`, `get_db`.
 - pandas for parsing imports; xlsxwriter for Excel export.
 

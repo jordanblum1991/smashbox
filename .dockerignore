@@ -1,6 +1,8 @@
 # Don't ship local dev artifacts, secrets, or bulky data into the image.
 .venv/
 venv/
+# Local npm install — stage 1 runs `npm ci` from the lockfile inside the build.
+node_modules/
 __pycache__/
 *.py[cod]
 *.egg-info/

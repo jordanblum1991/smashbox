@@ -16,6 +16,13 @@ uploads/*
 exports/*
 !exports/.gitkeep
 
+# Node / Tailwind build
+node_modules/
+# Compiled Tailwind stylesheet — a build artifact. Production rebuilds it in
+# the Dockerfile's Node stage on every deploy; locally run `npm run css`
+# (or `npm run css:watch`) once before starting uvicorn.
+app/static/css/tailwind.css
+
 # Env
 .env
 .env.local
