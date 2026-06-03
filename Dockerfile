@@ -1,5 +1,20 @@
 # Production container for Fly.io (or any Docker host).
 #
+# Stage 1 compiles Tailwind from the templates so the CSS can never go stale
+# in production: every `fly deploy` rebuilds it from the current templates,
+# independent of whether anyone ran `npm run css` locally. The compiled
+# stylesheet is copied into the Python image in stage 2. (The app references
+# /static/css/tailwind.css and is no longer on the Tailwind Play CDN.)
+FROM node:24-slim AS css
+WORKDIR /build
+# Only the files Tailwind needs — keeps this layer cached unless the build
+# config, the lockfile, or the scanned content (templates / JS) actually change.
+COPY package.json package-lock.json tailwind.config.js tailwind.input.css ./
+COPY app/templates ./app/templates
+COPY app/static/js ./app/static/js
+RUN npm ci && npm run css
+# -> emits /build/app/static/css/tailwind.css (per the "css" script in package.json)
+
 # python:3.12-slim because 3.14 slim images are not yet stable across all base
 # dependencies. requirements.txt uses lower-bound (`>=`) pins so it resolves
 # fine on 3.12 too — see CLAUDE.md "Python 3.14 quirk" for the rationale.
@@ -35,6 +50,11 @@ RUN pip install -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
+
+# Compiled Tailwind from stage 1. Copied AFTER `COPY app` so it lands beside
+# the hand-written app.css rather than being clobbered by it. The dev tree's
+# tailwind.css (if present) is overwritten with this freshly-built one.
+COPY --from=css /build/app/static/css/tailwind.css ./app/static/css/tailwind.css
 
 # Persistent volume on Fly mounts at /data — these env vars steer the app
 # away from baking-in repo-relative paths.
