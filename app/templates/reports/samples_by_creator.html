@@ -2,17 +2,25 @@
 {% import "partials/ui.html" as ui %}
 {% block title %}Samples by Creator · Smashbox{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
+<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
+<link rel="stylesheet" href="/static/css/admin-grid.css">
+<style>.agx .tag.legacy{ background:#f1f5f9; color:#64748b; }</style>
+{% endblock %}
+
 {% block content %}
 {% call ui.page_header(
   eyebrow="Creator Sample Module",
   title="Samples by Creator",
-  subtitle="All-time sample shipments grouped by creator",
+  subtitle="All-time sample shipments grouped by creator.",
+  accent_bar=true,
 ) %}
-  <button onclick="window.print()"
+  <button onclick="window.print()" type="button"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
 
-<!-- Headline KPIs -->
 <section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
   {{ ui.kpi("Total Samples Sent", view.total_samples_sent, "Sum of all units shipped to creators") }}
   {{ ui.kpi("Creators", view.creator_count, "Normalized + legacy rows") }}
@@ -26,63 +34,62 @@
 </p>
 {% endif %}
 
-<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <header class="border-b border-slate-200 px-6 py-3">
-    <h2 class="text-base font-semibold text-slate-900">Creator Breakdown</h2>
-  </header>
-  <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-        <tr>
-          <th class="px-4 py-2">Creator</th>
-          <th class="px-4 py-2">Platform</th>
-          <th class="px-4 py-2 text-right">Samples Sent</th>
-          <th class="px-4 py-2 text-right">Distinct SKUs</th>
-          {% if view.any_shipping_cost %}
-          <th class="px-4 py-2 text-right">Shipping Cost</th>
-          {% endif %}
-          <th class="px-4 py-2">First Shipped</th>
-          <th class="px-4 py-2">Last Shipped</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100">
-        {% for r in view.rows %}
-        <tr>
-          <td class="px-4 py-2">
-            <div class="flex items-center gap-2">
-              <span class="font-medium">{{ r.creator_handle or "—" }}</span>
-              {% if r.is_legacy %}
-                <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">legacy</span>
-              {% endif %}
-            </div>
-            {% if r.creator_name %}
-              <div class="text-xs text-slate-500">{{ r.creator_name }}</div>
-            {% endif %}
-          </td>
-          <td class="px-4 py-2 text-slate-600">
-            {% if r.platform %}{{ r.platform }}{% else %}<span class="text-slate-400">—</span>{% endif %}
-          </td>
-          <td class="px-4 py-2 text-right font-semibold tabular-nums">{{ r.total_samples_sent }}</td>
-          <td class="px-4 py-2 text-right tabular-nums">{{ r.distinct_sku_count }}</td>
-          {% if view.any_shipping_cost %}
-          <td class="px-4 py-2 text-right tabular-nums">
-            {% if r.total_shipping_cost is not none %}
-              ${{ "%.2f" % r.total_shipping_cost }}
-            {% else %}
-              <span class="text-slate-400">—</span>
-            {% endif %}
-          </td>
-          {% endif %}
-          <td class="px-4 py-2 text-slate-600">{{ r.first_shipped_at.strftime("%Y-%m-%d") }}</td>
-          <td class="px-4 py-2 text-slate-600">{{ r.last_shipped_at.strftime("%Y-%m-%d") }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="{{ 7 if view.any_shipping_cost else 6 }}" class="px-4 py-8 text-center text-slate-400">No sample shipments recorded yet.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="agx">
+  <div class="toolbar">
+    <div class="tb-left">
+      <div class="search"><span class="ic">{{ ui.icon("search", "h-4 w-4") }}</span>
+        <input id="cr-search" type="text" placeholder="Search creator handle, name, platform…" autocomplete="off"></div>
+      <button class="clear-btn" id="cr-clear">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
+    </div>
+    <div class="tb-right">
+      <div class="count-chip"><span class="mono"><strong>{{ creator_rows | length }}</strong></span> creators <span class="note">· <span id="cr-shown" class="mono">—</span> shown</span></div>
+    </div>
   </div>
-</section>
+  <div class="grid-wrap">
+    <div id="creator-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:560px"></div>
+  </div>
+</div>
+
+<script>
+const CR_ROWS = {{ creator_rows | tojson }};
+const ANY_SHIPPING = {{ view.any_shipping_cost | tojson }};
+const dollars = v => (v===null||v===undefined) ? "—" : "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const intc = v => (v===null||v===undefined) ? "—" : Number(v).toLocaleString("en-US");
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function creatorRenderer(p){
+  const d=p.data;
+  const pill = d.is_legacy ? ` <span class="tag legacy" style="height:18px;font-size:10px;padding:0 6px">legacy</span>` : "";
+  const sub = d.creator_name ? `<span class="code">${esc(d.creator_name)}</span>` : "";
+  return `<div class="cell-product"><span class="nm">${esc(d.creator_handle||"—")}${pill}</span>${sub}</div>`;
+}
+
+let api;
+const cols = [
+  { headerName:"Creator", field:"creator_handle", flex:1.8, minWidth:200, cellRenderer:creatorRenderer,
+    getQuickFilterText:p=>`${p.data.creator_handle} ${p.data.creator_name} ${p.data.platform}`, sortable:true },
+  { headerName:"Platform", field:"platform", width:130, cellRenderer:p=>p.value?`<span class="tag muted">${esc(p.value)}</span>`:`<span class="num muted">—</span>`, sortable:true },
+  { headerName:"Samples Sent", field:"total_samples_sent", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num" style="font-weight:600">${intc(p.value)}</span>`, sortable:true },
+  { headerName:"Distinct SKUs", field:"distinct_sku_count", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+];
+if(ANY_SHIPPING) cols.push({ headerName:"Shipping Cost", field:"total_shipping_cost", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num">${dollars(p.value)}</span>`, sortable:true });
+cols.push(
+  { headerName:"First Shipped", field:"first_shipped_at", width:140, cellRenderer:p=>`<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${p.value||"—"}</span>`, sortable:true },
+  { headerName:"Last Shipped", field:"last_shipped_at", width:140, cellRenderer:p=>`<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${p.value||"—"}</span>`, sortable:true },
+);
+const gridOptions = {
+  columnDefs:cols,
+  defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
+  rowData:CR_ROWS, pagination:true, paginationPageSize:25, paginationPageSizeSelector:[25,50,100], suppressCellFocus:true,
+  onGridReady:(e)=>{ api=e.api; shown(); }, onModelUpdated:shown,
+};
+function shown(){ if(api){ const el=document.getElementById("cr-shown"); if(el) el.textContent=api.getDisplayedRowCount(); } }
+document.addEventListener("DOMContentLoaded", ()=>{
+  const el=document.getElementById("creator-grid"); if(!el) return;
+  agGrid.createGrid(el, gridOptions);
+  const s=document.getElementById("cr-search"), c=document.getElementById("cr-clear");
+  s.addEventListener("input", e=>{ api.setGridOption("quickFilterText", e.target.value); c.classList.toggle("show", e.target.value!==""); });
+  c.addEventListener("click", ()=>{ s.value=""; api.setGridOption("quickFilterText",""); c.classList.remove("show"); });
+});
+</script>
 {% endblock %}

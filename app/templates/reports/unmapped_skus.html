@@ -2,13 +2,21 @@
 {% import "partials/ui.html" as ui %}
 {% block title %}Unmapped SKUs · Smashbox{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
+<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
+<link rel="stylesheet" href="/static/css/admin-grid.css">
+{% endblock %}
+
 {% block content %}
 {% call ui.page_header(
   eyebrow="Data Health",
   title="Unmapped SKUs",
   subtitle="TikTok SKU IDs that appear in your orders but aren't in the Master SKU Sheet or Bundle Mapping yet. Add them to enable product names, MSRP, and COGS — and to fix the P&L gross profit on these lines.",
+  accent_bar=true,
 ) %}
-  <button onclick="window.print()"
+  <button onclick="window.print()" type="button"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
 
@@ -22,43 +30,61 @@
   Total impact: {{ rows | sum(attribute='units') }} units sold, {{ rows | sum(attribute='gross') | money }} in gross sales.
 {% endcall %}
 
-<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
- <div class="overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-      <tr>
-        <th class="px-4 py-2">TikTok SKU ID / Identifier</th>
-        <th class="px-4 py-2 text-right">Units (total)</th>
-        <th class="px-4 py-2 text-right">Paid units</th>
-        <th class="px-4 py-2 text-right">Sample units</th>
-        <th class="px-4 py-2 text-right">Gross sales</th>
-        <th class="px-4 py-2 text-right">Order lines</th>
-        <th class="px-4 py-2">First seen</th>
-        <th class="px-4 py-2">Last seen</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100">
-      {% for r in rows %}
-      <tr>
-        <td class="px-4 py-2 font-mono text-xs">{{ r.identifier }}</td>
-        <td class="px-4 py-2 text-right font-medium">{{ r.units }}</td>
-        <td class="px-4 py-2 text-right">{{ r.paid_units }}</td>
-        <td class="px-4 py-2 text-right">{{ r.sample_units }}</td>
-        <td class="px-4 py-2 text-right">{{ r.gross | money }}</td>
-        <td class="px-4 py-2 text-right">{{ r.line_count }}</td>
-        <td class="px-4 py-2 text-slate-600">{{ r.first_seen.strftime("%Y-%m-%d") if r.first_seen else "—" }}</td>
-        <td class="px-4 py-2 text-slate-600">{{ r.last_seen.strftime("%Y-%m-%d") if r.last_seen else "—" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
- </div>
+<div class="agx">
+  <div class="toolbar">
+    <div class="tb-left">
+      <div class="search"><span class="ic">{{ ui.icon("search", "h-4 w-4") }}</span>
+        <input id="um-search" type="text" placeholder="Search TikTok SKU ID / identifier…" autocomplete="off"></div>
+      <button class="clear-btn" id="um-clear">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
+    </div>
+    <div class="tb-right">
+      <div class="count-chip"><span class="mono"><strong>{{ unmapped_rows | length }}</strong></span> identifiers <span class="note">· <span id="um-shown" class="mono">—</span> shown</span></div>
+    </div>
+  </div>
+  <div class="grid-wrap">
+    <div id="unmapped-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:560px"></div>
+  </div>
 </div>
 
-<p class="mt-4 text-xs text-slate-500 print:hidden">
-  Most identifiers above are numeric TikTok SKU IDs. Paste one into your TikTok Seller Center to look up the product,
-  then add a row to the Master SKU Sheet with the matching <em>TikTok Shop SKU</em>, <em>TikTok ALT SKU</em>, and <em>TikTok SKU ID</em>.
-  Re-upload the master sheet and these lines will auto-resolve.
-</p>
+<div class="agx"><p class="footnote">
+  <span class="ic">{{ ui.icon("info", "h-3.5 w-3.5") }}</span>
+  <span>Most identifiers are numeric TikTok SKU IDs. Paste one into TikTok Seller Center to look up the product, then add a row to the
+  Master SKU Sheet with the matching <strong>TikTok Shop SKU</strong>, <strong>TikTok ALT SKU</strong>, and <strong>TikTok SKU ID</strong>.
+  Re-upload and these lines auto-resolve.</span>
+</p></div>
+
+<script>
+const UM_ROWS = {{ unmapped_rows | tojson }};
+const dollars = v => (v===null||v===undefined) ? "—" : "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const intc = v => (v===null||v===undefined) ? "—" : Number(v).toLocaleString("en-US");
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let api;
+const gridOptions = {
+  columnDefs:[
+    { headerName:"TikTok SKU ID / Identifier", field:"identifier", flex:2, minWidth:240,
+      cellRenderer:p=>`<span class="mono" style="font-size:12px">${esc(p.value)}</span>`,
+      getQuickFilterText:p=>p.data.identifier, sortable:true },
+    { headerName:"Units", field:"units", width:104, type:"rightAligned", cellRenderer:p=>`<span class="num" style="font-weight:600">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Paid", field:"paid_units", width:96, type:"rightAligned", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Sample", field:"sample_units", width:104, type:"rightAligned", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Gross Sales", field:"gross", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num">${dollars(p.value)}</span>`, sortable:true },
+    { headerName:"Order Lines", field:"line_count", width:120, type:"rightAligned", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"First Seen", field:"first_seen", width:130, cellRenderer:p=>`<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${p.value||"—"}</span>`, sortable:true },
+    { headerName:"Last Seen", field:"last_seen", width:130, cellRenderer:p=>`<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${p.value||"—"}</span>`, sortable:true },
+  ],
+  defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
+  rowData:UM_ROWS, pagination:true, paginationPageSize:25, paginationPageSizeSelector:[25,50,100], suppressCellFocus:true,
+  onGridReady:(e)=>{ api=e.api; shown(); }, onModelUpdated:shown,
+};
+function shown(){ if(api){ const el=document.getElementById("um-shown"); if(el) el.textContent=api.getDisplayedRowCount(); } }
+document.addEventListener("DOMContentLoaded", ()=>{
+  const el=document.getElementById("unmapped-grid"); if(!el) return;
+  agGrid.createGrid(el, gridOptions);
+  const s=document.getElementById("um-search"), c=document.getElementById("um-clear");
+  s.addEventListener("input", e=>{ api.setGridOption("quickFilterText", e.target.value); c.classList.toggle("show", e.target.value!==""); });
+  c.addEventListener("click", ()=>{ s.value=""; api.setGridOption("quickFilterText",""); c.classList.remove("show"); });
+});
+</script>
 {% endif %}
 {% endblock %}
