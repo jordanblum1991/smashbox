@@ -20,7 +20,7 @@ from app.models.order import OrderLine
 from app.models.sku import Sku
 from app.reports.ad_spend import compute_ad_spend_summary
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
-from app.reports.dashboard_trends import build_dashboard_trends
+from app.reports.dashboard_trends import build_dashboard_trends, compute_delta, sparkline_points
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.policy_violations import (
@@ -662,11 +662,35 @@ def demand_planning_sku_detail(
 def ad_spend_view(request: Request, db: Session = Depends(get_db)):
     """Monthly TikTok ad spend with cash / credit / ad-credit breakdown."""
     summary = compute_ad_spend_summary(db)
+    months = summary.months
+
+    # Sparklines for the 3 total tiles — the monthly series the page already has.
+    spark_gross = sparkline_points([m.total for m in months])
+    spark_credit = sparkline_points([m.manual_credit for m in months])
+    spark_net = sparkline_points([m.net_total for m in months])
+
+    # Per-row MoM delta on Gross Ad Spend vs the immediately-preceding CALENDAR
+    # month. Neutral polarity — rising ad spend isn't inherently good/bad. The
+    # prior must be the actual previous month present in the series; a gap (or
+    # the first month) reads "new", never a misleading jump across a gap.
+    by_key = {(m.year, m.month): m for m in months}
+    row_deltas = []
+    for m in months:
+        py, pm = (m.year - 1, 12) if m.month == 1 else (m.year, m.month - 1)
+        prior = by_key.get((py, pm))
+        row_deltas.append(
+            compute_delta(m.total, prior.total if prior else None, prior_has_data=prior is not None)
+        )
+
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
         {
             "summary": summary,
+            "spark_gross": spark_gross,
+            "spark_credit": spark_credit,
+            "spark_net": spark_net,
+            "row_deltas": row_deltas,
             "today": date.today(),
             "error": request.query_params.get("error"),
         },
