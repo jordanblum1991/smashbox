@@ -144,7 +144,7 @@
   {# Samples Shipped — dual figure: units + distinct orders, this period #}
   <a href="/reports/samples{{ samples_qs }}"
      class="col-span-6 md:col-span-3 relative block overflow-hidden rounded-2xl bg-indigo-50 p-6 ring-1 ring-slate-900/5 shadow-sm transition hover:shadow-md hover:ring-slate-900/10">
-    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">Samples Shipped</div>
+    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">Samples Shipped (This Period)</div>
     <div class="mt-2 flex items-end gap-5">
       <div>
         <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ "{:,}".format(samples_shipped) }}</div>
@@ -156,9 +156,9 @@
         <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Orders</div>
       </div>
     </div>
-    <div class="mt-1.5 text-xs text-slate-400">Free + paid · this period</div>
+    <div class="mt-1.5 text-xs text-slate-400">Free + paid sample units &amp; orders</div>
   </a>
-  {{ ui.kpi(label="Total Samples Shipped All-Time", value="{:,}".format(samples_shipped_all_time), hint="Every period",
+  {{ ui.kpi(label="Total Samples Shipped (All-Time)", value="{:,}".format(samples_shipped_all_time), hint="Every period",
       href="/reports/samples", col_span="col-span-6 md:col-span-3", surface="bg-indigo-50") }}
 </section>
 
