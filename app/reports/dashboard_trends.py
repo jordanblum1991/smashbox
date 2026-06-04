@@ -117,6 +117,71 @@ def sparkline_points(series, width: int = 100, height: int = 32, pad: int = 2) -
     return " ".join(pts)
 
 
+@dataclass(frozen=True)
+class Bar:
+    """One bar in a zero-baseline bar chart (SVG user units). `sign` is
+    'pos' | 'neg' | 'zero' so the renderer can color above/below the line."""
+    x: float
+    y: float
+    w: float
+    h: float
+    sign: str
+
+
+@dataclass(frozen=True)
+class BarChart:
+    bars: list
+    baseline: float    # y of the zero line
+    width: float
+    height: float
+
+
+def bar_chart(values, *, width: float = 100, height: float = 40, pad: float = 3, gap_ratio: float = 0.3) -> BarChart:
+    """Lay out `values` as bars on a shared zero baseline.
+
+    The value range always includes 0, so positive bars rise from the baseline
+    and negative bars hang below it; the baseline floats to wherever 0 sits
+    (bottom when all-positive, top when all-negative). An all-zero or empty
+    series produces zero-height bars with no divide-by-zero. Coordinates are
+    floats in a `width` x `height` viewBox; the macro just draws <rect>s.
+    """
+    vals = list(values)
+    inner_w = width - 2 * pad
+    inner_h = height - 2 * pad
+
+    if not vals:
+        return BarChart(bars=[], baseline=pad + inner_h, width=width, height=height)
+
+    lo = min(min(vals), 0)
+    hi = max(max(vals), 0)
+    span = hi - lo
+    n = len(vals)
+    slot = inner_w / n
+    bw = slot * (1 - gap_ratio)
+
+    if span == 0:                                  # all zero — flat, no division
+        baseline = pad + inner_h
+        bars = [Bar(x=pad + i * slot + (slot - bw) / 2, y=baseline, w=bw, h=0.0, sign="zero")
+                for i in range(n)]
+        return BarChart(bars=bars, baseline=baseline, width=width, height=height)
+
+    def y_of(v) -> float:
+        return pad + float(hi - v) / float(span) * inner_h
+
+    baseline = y_of(0)
+    bars = []
+    for i, v in enumerate(vals):
+        x = pad + i * slot + (slot - bw) / 2
+        if v > 0:
+            top, h, sign = y_of(v), baseline - y_of(v), "pos"
+        elif v < 0:
+            top, h, sign = baseline, y_of(v) - baseline, "neg"
+        else:
+            top, h, sign = baseline, 0.0, "zero"
+        bars.append(Bar(x=x, y=top, w=bw, h=h, sign=sign))
+    return BarChart(bars=bars, baseline=baseline, width=width, height=height)
+
+
 def trailing_months(year: int, month: int, n: int) -> list[tuple[int, int]]:
     """The `n` most recent (year, month) pairs ending at (year, month),
     oldest first. Walks the calendar backwards so year boundaries are handled

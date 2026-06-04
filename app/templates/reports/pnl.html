@@ -281,6 +281,27 @@
 {% set total_label = "Year" if view.period_kind.value == "year" else "YTD" %}
 {% set months = view.monthly_breakdown %}
 
+{# ---- Monthly trend charts (zero-dep inline SVG) — visualize the series the
+       table below shows as numbers. Tooltips built here from the same months. #}
+{% if charts %}
+{% set np = namespace(t=[]) %}
+{% set ncs = namespace(t=[]) %}
+{% for m in months %}
+  {% set np.t = np.t + [m.month.strftime("%b %Y") ~ ": " ~ (m.managed_net_profit | money)] %}
+  {% set ncs.t = ncs.t + [m.month.strftime("%b %Y") ~ ": " ~ (m.managed_net_customer_sales | money)] %}
+{% endfor %}
+<section aria-label="Monthly trends" class="mb-5 grid grid-cols-1 gap-4 print:hidden">
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Net Profit by month</div>
+    <div class="mt-2">{{ ui.barchart(charts.net_profit, tooltips=np.t, pos_tone="pos", neg_tone="neg") }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Net Customer Sales by month</div>
+    <div class="mt-2">{{ ui.barchart(charts.net_customer_sales, tooltips=ncs.t, pos_tone="info", neg_tone="neg") }}</div>
+  </div>
+</section>
+{% endif %}
+
 {# Controls strip — sits above the table and toggles JS-driven visibility. #}
 <div class="mb-3 flex flex-wrap items-center gap-4 text-xs print:hidden">
   <label class="inline-flex cursor-pointer items-center gap-2 text-slate-600">
