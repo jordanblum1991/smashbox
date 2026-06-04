@@ -2,13 +2,21 @@
 {% import "partials/ui.html" as ui %}
 {% block title %}Settlement-Only Orders · Smashbox{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
+<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
+<link rel="stylesheet" href="/static/css/admin-grid.css">
+{% endblock %}
+
 {% block content %}
 {% call ui.page_header(
   eyebrow="Data Health",
   title="Orphan Orders",
   subtitle="Orders that appear in TikTok's settlement file but have no matching row in our orders database. TikTok already paid (or fee'd) them, but we don't have the line-level data — SKUs, gross sales, and the seller-funded discount split — needed to put them in the P&L.",
+  accent_bar=true,
 ) %}
-  <button onclick="window.print()"
+  <button onclick="window.print()" type="button"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
 
@@ -25,33 +33,51 @@
   that covers the dates below, then upload it. The matching settlement data will back-fill automatically.
 {% endcall %}
 
-<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
- <div class="overflow-x-auto">
-  <table class="min-w-full text-sm">
-    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-      <tr>
-        <th class="px-4 py-2.5">TikTok Order ID</th>
-        <th class="px-4 py-2.5 text-right">Statements</th>
-        <th class="px-4 py-2.5 text-right">Settled gross</th>
-        <th class="px-4 py-2.5 text-right">TikTok fees</th>
-        <th class="px-4 py-2.5">Paid date</th>
-        <th class="px-4 py-2.5">Settled date</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100">
-      {% for r in rows %}
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-4 py-2.5 font-mono text-xs">{{ r.tiktok_order_id }}</td>
-        <td class="px-4 py-2.5 text-right tabular-nums">{{ r.statement_ids }}</td>
-        <td class="px-4 py-2.5 text-right tabular-nums">{{ r.settlement_gross | money }}</td>
-        <td class="px-4 py-2.5 text-right tabular-nums">{{ r.settlement_fees | money }}</td>
-        <td class="px-4 py-2.5 text-slate-600">{{ r.paid_date.strftime("%Y-%m-%d") if r.paid_date else "—" }}</td>
-        <td class="px-4 py-2.5 text-slate-600">{{ r.settled_date.strftime("%Y-%m-%d") if r.settled_date else "—" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
- </div>
+<div class="agx">
+  <div class="toolbar">
+    <div class="tb-left">
+      <div class="search"><span class="ic">{{ ui.icon("search", "h-4 w-4") }}</span>
+        <input id="oo-search" type="text" placeholder="Search TikTok Order ID…" autocomplete="off"></div>
+      <button class="clear-btn" id="oo-clear">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
+    </div>
+    <div class="tb-right">
+      <div class="count-chip"><span class="mono"><strong>{{ orphan_rows | length }}</strong></span> orphan orders <span class="note">· <span id="oo-shown" class="mono">—</span> shown</span></div>
+    </div>
+  </div>
+  <div class="grid-wrap">
+    <div id="orphan-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:560px"></div>
+  </div>
 </div>
+
+<script>
+const OO_ROWS = {{ orphan_rows | tojson }};
+const dollars = v => (v===null||v===undefined) ? "—" : "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let api;
+const gridOptions = {
+  columnDefs:[
+    { headerName:"TikTok Order ID", field:"tiktok_order_id", flex:1.6, minWidth:200,
+      cellRenderer:p=>`<span class="mono" style="font-size:12px">${esc(p.value)}</span>`,
+      getQuickFilterText:p=>p.data.tiktok_order_id, sortable:true },
+    { headerName:"Statements", field:"statement_ids", width:130, type:"rightAligned", cellRenderer:p=>`<span class="num">${esc(p.value)}</span>`, sortable:true },
+    { headerName:"Settled Gross", field:"settlement_gross", width:150, type:"rightAligned", cellRenderer:p=>`<span class="num">${dollars(p.value)}</span>`, sortable:true },
+    { headerName:"TikTok Fees", field:"settlement_fees", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num">${dollars(p.value)}</span>`, sortable:true },
+    { headerName:"Paid Date", field:"paid_date", width:130, cellRenderer:p=>`<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${p.value||"—"}</span>`, sortable:true },
+    { headerName:"Settled Date", field:"settled_date", width:130, cellRenderer:p=>`<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${p.value||"—"}</span>`, sortable:true },
+  ],
+  defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
+  rowData:OO_ROWS, pagination:true, paginationPageSize:25, paginationPageSizeSelector:[25,50,100], suppressCellFocus:true,
+  onGridReady:(e)=>{ api=e.api; shown(); }, onModelUpdated:shown,
+};
+function shown(){ if(api){ const el=document.getElementById("oo-shown"); if(el) el.textContent=api.getDisplayedRowCount(); } }
+document.addEventListener("DOMContentLoaded", ()=>{
+  const el=document.getElementById("orphan-grid"); if(!el) return;
+  agGrid.createGrid(el, gridOptions);
+  const s=document.getElementById("oo-search"), c=document.getElementById("oo-clear");
+  s.addEventListener("input", e=>{ api.setGridOption("quickFilterText", e.target.value); c.classList.toggle("show", e.target.value!==""); });
+  c.addEventListener("click", ()=>{ s.value=""; api.setGridOption("quickFilterText",""); c.classList.remove("show"); });
+});
+</script>
 {% endif %}
 {% endblock %}

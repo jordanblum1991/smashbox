@@ -147,6 +147,22 @@ def ytd_pnl_legacy(year: int | None = None):
     return RedirectResponse(url=f"/reports/pnl?{qs}", status_code=307)
 
 
+def _sku_prof_view(r) -> dict:
+    """Serialize a SKU-profitability SkuRow for the AG Grid."""
+    return {
+        "tiktok_sku_id": r.tiktok_sku_id,
+        "sku_code": r.sku_code,
+        "name": (title_case(strip_size(r.name)) if r.name else None),
+        "is_bundle": r.is_bundle,
+        "is_unmapped": (not r.is_bundle) and (not r.name),
+        "units_sold": r.units_sold,
+        "gross_sales": float(r.gross_sales),
+        "cogs": float(r.cogs),
+        "gross_profit": float(r.gross_profit),
+        "gross_margin": float(r.gross_margin),
+    }
+
+
 @router.get("/reports/sku-profitability")
 def sku_profitability_view(
     request: Request,
@@ -161,7 +177,7 @@ def sku_profitability_view(
     return templates.TemplateResponse(
         request,
         "reports/sku_profitability.html",
-        {"rows": rows, "year": y, "month": m},
+        {"rows": rows, "year": y, "month": m, "prof_rows": [_sku_prof_view(r) for r in rows]},
     )
 
 
@@ -202,6 +218,44 @@ def sample_inventory_view(request: Request, db: Session = Depends(get_db)):
     )
 
 
+def _creator_view(r) -> dict:
+    return {
+        "creator_handle": r.creator_handle,
+        "creator_name": r.creator_name,
+        "is_legacy": r.is_legacy,
+        "platform": r.platform,
+        "total_samples_sent": r.total_samples_sent,
+        "distinct_sku_count": r.distinct_sku_count,
+        "total_shipping_cost": (float(r.total_shipping_cost) if r.total_shipping_cost is not None else None),
+        "first_shipped_at": (r.first_shipped_at.strftime("%Y-%m-%d") if r.first_shipped_at else None),
+        "last_shipped_at": (r.last_shipped_at.strftime("%Y-%m-%d") if r.last_shipped_at else None),
+    }
+
+
+def _unmapped_view(r) -> dict:
+    return {
+        "identifier": r.identifier,
+        "units": r.units,
+        "paid_units": r.paid_units,
+        "sample_units": r.sample_units,
+        "gross": float(r.gross),
+        "line_count": r.line_count,
+        "first_seen": (r.first_seen.strftime("%Y-%m-%d") if r.first_seen else None),
+        "last_seen": (r.last_seen.strftime("%Y-%m-%d") if r.last_seen else None),
+    }
+
+
+def _orphan_view(r) -> dict:
+    return {
+        "tiktok_order_id": r.tiktok_order_id,
+        "statement_ids": r.statement_ids,
+        "settlement_gross": float(r.settlement_gross),
+        "settlement_fees": float(r.settlement_fees),
+        "paid_date": (r.paid_date.strftime("%Y-%m-%d") if r.paid_date else None),
+        "settled_date": (r.settled_date.strftime("%Y-%m-%d") if r.settled_date else None),
+    }
+
+
 @router.get("/reports/samples-by-creator")
 def samples_by_creator_view(request: Request, db: Session = Depends(get_db)):
     """Samples sent, grouped by creator."""
@@ -209,7 +263,7 @@ def samples_by_creator_view(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
         "reports/samples_by_creator.html",
-        {"view": view},
+        {"view": view, "creator_rows": [_creator_view(r) for r in view.rows]},
     )
 
 
@@ -219,7 +273,7 @@ def unmapped_skus_view(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
         "reports/unmapped_skus.html",
-        {"rows": rows},
+        {"rows": rows, "unmapped_rows": [_unmapped_view(r) for r in rows]},
     )
 
 
@@ -229,7 +283,7 @@ def settlement_only_orders_view(request: Request, db: Session = Depends(get_db))
     return templates.TemplateResponse(
         request,
         "reports/settlement_only_orders.html",
-        {"rows": rows},
+        {"rows": rows, "orphan_rows": [_orphan_view(r) for r in rows]},
     )
 
 
