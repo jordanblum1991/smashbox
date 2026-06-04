@@ -47,7 +47,7 @@ from app.reports.sku_profitability import compute_sku_profitability
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
-from app.templating import templates
+from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["reports"])
 
@@ -419,6 +419,46 @@ def _build_sort_links(request: Request, current_key: str | None, current_dir: st
     return {k: link_for(k) for k in _DEMAND_SORT_KEYS}
 
 
+def _dp_row_view(r) -> dict:
+    """Serialize a ReplenishmentResult for the demand-planning AG Grid."""
+    return {
+        "component_sku": r.component_sku,
+        "sku_code": r.sku_code,
+        "name": (title_case(strip_size(r.name)) if r.name else None),
+        "status": r.status.value,
+        "on_hand": r.on_hand,
+        "expected_receipts": r.expected_receipts,
+        "daily_velocity": float(r.daily_velocity),
+        "daily_velocity_14d": float(r.daily_velocity_14d),
+        "trend_ratio": float(r.trend_ratio),
+        "days_of_supply": (float(r.days_of_supply) if r.days_of_supply is not None else None),
+        "stockout_label": (r.stockout_date.strftime("%b %d") if r.stockout_date else None),
+        "stockout_sort": (r.stockout_date.isoformat() if r.stockout_date else None),
+        "lead_time_days": r.lead_time_days,
+        "reorder_point": r.reorder_point,
+        "suggested_order_qty": r.suggested_order_qty,
+        "investment": float(r.investment),
+    }
+
+
+def _dp_pipeline_view(i) -> dict:
+    """Serialize a PipelineItem for the demand-planning pipeline AG Grid."""
+    return {
+        "component_sku": i.component_sku,
+        "sku_code": i.sku_code,
+        "name": (title_case(strip_size(i.name)) if i.name else None),
+        "status": i.status.value,
+        "on_hand": i.on_hand,
+        "daily_velocity": float(i.daily_velocity),
+        "lead_time_days": i.lead_time_days,
+        "days_until_reorder": i.days_until_reorder,
+        "order_by_label": i.order_by_date.strftime("%b %d"),
+        "order_by_sort": i.order_by_date.isoformat(),
+        "suggested_qty": i.suggested_qty,
+        "investment": float(i.investment),
+    }
+
+
 @router.get("/reports/demand-planning")
 def demand_planning_view(
     request: Request,
@@ -479,6 +519,8 @@ def demand_planning_view(
             "sort_key": sort_key,
             "sort_dir": sort_dir,
             "sort_links": _build_sort_links(request, sort_key, sort_dir),
+            "dp_rows": [_dp_row_view(r) for r in view.rows],
+            "dp_pipeline": [_dp_pipeline_view(i) for i in view.pipeline.all_items_sorted],
         },
     )
 
