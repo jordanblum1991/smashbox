@@ -30,7 +30,7 @@ from app.models.bundle import Bundle, BundleComponent
 from app.models.sku import Sku
 from app.models.user import User, UserRole
 from app.services.sku_resolver import resolve_all_order_lines
-from app.templating import templates
+from app.templating import extract_size, strip_size, templates, title_case
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -377,6 +377,24 @@ def _decimal_strict_optional(
     return v
 
 
+def _parse_service_level(raw: str) -> Decimal | None:
+    """Blank → None ('use planner default'), else must be one of the
+    SERVICE_LEVEL_Z_TABLE keys. ValueError otherwise. The UI dropdown only
+    offers valid choices; this also catches a browser/curl bypass. Shared by
+    create_sku and the inline detail edit so both validate identically."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        cand = Decimal(raw)
+    except InvalidOperation:
+        raise ValueError(f"Service level must be a decimal (got '{raw}').")
+    if cand not in SERVICE_LEVEL_Z_TABLE:
+        allowed = ", ".join(str(k) for k in sorted(SERVICE_LEVEL_Z_TABLE.keys()))
+        raise ValueError(f"Service level must be one of: {allowed} (or blank).")
+    return cand
+
+
 def _qty_strict(s: str, label: str) -> int:
     """Parse a quantity. Blank → 1 (matches importer default). Non-integer
     or < 1 → ValueError."""
@@ -407,6 +425,40 @@ def _qty_strict(s: str, label: str) -> int:
 #     ID. Mirrors the importer's fallback upsert key.
 # ---------------------------------------------------------------------------
 
+# Planning fields that feed the demand-planning reorder math. The SKU grid's
+# "completeness" indicator counts how many of these are populated per row.
+_PLANNING_FIELDS = ("lead_time_days", "moq", "case_pack", "safety_stock_pct", "service_level")
+
+
+def _sku_view(s: Sku) -> dict:
+    """Serialize a Sku into a JSON-ready dict for the AG Grid front-end.
+
+    Presentation only — reads the ORM row, applies the same display filters the
+    template would (size extraction, title-casing), and converts Decimals to
+    floats so the row is JSON-serializable. No DB writes, no calculation changes.
+    """
+    return {
+        "id": s.id,
+        "name": title_case(strip_size(s.name)) or s.name,
+        "sku": s.sku,
+        "tiktok_sku_id": s.tiktok_sku_id or "",
+        "tiktok_alt_sku": s.tiktok_alt_sku or "",
+        "brand": s.brand or "",
+        "category": s.category or "",
+        "item_type": s.item_type or "",
+        "size": extract_size(s.name),
+        "msrp": float(s.msrp) if s.msrp is not None else None,
+        "unit_cogs": float(s.unit_cogs) if s.unit_cogs is not None else None,
+        "lead_time_days": s.lead_time_days,
+        "moq": s.moq,
+        "case_pack": s.case_pack,
+        "safety_stock_pct": float(s.safety_stock_pct) if s.safety_stock_pct is not None else None,
+        "service_level": float(s.service_level) if s.service_level is not None else None,
+        "is_reorderable": bool(s.is_reorderable),
+        "is_active": bool(s.is_active),
+    }
+
+
 @router.get("/skus", dependencies=[Depends(require_admin)])
 def skus_page(
     request: Request,
@@ -415,19 +467,19 @@ def skus_page(
     notice: str | None = None,
 ):
     """List all SKUs + render the add-SKU form. A-Z by name, then SBX code."""
-    # Split into active vs inactive lists. The template renders active as the
-    # primary list and inactive in a collapsible disclosure below.
     skus = db.execute(
         select(Sku).order_by(Sku.name.asc(), Sku.sku.asc())
     ).scalars().all()
-    active_skus = [s for s in skus if s.is_active]
-    inactive_skus = [s for s in skus if not s.is_active]
+    sku_rows = [_sku_view(s) for s in skus]
+    active_count = sum(1 for s in skus if s.is_active)
     return templates.TemplateResponse(
         request,
         "admin/skus.html",
         {
-            "active_skus": active_skus,
-            "inactive_skus": inactive_skus,
+            "sku_rows": sku_rows,
+            "total_count": len(skus),
+            "active_count": active_count,
+            "inactive_count": len(skus) - active_count,
             "error": error,
             "notice": notice,
             "service_level_choices": sorted(SERVICE_LEVEL_Z_TABLE.keys()),
@@ -517,21 +569,9 @@ def create_sku(
             safety_stock_pct, "Safety stock %",
             min_value=Decimal("0"), max_value=Decimal("100"),
         )
+        service_level_dec = _parse_service_level(service_level)
     except ValueError as e:
         return _skus_back(error=str(e))
-
-    # Service level — blank OR one of the table-allowed values. The dropdown
-    # only offers valid choices; this catches browser/curl bypass.
-    service_level_dec: Decimal | None = None
-    if service_level.strip():
-        try:
-            cand = Decimal(service_level.strip())
-        except InvalidOperation:
-            return _skus_back(error=f"Service level must be a decimal (got '{service_level}').")
-        if cand not in SERVICE_LEVEL_Z_TABLE:
-            allowed = ", ".join(str(k) for k in sorted(SERVICE_LEVEL_Z_TABLE.keys()))
-            return _skus_back(error=f"Service level must be one of: {allowed} (or blank).")
-        service_level_dec = cand
 
     db.add(Sku(
         sku=sku_code,
@@ -566,3 +606,52 @@ def _skus_back(*, error: str | None = None, notice: str | None = None) -> Redire
         qs["notice"] = notice
     suffix = ("?" + urlencode(qs)) if qs else ""
     return RedirectResponse(f"/admin/skus{suffix}", status_code=303)
+
+
+@router.post("/skus/{sku_id}/edit", dependencies=[Depends(require_admin)])
+def update_sku_details(
+    sku_id: int,
+    unit_cogs: str = Form(default=""),
+    lead_time_days: str = Form(default=""),
+    moq: str = Form(default=""),
+    case_pack: str = Form(default=""),
+    safety_stock_pct: str = Form(default=""),
+    service_level: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Inline-edit one SKU's editable detail fields from the Manage SKUs drawer:
+    Unit COGS plus the planning inputs (Lead time, MOQ, Case pack, Safety
+    stock %, Service level). Identity, MSRP, and Reorderable are NOT edited here.
+
+    Reuses create_sku's strict parsers + service-level allow-list, so a fat-
+    fingered value is rejected rather than silently coerced. Unit COGS is stored
+    at the model's 4-dp precision (displayed at 2 dp). Deliberately does NOT
+    touch historical `Order.unit_cogs_snapshot` — those are frozen at import
+    time — so prior P&L/profitability stay put; only zero-snapshot fallbacks and
+    future imports pick up the new cost. Returns the refreshed row JSON for the
+    fetch-based drawer save (no page reload).
+    """
+    sku = db.get(Sku, sku_id)
+    if sku is None:
+        raise HTTPException(status_code=404, detail="SKU not found.")
+    try:
+        cogs_dec = _money_strict(unit_cogs, "Unit COGS", min_value=Decimal("0"))
+        lead_time = _int_strict_optional(lead_time_days, "Lead time (days)", min_value=0)
+        moq_int = _int_strict_optional(moq, "MOQ", min_value=0)
+        case_pack_int = _int_strict_optional(case_pack, "Case pack", min_value=0)
+        safety_pct = _decimal_strict_optional(
+            safety_stock_pct, "Safety stock %",
+            min_value=Decimal("0"), max_value=Decimal("100"),
+        )
+        service_level_dec = _parse_service_level(service_level)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    sku.unit_cogs = cogs_dec.quantize(Decimal("0.0001"))
+    sku.lead_time_days = lead_time
+    sku.moq = moq_int
+    sku.case_pack = case_pack_int
+    sku.safety_stock_pct = safety_pct
+    sku.service_level = service_level_dec
+    db.commit()
+    return {"ok": True, "sku": _sku_view(sku)}

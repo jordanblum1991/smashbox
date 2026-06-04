@@ -2,235 +2,729 @@
 {% import "partials/ui.html" as ui %}
 {% block title %}Manage SKUs · Smashbox{% endblock %}
 
+{% block head %}
+{# ---- AG Grid, scoped to this page only. Typography inherits the site's
+       Inter (loaded in base.html); figures use tabular-nums like the rest of
+       the app — no separate display/mono typeface. ---- #}
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
+<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
+<style>
+/* ============================================================
+   Manage SKUs — themed to the app's Inter + slate language
+   (reads identically to the dashboard / P&L / reports). ALL
+   selectors are scoped under .skus-page; the --sbx-* tokens map
+   to the Tailwind slate / sky / emerald palette. A few app
+   conventions (slate-900 primary buttons, indigo eyebrow,
+   emerald "complete" signals) are applied in the overrides block
+   near the end of this <style>.
+   ============================================================ */
+:root{
+  --sbx-canvas:#f8fafc; --sbx-surface:#FFFFFF; --sbx-sunk:#f1f5f9;
+  --sbx-ink:#1e293b; --sbx-ink-soft:#64748b; --sbx-ink-faint:#94a3b8;
+  --sbx-hair:#e2e8f0; --sbx-hair-soft:#f1f5f9;
+  --sbx-accent:#0284c7; --sbx-accent-press:#0369a1; --sbx-tint:#f0f9ff; --sbx-tint-2:#e0f2fe;
+  --sbx-pos:#059669; --sbx-neg:#be123c;
+  --sbx-chip-bg:#f1f5f9; --sbx-chip-ink:#475569;
+  /* Site font stack (tailwind.config.js `sans`); figures reuse it + tabular-nums. */
+  --sbx-ui:'Inter','ui-sans-serif','system-ui','-apple-system','Segoe UI','Roboto','sans-serif';
+  --sbx-mono:'Inter','ui-sans-serif','system-ui','-apple-system','Segoe UI','Roboto','sans-serif';
+  --sbx-shadow-sm:0 1px 2px rgba(15,23,42,.04),0 1px 3px rgba(15,23,42,.05);
+  --sbx-shadow-lg:0 18px 50px rgba(15,23,42,.16),0 6px 18px rgba(15,23,42,.10);
+  --sbx-radius:10px; --sbx-radius-sm:7px; --sbx-pill:999px;
+}
+
+.skus-page{ font-family:var(--sbx-ui); color:var(--sbx-ink); font-size:14px; line-height:1.45; }
+.skus-page *{ box-sizing:border-box; }
+.skus-page .mono{ font-family:var(--sbx-mono); font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
+
+/* ---- page header ---- */
+.skus-page .pg-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:28px; margin-bottom:22px; }
+.skus-page .eyebrow{ font-size:11px; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--sbx-accent); margin:0 0 9px; display:flex; align-items:center; gap:8px; }
+.skus-page .eyebrow::before{ content:""; width:18px; height:1.5px; background:var(--sbx-accent); display:inline-block; }
+.skus-page h1.title{ font-size:28px; font-weight:700; letter-spacing:-.02em; margin:0 0 8px; color:var(--sbx-ink); }
+.skus-page .subtitle{ font-size:14px; color:var(--sbx-ink-soft); max-width:64ch; margin:0; }
+.skus-page .subtitle .pill-inline{ font-family:var(--sbx-mono); font-size:12px; background:var(--sbx-sunk); border:1px solid var(--sbx-hair); border-radius:5px; padding:1px 6px; color:var(--sbx-chip-ink); }
+
+/* ---- flash banners ---- */
+.skus-page .flash{ display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border-radius:var(--sbx-radius); font-size:13.5px; margin-bottom:16px; border:1px solid; }
+.skus-page .flash.err{ background:#FBEDEB; border-color:#EBC9C4; color:#7C261C; }
+.skus-page .flash.ok{ background:var(--sbx-tint); border-color:var(--sbx-tint-2); color:var(--sbx-accent-press); }
+
+/* ---- buttons ---- */
+.skus-page .btn-primary{ display:inline-flex; align-items:center; gap:7px; height:38px; padding:0 16px; background:var(--sbx-accent); color:#fff; font-family:var(--sbx-ui); font-size:13.5px; font-weight:600; border:none; border-radius:var(--sbx-radius-sm); cursor:pointer; box-shadow:var(--sbx-shadow-sm); transition:background .15s ease, transform .05s ease; }
+.skus-page .btn-primary:hover{ background:var(--sbx-accent-press); }
+.skus-page .btn-primary:active{ transform:translateY(1px); }
+.skus-page .btn-ghost{ height:38px; padding:0 15px; background:var(--sbx-surface); color:var(--sbx-ink-soft); border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius-sm); font-family:var(--sbx-ui); font-size:13.5px; font-weight:500; cursor:pointer; transition:background .15s ease; }
+.skus-page .btn-ghost:hover{ background:var(--sbx-sunk); color:var(--sbx-ink); }
+
+/* ---- toolbar ---- */
+.skus-page .toolbar{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:14px 16px; background:var(--sbx-surface); border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius) var(--sbx-radius) 0 0; border-bottom:none; }
+.skus-page .tb-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:1; min-width:0; }
+.skus-page .tb-right{ display:flex; align-items:center; gap:14px; }
+.skus-page .search{ position:relative; display:flex; align-items:center; min-width:240px; }
+.skus-page .search .ic{ position:absolute; left:11px; color:var(--sbx-ink-faint); pointer-events:none; display:flex; }
+.skus-page .search input{ width:100%; height:38px; padding:0 12px 0 33px; font-family:var(--sbx-ui); font-size:13.5px; color:var(--sbx-ink); background:var(--sbx-surface); border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius-sm); outline:none; transition:border-color .15s ease, box-shadow .15s ease; }
+.skus-page .search input::placeholder{ color:var(--sbx-ink-faint); }
+.skus-page .search input:focus{ border-color:var(--sbx-accent); box-shadow:0 0 0 3px var(--sbx-tint); }
+.skus-page .fselect{ position:relative; }
+.skus-page .fselect select{ appearance:none; -webkit-appearance:none; height:38px; padding:0 30px 0 12px; font-family:var(--sbx-ui); font-size:13px; font-weight:500; color:var(--sbx-ink); background:var(--sbx-surface); border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius-sm); cursor:pointer; outline:none; transition:border-color .15s ease, box-shadow .15s ease; }
+.skus-page .fselect select:focus{ border-color:var(--sbx-accent); box-shadow:0 0 0 3px var(--sbx-tint); }
+.skus-page .fselect.dirty select{ border-color:var(--sbx-accent); background:var(--sbx-tint); color:var(--sbx-accent-press); font-weight:600; }
+.skus-page .fselect::after{ content:""; position:absolute; right:12px; top:50%; width:7px; height:7px; border-right:1.5px solid var(--sbx-ink-soft); border-bottom:1.5px solid var(--sbx-ink-soft); transform:translateY(-70%) rotate(45deg); pointer-events:none; }
+.skus-page .clear-btn{ height:38px; padding:0 12px; border:none; background:transparent; color:var(--sbx-ink-soft); font-family:var(--sbx-ui); font-size:13px; font-weight:500; cursor:pointer; border-radius:var(--sbx-radius-sm); display:none; align-items:center; gap:6px; }
+.skus-page .clear-btn:hover{ background:var(--sbx-sunk); color:var(--sbx-ink); }
+.skus-page .clear-btn.show{ display:inline-flex; }
+.skus-page .count-chip{ font-size:13px; color:var(--sbx-ink-soft); white-space:nowrap; }
+.skus-page .count-chip strong{ color:var(--sbx-ink); font-weight:600; }
+.skus-page .count-chip .note{ color:var(--sbx-ink-faint); }
+
+/* ---- grid wrapper + theme retune ---- */
+.skus-page .grid-wrap{ border:1px solid var(--sbx-hair); border-radius:0 0 var(--sbx-radius) var(--sbx-radius); overflow:hidden; background:var(--sbx-surface); box-shadow:var(--sbx-shadow-sm); }
+.skus-page .ag-theme-smashbox{
+  --ag-font-family:var(--sbx-ui); --ag-font-size:13.5px;
+  --ag-foreground-color:var(--sbx-ink); --ag-secondary-foreground-color:var(--sbx-ink-soft);
+  --ag-background-color:var(--sbx-surface); --ag-header-background-color:var(--sbx-surface);
+  --ag-odd-row-background-color:var(--sbx-surface); --ag-row-hover-color:var(--sbx-sunk);
+  --ag-border-color:var(--sbx-hair-soft); --ag-row-border-color:var(--sbx-hair-soft);
+  --ag-header-column-separator-display:none; --ag-header-foreground-color:var(--sbx-ink-soft);
+  --ag-header-height:44px; --ag-row-height:56px; --ag-cell-horizontal-padding:16px;
+  --ag-selected-row-background-color:var(--sbx-tint); --ag-input-focus-border-color:var(--sbx-accent);
+  --ag-range-selection-border-color:transparent; --ag-borders:none;
+}
+.skus-page .ag-theme-smashbox .ag-root-wrapper{ border:none; }
+.skus-page .ag-theme-smashbox .ag-header{ border-bottom:1px solid var(--sbx-hair); }
+.skus-page .ag-theme-smashbox .ag-header-cell-text{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; font-weight:600; }
+.skus-page .ag-theme-smashbox .ag-row{ cursor:pointer; transition:background .12s ease; }
+.skus-page .ag-theme-smashbox .ag-cell{ display:flex; align-items:center; }
+.skus-page .ag-theme-smashbox .ag-cell-focus{ outline:none; }
+.skus-page .ag-theme-smashbox .ag-paging-panel{ border-top:1px solid var(--sbx-hair); color:var(--sbx-ink-soft); font-size:12.5px; height:50px; }
+.skus-page .ag-theme-smashbox .ag-paging-row-summary-panel, .skus-page .ag-theme-smashbox .ag-paging-page-summary-panel{ font-family:var(--sbx-mono); }
+.skus-page .ag-theme-smashbox .ag-sort-indicator-icon{ color:var(--sbx-accent); }
+.skus-page .ag-theme-smashbox .ag-right-aligned-header .ag-header-cell-label{ justify-content:flex-end; }
+.skus-page .ag-theme-smashbox .ag-row-inactive{ opacity:.62; }
+
+/* ---- cell content ---- */
+.skus-page .cell-product{ display:flex; flex-direction:column; gap:1px; line-height:1.25; }
+.skus-page .cell-product .nm{ font-weight:600; color:var(--sbx-ink); font-size:13.5px; }
+.skus-page .cell-product .nm.inactive{ text-decoration:line-through; color:var(--sbx-ink-soft); }
+.skus-page .cell-product .code{ font-family:var(--sbx-mono); font-size:11.5px; color:var(--sbx-ink-faint); letter-spacing:.01em; }
+.skus-page .tag{ display:inline-flex; align-items:center; height:23px; padding:0 9px; border-radius:var(--sbx-pill); font-size:12px; font-weight:500; background:var(--sbx-chip-bg); color:var(--sbx-chip-ink); white-space:nowrap; }
+.skus-page .tag.type{ background:var(--sbx-tint); color:var(--sbx-accent-press); }
+.skus-page .tag.muted{ background:transparent; border:1px solid var(--sbx-hair); color:var(--sbx-ink-faint); }
+.skus-page .num{ font-family:var(--sbx-mono); font-variant-numeric:tabular-nums; width:100%; text-align:right; color:var(--sbx-ink); }
+.skus-page .num.margin{ color:var(--sbx-pos); font-weight:600; }
+.skus-page .num.muted{ color:var(--sbx-ink-faint); }
+.skus-page .reorder{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--sbx-ink-soft); }
+.skus-page .reorder .dot{ width:7px; height:7px; border-radius:50%; }
+.skus-page .reorder.yes .dot{ background:var(--sbx-accent); }
+.skus-page .reorder.no .dot{ background:var(--sbx-ink-faint); opacity:.5; }
+.skus-page .status{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--sbx-ink-soft); }
+.skus-page .status .dot{ width:7px; height:7px; border-radius:50%; background:var(--sbx-pos); }
+.skus-page .status.inactive .dot{ background:var(--sbx-ink-faint); }
+/* completeness ring */
+.skus-page .comp{ display:flex; align-items:center; gap:9px; }
+.skus-page .comp svg{ width:26px; height:26px; flex:none; }
+.skus-page .comp .track{ stroke:var(--sbx-hair); }
+.skus-page .comp .arc{ stroke:var(--sbx-accent); }
+.skus-page .comp.empty .arc{ stroke:var(--sbx-hair); }
+.skus-page .comp .lbl{ font-family:var(--sbx-mono); font-size:12px; color:var(--sbx-ink-soft); }
+.skus-page .comp.full .lbl{ color:var(--sbx-accent-press); font-weight:600; }
+.skus-page .comp .lbl .of{ color:var(--sbx-ink-faint); }
+.skus-page .actions{ display:flex; align-items:center; justify-content:flex-end; width:100%; }
+.skus-page .det-link{ font-size:12.5px; font-weight:600; color:var(--sbx-accent); background:transparent; border:none; cursor:pointer; padding:6px 8px; border-radius:6px; font-family:var(--sbx-ui); }
+.skus-page .det-link:hover{ background:var(--sbx-tint); }
+
+/* ---- add-SKU form panel ---- */
+.skus-page .addform{ margin-top:16px; }
+.skus-page .addform > .panel{ margin-top:0; border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius); background:var(--sbx-surface); padding:20px; box-shadow:var(--sbx-shadow-sm); }
+.skus-page .form-grid{ display:grid; grid-template-columns:repeat(12,1fr); gap:13px; }
+.skus-page .form-sec{ margin-bottom:18px; }
+.skus-page .form-sec:last-of-type{ margin-bottom:0; }
+.skus-page .form-sec h3{ font-size:11px; font-weight:600; letter-spacing:.13em; text-transform:uppercase; color:var(--sbx-ink-soft); margin:0 0 12px; }
+.skus-page .form-sec h3 .hint{ font-weight:400; text-transform:none; letter-spacing:0; color:var(--sbx-ink-faint); }
+.skus-page .field label.lbl{ display:block; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--sbx-ink-soft); margin-bottom:5px; }
+.skus-page .field label.lbl .opt{ font-weight:400; text-transform:none; letter-spacing:0; color:var(--sbx-ink-faint); }
+.skus-page .input{ width:100%; height:38px; padding:0 12px; font-family:var(--sbx-ui); font-size:13.5px; color:var(--sbx-ink); background:var(--sbx-surface); border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius-sm); outline:none; transition:border-color .15s ease, box-shadow .15s ease; }
+.skus-page .input.num{ text-align:right; font-family:var(--sbx-mono); }
+.skus-page .input:focus{ border-color:var(--sbx-accent); box-shadow:0 0 0 3px var(--sbx-tint); }
+.skus-page .check-row{ display:flex; align-items:center; gap:8px; height:38px; }
+.skus-page .check-row input{ width:16px; height:16px; accent-color:var(--sbx-accent); }
+.skus-page .check-row span{ font-size:13.5px; color:var(--sbx-ink); }
+
+/* column helpers */
+.skus-page .c12{grid-column:span 12}.skus-page .c6{grid-column:span 6}.skus-page .c4{grid-column:span 4}.skus-page .c3{grid-column:span 3}
+@media (max-width:760px){ .skus-page .c6,.skus-page .c4,.skus-page .c3{grid-column:span 12} }
+
+/* ---- drawer ---- */
+.skus-page .scrim{ position:fixed; inset:0; background:rgba(20,32,31,.34); opacity:0; visibility:hidden; transition:opacity .28s ease, visibility .28s ease; z-index:60; backdrop-filter:blur(1.5px); }
+.skus-page .scrim.open{ opacity:1; visibility:visible; }
+.skus-page .drawer{ position:fixed; top:0; right:0; height:100vh; width:480px; max-width:94vw; background:var(--sbx-surface); box-shadow:var(--sbx-shadow-lg); transform:translateX(100%); transition:transform .32s cubic-bezier(.22,.61,.36,1); z-index:61; display:flex; flex-direction:column; border-left:1px solid var(--sbx-hair); }
+.skus-page .drawer.open{ transform:translateX(0); }
+.skus-page .dr-head{ padding:22px 24px 18px; border-bottom:1px solid var(--sbx-hair); display:flex; align-items:flex-start; gap:16px; }
+.skus-page .dr-head .ttl{ flex:1; min-width:0; }
+.skus-page .dr-head h2{ font-size:20px; font-weight:700; margin:0 0 5px; letter-spacing:-.01em; color:var(--sbx-ink); line-height:1.2; }
+.skus-page .dr-head .sub{ font-family:var(--sbx-mono); font-size:12.5px; color:var(--sbx-ink-faint); word-break:break-all; }
+.skus-page .dr-close{ width:34px; height:34px; flex:none; border-radius:8px; border:1px solid var(--sbx-hair); background:var(--sbx-surface); color:var(--sbx-ink-soft); cursor:pointer; display:grid; place-items:center; transition:background .15s ease, color .15s ease; }
+.skus-page .dr-close:hover{ background:var(--sbx-sunk); color:var(--sbx-ink); }
+.skus-page .dr-body{ flex:1; overflow-y:auto; padding:8px 24px 24px; }
+.skus-page .dr-section{ padding:20px 0; border-bottom:1px solid var(--sbx-hair-soft); }
+.skus-page .dr-section:last-child{ border-bottom:none; }
+.skus-page .dr-section-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.skus-page .dr-section-head h3{ font-size:11px; font-weight:600; letter-spacing:.13em; text-transform:uppercase; color:var(--sbx-ink-soft); margin:0; }
+.skus-page .dr-section-head .meta{ font-family:var(--sbx-mono); font-size:11.5px; color:var(--sbx-ink-faint); }
+.skus-page .dl{ display:grid; grid-template-columns:1fr 1fr; gap:14px 18px; }
+.skus-page .dl .full{ grid-column:span 2; }
+.skus-page .dl dt{ font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--sbx-ink-faint); margin-bottom:3px; }
+.skus-page .dl dd{ margin:0; font-size:13.5px; color:var(--sbx-ink); }
+.skus-page .dl dd.mono{ font-size:13px; }
+.skus-page .dl dd.notset{ color:var(--sbx-ink-faint); display:inline-flex; align-items:center; gap:6px; }
+.skus-page .dl dd.notset::before{ content:""; width:6px; height:6px; border-radius:50%; border:1.5px solid var(--sbx-ink-faint); }
+.skus-page .comp-bar{ display:flex; align-items:center; gap:11px; }
+.skus-page .comp-bar .meter{ flex:1; height:6px; border-radius:3px; background:var(--sbx-hair); overflow:hidden; }
+.skus-page .comp-bar .meter span{ display:block; height:100%; background:var(--sbx-accent); border-radius:3px; transition:width .3s ease; }
+.skus-page .comp-bar .pct{ font-family:var(--sbx-mono); font-size:12px; color:var(--sbx-ink-soft); }
+.skus-page .dr-foot{ padding:16px 24px; border-top:1px solid var(--sbx-hair); display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--sbx-surface); }
+.skus-page .dr-foot .note{ font-size:12px; color:var(--sbx-ink-faint); max-width:62%; }
+
+/* editable Unit COGS */
+.skus-page .editable-tag{ font-size:9px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--sbx-accent); background:var(--sbx-tint); border-radius:4px; padding:1px 5px; vertical-align:1px; }
+.skus-page .cogs-edit{ display:inline-flex; align-items:center; max-width:150px; border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius-sm); background:var(--sbx-surface); transition:border-color .15s ease, box-shadow .15s ease; }
+.skus-page .cogs-edit:focus-within{ border-color:var(--sbx-accent); box-shadow:0 0 0 3px var(--sbx-tint); }
+.skus-page .cogs-edit.dirty{ border-color:var(--sbx-accent); }
+.skus-page .cogs-edit .pfx{ padding:0 1px 0 10px; color:var(--sbx-ink-faint); font-size:13.5px; }
+.skus-page .cogs-edit input{ border:none; outline:none; background:transparent; width:100%; height:36px; padding:0 10px 0 3px; font-family:var(--sbx-mono); font-variant-numeric:tabular-nums; font-size:13.5px; color:var(--sbx-ink); }
+.skus-page .cogs-actions{ display:flex; align-items:center; gap:8px; margin-top:14px; }
+.skus-page .cogs-actions .cogs-msg{ flex:1; font-size:12px; color:var(--sbx-ink-soft); }
+.skus-page .cogs-actions .cogs-msg.ok{ color:var(--sbx-pos); }
+.skus-page .cogs-actions .cogs-msg.err{ color:var(--sbx-neg); }
+.skus-page .btn-sm{ height:32px; padding:0 12px; font-size:12.5px; }
+.skus-page .btn-primary.btn-sm{ gap:5px; }
+.skus-page .btn-primary:disabled{ opacity:.45; cursor:default; }
+.skus-page .btn-ghost:disabled{ opacity:.45; cursor:default; }
+
+/* editable planning fields in the drawer */
+.skus-page .dl dt label{ cursor:pointer; }
+.skus-page .dl .unit{ color:var(--sbx-ink-faint); font-weight:400; text-transform:none; letter-spacing:0; }
+.skus-page .dl .input.fld{ height:34px; padding:0 10px; font-size:13px; }
+.skus-page .dl input.fld{ font-family:var(--sbx-mono); font-variant-numeric:tabular-nums; }
+.skus-page .dl select.input.fld{ font-family:var(--sbx-ui); cursor:pointer; }
+.skus-page .dl .input.fld.dirty{ border-color:var(--sbx-accent); background:#FCFEFD; }
+/* footer save bar */
+.skus-page .dr-foot .foot-left{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.skus-page .save-msg{ font-size:12px; color:var(--sbx-ink-soft); }
+.skus-page .save-msg.ok{ color:var(--sbx-pos); }
+.skus-page .save-msg.err{ color:var(--sbx-neg); }
+.skus-page .foot-btns{ display:flex; align-items:center; gap:8px; flex:none; }
+
+/* footnote */
+.skus-page .footnote{ margin-top:18px; font-size:12px; color:var(--sbx-ink-faint); display:flex; align-items:flex-start; gap:8px; }
+.skus-page .footnote .ic{ color:var(--sbx-ink-faint); flex:none; margin-top:1px; }
+.skus-page .footnote strong{ color:var(--sbx-ink-soft); font-weight:600; }
+.skus-page .footnote .k{ font-family:var(--sbx-mono); font-size:10px; border:1px solid var(--sbx-hair); border-radius:4px; padding:0 4px; color:var(--sbx-ink-faint); }
+
+/* ---- App-convention alignment ----
+   --sbx-accent (sky) drives focus/links/sort/tints. These spots intentionally
+   differ to match the rest of the app: primary buttons are slate-900, the
+   eyebrow is indigo (brand), and "complete"/positive signals are emerald. */
+.skus-page .btn-primary{ background:#0f172a; }
+.skus-page .btn-primary:hover{ background:#1e293b; }
+.skus-page .eyebrow{ color:#4f46e5; }
+.skus-page .eyebrow::before{ background:#4f46e5; }
+.skus-page .comp .arc{ stroke:var(--sbx-pos); }
+.skus-page .comp.full .lbl{ color:var(--sbx-pos); }
+.skus-page .reorder.yes .dot{ background:var(--sbx-pos); }
+</style>
+{% endblock %}
+
 {% block content %}
-{% call ui.page_header(
-  eyebrow="Admin",
-  title="Manage SKUs",
-  subtitle="Create new SKUs and review existing ones. The XLSX upload path (Imports → SKU Master) still works in parallel; both write to the same Sku table.",
-) %}
-{% endcall %}
+<div class="skus-page">
 
-{% if error %}
-<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-  <strong class="font-semibold">Error:</strong> {{ error }}
-</div>
-{% endif %}
-{% if notice %}
-<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-  {{ notice }}
-</div>
-{% endif %}
-
-{# ---- Add SKU (collapsed by default; auto-opens on validation error) ---- #}
-<details class="group/addform mb-6" {% if error %}open{% endif %}>
-  <summary class="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 [&::-webkit-details-marker]:hidden">
-    {{ ui.icon("plus", "h-3.5 w-3.5 transition-transform group-open/addform:rotate-45") }}
-    Add SKU
-  </summary>
-  <section class="mt-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-  <h2 class="mb-4 text-sm font-semibold text-slate-900">Add new SKU</h2>
-  <form action="/admin/skus" method="post" class="space-y-6">
-
-    {# Identity #}
+  <div class="pg-head">
     <div>
-      <h3 class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Identity</h3>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
-        <label class="md:col-span-6">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Name</span>
-          <input type="text" name="name" required maxlength="512"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-3">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Brand <span class="font-normal text-slate-400">(defaults "unknown")</span></span>
-          <input type="text" name="brand" maxlength="64" placeholder="Smashbox"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-3">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
-          <select name="active_status" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-            <option value="Active" selected>Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </label>
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">SBX SKU Code</span>
-          <input type="text" name="sku" required maxlength="128" placeholder="SBX-C00101"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">TikTok SKU ID <span class="font-normal text-slate-400">(unique if set)</span></span>
-          <input type="text" name="tiktok_sku_id" maxlength="64" placeholder="e.g. 1729492097758368939"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">TikTok ALT SKU <span class="font-normal text-slate-400">(C-form, optional)</span></span>
-          <input type="text" name="tiktok_alt_sku" maxlength="128" placeholder="C00101"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-6">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Category <span class="font-normal text-slate-400">(optional)</span></span>
-          <input type="text" name="category" maxlength="256"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-6">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Item Type <span class="font-normal text-slate-400">(optional)</span></span>
-          <input type="text" name="item_type" maxlength="64"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
+      <p class="eyebrow">Admin</p>
+      <h1 class="title">Manage SKUs</h1>
+      <p class="subtitle">The active product catalog feeding the P&amp;L and Demand Planning. Review identity, pricing, and planning fields per SKU — the <span class="pill-inline">SKU Master</span> XLSX upload path (Imports) still works in parallel and writes to the same table.</p>
+    </div>
+    <button class="btn-primary" id="add-toggle">
+      {{ ui.icon("plus", "h-4 w-4") }} Add SKU
+    </button>
+  </div>
+
+  {% if error %}
+  <div class="flash err">{{ ui.icon("triangle-alert", "h-4 w-4 shrink-0") }}<div><strong>Error:</strong> {{ error }}</div></div>
+  {% endif %}
+  {% if notice %}
+  <div class="flash ok">{{ ui.icon("circle-check", "h-4 w-4 shrink-0") }}<div>{{ notice }}</div></div>
+  {% endif %}
+
+  {# ---- Toolbar ---- #}
+  <div class="toolbar">
+    <div class="tb-left">
+      <div class="search">
+        <span class="ic">{{ ui.icon("search", "h-4 w-4") }}</span>
+        <input id="search" type="text" placeholder="Search name, SBX code, TikTok SKU ID…" autocomplete="off" />
       </div>
+      <div class="fselect"><select id="f-category"><option value="">All categories</option></select></div>
+      <div class="fselect"><select id="f-brand"><option value="">All brands</option></select></div>
+      <div class="fselect"><select id="f-type"><option value="">All item types</option></select></div>
+      <div class="fselect"><select id="f-reorder"><option value="">Reorderable: any</option><option value="yes">Reorderable</option><option value="no">Not reorderable</option></select></div>
+      <div class="fselect"><select id="f-comp"><option value="">Completeness: all</option><option value="incomplete">Incomplete only</option><option value="complete">Complete only</option></select></div>
+      <div class="fselect"><select id="f-status"><option value="active">Active</option><option value="all">Active + inactive</option><option value="inactive">Inactive only</option></select></div>
+      <button class="clear-btn" id="clear-filters">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
     </div>
-
-    {# Pricing #}
-    <div>
-      <h3 class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Pricing</h3>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
-        <label class="md:col-span-6">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">MSRP <span class="font-normal text-slate-400">(blank → $0)</span></span>
-          <input type="text" name="msrp" inputmode="decimal" placeholder="0.00"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-6">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Unit COGS <span class="font-normal text-slate-400">(blank → $0, 4 dp)</span></span>
-          <input type="text" name="unit_cogs" inputmode="decimal" placeholder="0.0000"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-      </div>
+    <div class="tb-right">
+      <div class="count-chip"><span class="mono"><strong id="count-active">{{ active_count }}</strong></span> active <span class="note">· <span id="count-shown" class="mono">—</span> shown</span></div>
     </div>
+  </div>
 
-    {# Procurement #}
-    <div>
-      <h3 class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Procurement <span class="font-normal text-slate-400">(all optional — blank uses planner global default)</span></h3>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Lead time (days)</span>
-          <input type="text" name="lead_time_days" inputmode="numeric" placeholder="—"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">MOQ</span>
-          <input type="text" name="moq" inputmode="numeric" placeholder="—"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Case pack</span>
-          <input type="text" name="case_pack" inputmode="numeric" placeholder="—"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Safety stock % <span class="font-normal text-slate-400">(0-100)</span></span>
-          <input type="text" name="safety_stock_pct" inputmode="decimal" placeholder="—"
-                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </label>
-        <label class="md:col-span-4">
-          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Service level</span>
-          <select name="service_level" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-            <option value="">— not set —</option>
-            {% for sl in service_level_choices %}
-            <option value="{{ sl }}">{{ '%.1f' | format(sl * 100) }}%</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="md:col-span-4 flex items-end gap-2 pb-2">
-          <input type="checkbox" name="is_reorderable" checked class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500">
-          <span class="text-sm text-slate-700">Reorderable</span>
-        </label>
-      </div>
-    </div>
+  {# ---- Grid ---- #}
+  <div class="grid-wrap">
+    <div id="grid" class="ag-theme-quartz ag-theme-smashbox" style="height:632px; width:100%;"></div>
+  </div>
 
-    <div class="flex justify-end">
-      <button type="submit" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
-        Add SKU
-      </button>
-    </div>
-  </form>
-  </section>
-</details>
+  {# ---- Add SKU form (restyled; auto-opens on validation error). Same field
+         names + POST target as before — write path unchanged. ---- #}
+  <details class="addform" id="addform" {% if error %}open{% endif %}>
+    <summary style="display:none"></summary>
+    <section class="panel">
+      <div class="form-sec"><h3>Add new SKU</h3></div>
+      <form action="/admin/skus" method="post">
 
-{# Macro for one SKU row — used in both the active list and the inactive
-   disclosure below. Keeps the two sections visually identical aside from
-   placement so users can scan / expand either the same way. #}
-{% macro sku_row(s) %}
-    <details class="group">
-      <summary class="flex cursor-pointer items-center gap-4 px-5 py-3 hover:bg-slate-50">
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2">
-            <span class="truncate font-medium text-slate-900 {% if not s.is_active %}text-slate-500 line-through{% endif %}">{{ s.name | strip_size | title_case }}</span>
-            {% if not s.is_active %}
-            <span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700 ring-1 ring-rose-100">Inactive</span>
-            {% endif %}
-            {% if not s.is_reorderable %}
-            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">No reorder</span>
-            {% endif %}
-          </div>
-          <div class="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
-            <span class="font-mono">{{ s.sku }}</span>
-            {% if s.category %}<span>&middot; {{ s.category }}</span>{% endif %}
+        <div class="form-sec">
+          <h3>Identity</h3>
+          <div class="form-grid">
+            <div class="field c6"><label class="lbl">Name</label>
+              <input class="input" type="text" name="name" required maxlength="512"></div>
+            <div class="field c3"><label class="lbl">Brand <span class="opt">(defaults "unknown")</span></label>
+              <input class="input" type="text" name="brand" maxlength="64" placeholder="Smashbox"></div>
+            <div class="field c3"><label class="lbl">Status</label>
+              <select class="input" name="active_status"><option value="Active" selected>Active</option><option value="Inactive">Inactive</option></select></div>
+            <div class="field c4"><label class="lbl">SBX SKU Code</label>
+              <input class="input mono" type="text" name="sku" required maxlength="128" placeholder="SBX-C00101"></div>
+            <div class="field c4"><label class="lbl">TikTok SKU ID <span class="opt">(unique if set)</span></label>
+              <input class="input mono" type="text" name="tiktok_sku_id" maxlength="64" placeholder="1729492097758368939"></div>
+            <div class="field c4"><label class="lbl">TikTok ALT SKU <span class="opt">(C-form, optional)</span></label>
+              <input class="input mono" type="text" name="tiktok_alt_sku" maxlength="128" placeholder="C00101"></div>
+            <div class="field c6"><label class="lbl">Category <span class="opt">(optional)</span></label>
+              <input class="input" type="text" name="category" maxlength="256"></div>
+            <div class="field c6"><label class="lbl">Item Type <span class="opt">(optional)</span></label>
+              <input class="input" type="text" name="item_type" maxlength="64"></div>
           </div>
         </div>
-        <div class="hidden shrink-0 text-right sm:block">
-          {% if s.msrp > 0 %}
-          {% set margin_pct = ((s.msrp - s.unit_cogs) / s.msrp * 100) %}
-          <div class="text-xl font-semibold tracking-tight tabular-nums {% if margin_pct >= 50 %}text-emerald-700{% elif margin_pct < 25 %}text-amber-700{% else %}text-slate-700{% endif %}">{{ '%.1f'|format(margin_pct) }}%</div>
-          <div class="mt-0.5 text-[11px] tabular-nums text-slate-400">${{ '%.2f'|format(s.msrp) }} <span class="text-slate-300">&rarr;</span> ${{ '%.4f'|format(s.unit_cogs) }}</div>
-          {% else %}
-          <div class="text-[11px] tabular-nums text-slate-400">$0.00 <span class="text-slate-300">&rarr;</span> ${{ '%.4f'|format(s.unit_cogs) }}</div>
-          {% endif %}
+
+        <div class="form-sec">
+          <h3>Pricing</h3>
+          <div class="form-grid">
+            <div class="field c6"><label class="lbl">MSRP <span class="opt">(blank → $0)</span></label>
+              <input class="input num" type="text" name="msrp" inputmode="decimal" placeholder="0.00"></div>
+            <div class="field c6"><label class="lbl">Unit COGS <span class="opt">(blank → $0)</span></label>
+              <input class="input num" type="text" name="unit_cogs" inputmode="decimal" placeholder="0.00"></div>
+          </div>
         </div>
-        {{ ui.icon("chevron-right", "h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-90") }}
-      </summary>
-      <div class="border-t border-slate-100 bg-slate-50/40 px-5 py-4">
-        <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-xs md:grid-cols-4">
-          <div><dt class="font-medium text-slate-500">TikTok SKU ID</dt><dd class="font-mono text-slate-700">{{ s.tiktok_sku_id or '—' }}</dd></div>
-          <div><dt class="font-medium text-slate-500">TikTok ALT</dt><dd class="font-mono text-slate-700">{{ s.tiktok_alt_sku or '—' }}</dd></div>
-          <div><dt class="font-medium text-slate-500">Brand</dt><dd class="text-slate-700">{{ s.brand or '—' }}</dd></div>
-          <div><dt class="font-medium text-slate-500">Item type</dt><dd class="text-slate-700">{{ s.item_type or '—' }}</dd></div>
-          <div><dt class="font-medium text-slate-500">Size</dt><dd class="text-slate-700">{{ s.name | extract_size }}</dd></div>
-          <div><dt class="font-medium text-slate-500">Lead time</dt><dd class="tabular-nums text-slate-700">{% if s.lead_time_days is not none %}{{ s.lead_time_days }} days{% else %}—{% endif %}</dd></div>
-          <div><dt class="font-medium text-slate-500">MOQ</dt><dd class="tabular-nums text-slate-700">{{ s.moq if s.moq is not none else '—' }}</dd></div>
-          <div><dt class="font-medium text-slate-500">Case pack</dt><dd class="tabular-nums text-slate-700">{{ s.case_pack if s.case_pack is not none else '—' }}</dd></div>
-          <div><dt class="font-medium text-slate-500">Safety stock</dt><dd class="tabular-nums text-slate-700">{% if s.safety_stock_pct is not none %}{{ '%.2f'|format(s.safety_stock_pct) }}%{% else %}—{% endif %}</dd></div>
-          <div><dt class="font-medium text-slate-500">Service level</dt><dd class="tabular-nums text-slate-700">{% if s.service_level is not none %}{{ '%.1f'|format(s.service_level * 100) }}%{% else %}—{% endif %}</dd></div>
-          <div><dt class="font-medium text-slate-500">Reorderable</dt><dd class="text-slate-700">{{ 'Yes' if s.is_reorderable else 'No' }}</dd></div>
+
+        <div class="form-sec">
+          <h3>Planning <span class="hint">— all optional; blank uses planner global default</span></h3>
+          <div class="form-grid">
+            <div class="field c4"><label class="lbl">Lead time (days)</label>
+              <input class="input num" type="text" name="lead_time_days" inputmode="numeric" placeholder="—"></div>
+            <div class="field c4"><label class="lbl">MOQ</label>
+              <input class="input num" type="text" name="moq" inputmode="numeric" placeholder="—"></div>
+            <div class="field c4"><label class="lbl">Case pack</label>
+              <input class="input num" type="text" name="case_pack" inputmode="numeric" placeholder="—"></div>
+            <div class="field c4"><label class="lbl">Safety stock %</label>
+              <select class="input" name="safety_stock_pct"><option value="">— not set —</option>
+                {% for i in range(100) %}<option value="{{ i }}">{{ i }}%</option>{% endfor %}</select></div>
+            <div class="field c4"><label class="lbl">Service level</label>
+              <select class="input" name="service_level"><option value="">— not set —</option>
+                {% for sl in service_level_choices %}<option value="{{ sl }}">{{ '%.1f' | format(sl * 100) }}%</option>{% endfor %}
+              </select></div>
+            <div class="field c4"><label class="lbl">&nbsp;</label>
+              <div class="check-row"><input type="checkbox" name="is_reorderable" checked id="add-reorder"><span>Reorderable</span></div></div>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:9px;">
+          <button type="button" class="btn-ghost" id="add-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">{{ ui.icon("plus", "h-4 w-4") }} Add SKU</button>
+        </div>
+      </form>
+    </section>
+  </details>
+
+  <p class="footnote">
+    <span class="ic">{{ ui.icon("info", "h-3.5 w-3.5") }}</span>
+    <span><strong>Gross Margin</strong> = (MSRP − Unit COGS) ÷ MSRP.
+    <strong>Completeness</strong> counts the five planning fields feeding the Demand Planning reorder math — Lead time, MOQ, Case pack, Safety stock, Service level. Click any row to open its detail and edit Unit COGS; other fields are set via the <span class="k">SKU Master</span> XLSX import or the Add SKU form.</span>
+  </p>
+</div>
+
+{# ---- Drawer (read-only detail) ---- #}
+<div class="skus-page">
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="dr-head">
+      <div class="ttl">
+        <p class="eyebrow" id="dr-cat">—</p>
+        <h2 id="dr-name">—</h2>
+        <div class="sub" id="dr-code">—</div>
+      </div>
+      <button class="dr-close" id="dr-close" aria-label="Close">{{ ui.icon("x", "h-4 w-4") }}</button>
+    </div>
+    <div class="dr-body">
+      <div class="dr-section" style="padding-top:18px;">
+        <div class="dr-section-head"><h3>Planning Completeness</h3><span class="meta" id="dr-comp-meta">0 of 5</span></div>
+        <div class="comp-bar"><div class="meter"><span id="dr-meter" style="width:0%"></span></div><span class="pct" id="dr-pct">0%</span></div>
+      </div>
+      <div class="dr-section">
+        <div class="dr-section-head"><h3>Identity</h3></div>
+        <dl class="dl">
+          <div class="full"><dt>TikTok SKU ID</dt><dd class="mono" id="dr-ttid"></dd></div>
+          <div><dt>TikTok ALT</dt><dd class="mono" id="dr-alt"></dd></div>
+          <div><dt>Brand</dt><dd id="dr-brand"></dd></div>
+          <div><dt>Item type</dt><dd id="dr-type"></dd></div>
+          <div><dt>Size</dt><dd id="dr-size"></dd></div>
         </dl>
       </div>
-    </details>
-{% endmacro %}
+      <div class="dr-section">
+        <div class="dr-section-head"><h3>Pricing</h3><span class="meta">USD · per unit</span></div>
+        <dl class="dl">
+          <div><dt>MSRP</dt><dd class="mono" id="dr-msrp"></dd></div>
+          <div><dt><label for="dr-cogs-input">Unit COGS</label> <span class="editable-tag">editable</span></dt>
+            <dd><div class="cogs-edit"><span class="pfx">$</span><input id="dr-cogs-input" inputmode="decimal" autocomplete="off" placeholder="0.00"></div></dd></div>
+          <div><dt>Gross Margin</dt><dd class="mono" id="dr-margin"></dd></div>
+        </dl>
+      </div>
+      <div class="dr-section">
+        <div class="dr-section-head"><h3>Planning</h3><span class="meta editable-tag">editable</span></div>
+        <dl class="dl">
+          <div><dt><label for="dr-lead">Lead time <span class="unit">days</span></label></dt>
+            <dd><input class="input fld" id="dr-lead" inputmode="numeric" placeholder="Not set"></dd></div>
+          <div><dt><label for="dr-moq">MOQ <span class="unit">units</span></label></dt>
+            <dd><input class="input fld" id="dr-moq" inputmode="numeric" placeholder="Not set"></dd></div>
+          <div><dt><label for="dr-casepack">Case pack <span class="unit">units</span></label></dt>
+            <dd><input class="input fld" id="dr-casepack" inputmode="numeric" placeholder="Not set"></dd></div>
+          <div><dt><label for="dr-safety">Safety stock <span class="unit">%</span></label></dt>
+            <dd><select class="input fld" id="dr-safety"><option value="">Not set</option>
+              {% for i in range(100) %}<option value="{{ i }}">{{ i }}%</option>{% endfor %}
+            </select></dd></div>
+          <div><dt><label for="dr-service">Service level</label></dt>
+            <dd><select class="input fld" id="dr-service"><option value="">Not set</option>
+              {% for sl in service_level_choices %}<option value="{{ sl }}">{{ '%.1f' | format(sl * 100) }}%</option>{% endfor %}
+            </select></dd></div>
+          <div><dt>Reorderable</dt><dd id="dr-reorder"></dd></div>
+        </dl>
+      </div>
+    </div>
+    <div class="dr-foot">
+      <div class="foot-left">
+        <span class="status" id="dr-status"><span class="dot"></span> Active</span>
+        <span class="save-msg" id="save-msg"></span>
+      </div>
+      <div class="foot-btns">
+        <button class="btn-ghost btn-sm" id="dr-reset" type="button" hidden>Reset</button>
+        <button class="btn-primary btn-sm" id="dr-save" type="button" disabled>Save changes</button>
+      </div>
+    </div>
+  </aside>
+</div>
 
-{# ---- Active SKUs (primary list) ---- #}
-<section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <header class="border-b border-slate-200 px-5 py-3">
-    <h2 class="text-sm font-semibold text-slate-900">
-      Active SKUs <span class="ml-2 text-xs font-normal text-slate-500">{{ active_skus | length }} active</span>
-    </h2>
-  </header>
+<script>
+const SKU_ROWS = {{ sku_rows | tojson }};
+const PLAN_KEYS = ["lead_time_days","moq","case_pack","safety_stock_pct","service_level"];
+const filledCount = r => PLAN_KEYS.reduce((n,k)=> n + (r[k]!==null && r[k]!==undefined && r[k]!=="" ? 1 : 0), 0);
 
-  {% if active_skus | length == 0 %}
-  <div class="px-5 py-8 text-center">
-    <p class="text-sm text-slate-700">No active SKUs.</p>
-    <p class="mt-1 text-xs text-slate-500">
-      Add one using the form above, or upload a <code class="rounded bg-slate-100 px-1.5 py-0.5">SKU Master</code> XLSX via the <a href="/uploads" class="text-sky-700 underline hover:text-sky-900">Imports page</a>.
-    </p>
-  </div>
-  {% else %}
-  <div class="divide-y divide-slate-100">
-    {% for s in active_skus %}{{ sku_row(s) }}{% endfor %}
-  </div>
-  {% endif %}
-</section>
+/* formatters */
+const money2 = v => (v===null||v===undefined) ? null : "$"+Number(v).toFixed(2);
+const marginPct = r => {
+  if(r.msrp===null||r.msrp===undefined||r.unit_cogs===null||r.unit_cogs===undefined) return null;
+  if(Number(r.msrp)===0) return null;
+  return ((r.msrp - r.unit_cogs) / r.msrp) * 100;
+};
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-{# ---- Inactive SKUs (collapsed disclosure below, only renders if any exist) ---- #}
-{% if inactive_skus | length > 0 %}
-<details class="group/inactive mt-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <summary class="flex cursor-pointer items-center gap-2 border-b border-transparent px-5 py-3 hover:bg-slate-50 group-open/inactive:border-slate-200">
-    {{ ui.icon("chevron-right", "h-3.5 w-3.5 text-slate-400 transition-transform group-open/inactive:rotate-90") }}
-    <h2 class="text-sm font-semibold text-slate-700">
-      Inactive SKUs
-      <span class="ml-2 text-xs font-normal text-slate-500">{{ inactive_skus | length }} inactive</span>
-    </h2>
-  </summary>
-  <div class="divide-y divide-slate-100">
-    {% for s in inactive_skus %}{{ sku_row(s) }}{% endfor %}
-  </div>
-</details>
-{% endif %}
+/* cell renderers */
+function productRenderer(p){
+  const d=p.data;
+  const tt = d.tiktok_sku_id ? ` · TT ${esc(d.tiktok_sku_id.slice(-6))}` : "";
+  const nmCls = d.is_active ? "nm" : "nm inactive";
+  return `<div class="cell-product"><span class="${nmCls}">${esc(d.name)}</span><span class="code">${esc(d.sku)}${tt}</span></div>`;
+}
+const tagRenderer = (cls)=> p => p.value ? `<span class="tag ${cls}">${esc(p.value)}</span>` : `<span class="num muted">—</span>`;
+function marginRenderer(p){ const m=marginPct(p.data); return m===null ? `<span class="num muted">—</span>` : `<span class="num margin">${m.toFixed(1)}%</span>`; }
+const moneyRenderer = (field,fmt)=> p => { const v=fmt(p.data[field]); return v===null ? `<span class="num muted">—</span>` : `<span class="num">${v}</span>`; };
+function reorderRenderer(p){ const yes=p.value; return `<span class="reorder ${yes?'yes':'no'}"><span class="dot"></span>${yes?'Yes':'No'}</span>`; }
+function statusRenderer(p){ const a=p.value; return `<span class="status ${a?'':'inactive'}"><span class="dot"></span>${a?'Active':'Inactive'}</span>`; }
+function completenessRenderer(p){
+  const n=filledCount(p.data), total=5, r=9, c=2*Math.PI*r, off=c*(1-n/total);
+  const cls = n===total ? "full" : (n===0 ? "empty" : "");
+  const glyph = n===total
+    ? `<path transform="translate(8.5,8.7) scale(.5)" fill="#059669" d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z"/>`
+    : `<text x="13" y="16.5" text-anchor="middle" font-family="Inter, ui-sans-serif, sans-serif" font-size="9" fill="${n===0?'#94a3b8':'#64748b'}" font-weight="600">${n}</text>`;
+  return `<div class="comp ${cls}"><svg viewBox="0 0 26 26">
+    <circle class="track" cx="13" cy="13" r="${r}" fill="none" stroke-width="3"/>
+    <circle class="arc" cx="13" cy="13" r="${r}" fill="none" stroke-width="3" stroke-linecap="round"
+      stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 13 13)"/>
+    ${glyph}</svg><span class="lbl">${n}<span class="of">/${total}</span></span></div>`;
+}
+function actionsRenderer(){ return `<div class="actions"><button class="det-link">Details</button></div>`; }
+
+let gridApi;
+let curNode = null, curData = null, origState = null;
+const ext = { category:"", brand:"", type:"", reorder:"", comp:"", status:"active" };
+
+const columnDefs = [
+  { headerName:"Product", field:"name", flex:2.2, minWidth:230, cellRenderer:productRenderer,
+    getQuickFilterText:p=>`${p.data.name} ${p.data.sku} ${p.data.tiktok_sku_id} ${p.data.tiktok_alt_sku}`, sortable:true },
+  { headerName:"Category", field:"category", width:140, cellRenderer:tagRenderer(""), sortable:true },
+  { headerName:"Item type", field:"item_type", width:132, cellRenderer:tagRenderer("type"), sortable:true },
+  { headerName:"Gross Margin", field:"_margin", width:138, type:"rightAligned",
+    headerTooltip:"(MSRP − Unit COGS) ÷ MSRP", cellRenderer:marginRenderer, sortable:true,
+    comparator:(a,b,na,nb)=>{ const x=marginPct(na.data), y=marginPct(nb.data); return (x==null?-1:x)-(y==null?-1:y); } },
+  { headerName:"MSRP", field:"msrp", width:108, type:"rightAligned", cellRenderer:moneyRenderer("msrp",money2), sortable:true },
+  { headerName:"Unit COGS", field:"unit_cogs", width:124, type:"rightAligned", cellRenderer:moneyRenderer("unit_cogs",money2), sortable:true },
+  { headerName:"Completeness", field:"_comp", width:148, cellRenderer:completenessRenderer, sortable:true,
+    comparator:(a,b,na,nb)=> filledCount(na.data)-filledCount(nb.data) },
+  { headerName:"Reorder", field:"is_reorderable", width:120, cellRenderer:reorderRenderer, sortable:true },
+  { headerName:"Status", field:"is_active", width:118, cellRenderer:statusRenderer, sortable:true },
+  { headerName:"", field:"_actions", width:96, cellRenderer:actionsRenderer, sortable:false, resizable:false },
+];
+
+const gridOptions = {
+  columnDefs,
+  rowData:SKU_ROWS,
+  defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
+  pagination:true,
+  paginationPageSize:20,
+  paginationPageSizeSelector:[20,50,100],
+  animateRows:true,
+  suppressCellFocus:true,
+  rowClassRules:{ "ag-row-inactive": p => p.data && !p.data.is_active },
+  isExternalFilterPresent:()=> Object.entries(ext).some(([k,v])=> k==="status" ? v!=="all" : v!==""),
+  doesExternalFilterPass:(node)=>{
+    const d=node.data;
+    if(ext.category && d.category!==ext.category) return false;
+    if(ext.brand && d.brand!==ext.brand) return false;
+    if(ext.type && d.item_type!==ext.type) return false;
+    if(ext.reorder==="yes" && !d.is_reorderable) return false;
+    if(ext.reorder==="no" && d.is_reorderable) return false;
+    if(ext.status==="active" && !d.is_active) return false;
+    if(ext.status==="inactive" && d.is_active) return false;
+    if(ext.comp){ const full=filledCount(d)===5;
+      if(ext.comp==="complete" && !full) return false;
+      if(ext.comp==="incomplete" && full) return false; }
+    return true;
+  },
+  onGridReady:(e)=>{ gridApi=e.api; populateFilters(); updateShown(); },
+  onModelUpdated:updateShown,
+  onRowClicked:(e)=>{ openDrawer(e.data, e.node); },
+};
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  agGrid.createGrid(document.getElementById("grid"), gridOptions);
+
+  document.getElementById("search").addEventListener("input", e=>{ gridApi.setGridOption("quickFilterText", e.target.value); refreshClear(); });
+  const map={ "f-category":"category","f-brand":"brand","f-type":"type","f-reorder":"reorder","f-comp":"comp","f-status":"status" };
+  Object.entries(map).forEach(([id,key])=>{
+    const el=document.getElementById(id);
+    el.addEventListener("change",()=>{ ext[key]=el.value;
+      el.closest(".fselect").classList.toggle("dirty", key==="status" ? el.value!=="active" : el.value!=="");
+      gridApi.onFilterChanged(); refreshClear(); });
+  });
+  document.getElementById("clear-filters").addEventListener("click", clearAll);
+
+  // add form toggle
+  const af=document.getElementById("addform");
+  document.getElementById("add-toggle").addEventListener("click", ()=>{ af.open=!af.open; if(af.open) af.scrollIntoView({behavior:"smooth", block:"nearest"}); });
+  document.getElementById("add-cancel").addEventListener("click", ()=>{ af.open=false; });
+
+  // drawer
+  document.getElementById("dr-close").addEventListener("click", closeDrawer);
+  document.getElementById("scrim").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeDrawer(); });
+
+  // editable detail fields (Unit COGS + planning)
+  ["dr-cogs-input","dr-lead","dr-moq","dr-casepack"].forEach(id=>{
+    const el=document.getElementById(id);
+    el.addEventListener("input", onDrawerInput);
+    el.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); saveDrawer(); } });
+  });
+  ["dr-safety","dr-service"].forEach(id=> document.getElementById(id).addEventListener("change", onDrawerInput));
+  document.getElementById("dr-save").addEventListener("click", saveDrawer);
+  document.getElementById("dr-reset").addEventListener("click", ()=>{ if(origState){ fillFromState(origState); onDrawerInput(); setSaveMsg(""); } });
+});
+
+/* ---- editable-detail helpers (Unit COGS + planning) ---- */
+const $=id=>document.getElementById(id);
+function setVal(id, v){ $(id).value = v; }
+function numStr(v){ return (v===null||v===undefined) ? "" : String(Number(v)); }   // 12.0 -> "12"
+function setSelectByNumber(sel, num, inject){
+  // clear any one-off legacy option from a prior SKU
+  [...sel.querySelectorAll("option[data-injected]")].forEach(o=>o.remove());
+  if(num===null||num===undefined){ sel.value=""; return; }
+  let opt=[...sel.options].find(o => o.value!=="" && Number(o.value)===Number(num));
+  if(!opt && inject){
+    // a stored value outside the fixed option list (e.g. a legacy non-integer
+    // safety %): inject a transient option so it shows and round-trips intact
+    opt=document.createElement("option");
+    opt.value=String(num); opt.textContent=`${num}%`; opt.dataset.injected="1";
+    sel.appendChild(opt);
+  }
+  sel.value = opt ? opt.value : "";
+}
+function fillEditable(d){
+  setVal("dr-cogs-input", (d.unit_cogs===null||d.unit_cogs===undefined) ? "" : Number(d.unit_cogs).toFixed(2));
+  setVal("dr-lead", numStr(d.lead_time_days));
+  setVal("dr-moq", numStr(d.moq));
+  setVal("dr-casepack", numStr(d.case_pack));
+  setSelectByNumber($("dr-safety"), d.safety_stock_pct, true);
+  setSelectByNumber($("dr-service"), d.service_level);
+  $("dr-reorder").textContent = d.is_reorderable ? "Yes" : "No";
+}
+function formState(){
+  return {
+    cogs: $("dr-cogs-input").value.trim(),
+    lead: $("dr-lead").value.trim(),
+    moq: $("dr-moq").value.trim(),
+    casepack: $("dr-casepack").value.trim(),
+    safety: $("dr-safety").value.trim(),
+    service: $("dr-service").value,
+  };
+}
+function fillFromState(st){
+  setVal("dr-cogs-input", st.cogs); setVal("dr-lead", st.lead); setVal("dr-moq", st.moq);
+  setVal("dr-casepack", st.casepack); setVal("dr-safety", st.safety); $("dr-service").value = st.service;
+}
+function sameState(a, b){ return ["cogs","lead","moq","casepack","safety","service"].every(k => a[k]===b[k]); }
+function liveFilled(){
+  let n = ["dr-lead","dr-moq","dr-casepack","dr-safety"].reduce((a,id)=> a + ($(id).value.trim()!==""?1:0), 0);
+  if($("dr-service").value!=="") n++;
+  return n;
+}
+function markDirtyFields(){
+  if(!origState) return;
+  const cur=formState(), pairs={ lead:"dr-lead", moq:"dr-moq", casepack:"dr-casepack", safety:"dr-safety", service:"dr-service" };
+  Object.entries(pairs).forEach(([k,id])=> $(id).classList.toggle("dirty", cur[k]!==origState[k]));
+  document.querySelector(".cogs-edit").classList.toggle("dirty", cur.cogs!==origState.cogs);
+}
+function setSaveMsg(text, cls){ const el=$("save-msg"); el.textContent=text||""; el.className="save-msg"+(cls?(" "+cls):""); }
+function onDrawerInput(){
+  const cogsRaw=$("dr-cogs-input").value.trim();
+  renderDrawerMargin(curData ? curData.msrp : null, cogsRaw===""?null:cogsRaw);
+  const n=liveFilled(), pct=Math.round(n/5*100);
+  $("dr-comp-meta").textContent=`${n} of 5`;
+  $("dr-meter").style.width=pct+"%";
+  $("dr-pct").textContent=pct+"%";
+  const dirty = origState && !sameState(formState(), origState);
+  markDirtyFields();
+  $("dr-save").disabled = !dirty;
+  $("dr-reset").hidden = !dirty;
+  if(dirty) setSaveMsg("");
+}
+async function saveDrawer(){
+  if(!curData) return;
+  const s=formState();
+  const cogsN = s.cogs==="" ? 0 : Number(s.cogs);
+  if(!isFinite(cogsN) || cogsN<0){ setSaveMsg("Unit COGS must be a non-negative number.", "err"); return; }
+  const btn=$("dr-save"); btn.disabled=true; setSaveMsg("Saving…");
+  try{
+    const res=await fetch(`/admin/skus/${curData.id}/edit`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+      body:new URLSearchParams({
+        unit_cogs: s.cogs==="" ? "0" : s.cogs,
+        lead_time_days: s.lead, moq: s.moq, case_pack: s.casepack,
+        safety_stock_pct: s.safety, service_level: s.service,
+      }),
+    });
+    if(!res.ok){
+      let detail="Save failed."; try{ const j=await res.json(); detail=j.detail||detail; }catch(_){}
+      setSaveMsg(detail, "err"); btn.disabled=false; return;
+    }
+    const row=(await res.json()).sku;
+    curData=row; if(curNode) curNode.setData(row);   // refresh grid: margin, completeness, reorder
+    fillEditable(row);
+    origState=formState();
+    onDrawerInput();
+    setSaveMsg("Saved.", "ok");
+  }catch(err){
+    setSaveMsg("Network error — not saved.", "err"); $("dr-save").disabled=false;
+  }
+}
+
+function populateFilters(){
+  const uniq=k=>[...new Set(SKU_ROWS.map(s=>s[k]).filter(Boolean))].sort();
+  addOpts("f-category", uniq("category"));
+  addOpts("f-brand", uniq("brand"));
+  addOpts("f-type", uniq("item_type"));
+}
+function addOpts(id, vals){ const sel=document.getElementById(id); vals.forEach(v=>{ const o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o); }); }
+function updateShown(){ if(gridApi) document.getElementById("count-shown").textContent=gridApi.getDisplayedRowCount(); }
+function refreshClear(){
+  const any = Object.entries(ext).some(([k,v])=> k==="status" ? v!=="active" : v!=="") || document.getElementById("search").value!=="";
+  document.getElementById("clear-filters").classList.toggle("show", any);
+}
+function clearAll(){
+  ext.category=ext.brand=ext.type=ext.reorder=ext.comp=""; ext.status="active";
+  [["f-category",""],["f-brand",""],["f-type",""],["f-reorder",""],["f-comp",""],["f-status","active"]].forEach(([id,v])=>{
+    const el=document.getElementById(id); el.value=v; el.closest(".fselect").classList.remove("dirty"); });
+  const s=document.getElementById("search"); s.value=""; gridApi.setGridOption("quickFilterText","");
+  gridApi.onFilterChanged(); refreshClear();
+}
+
+/* ---- drawer (read-only) ---- */
+function setDD(id, v, fmt){
+  const el=document.getElementById(id);
+  const empty = (v===null||v===undefined||v==="");
+  if(empty){ el.textContent="Not set"; el.classList.add("notset"); }
+  else { el.textContent = fmt ? fmt(v) : v; el.classList.remove("notset"); }
+}
+/* margin from an msrp + a (possibly in-progress) cogs value; null = can't compute */
+function computeMargin(msrp, cogs){
+  if(msrp===null||msrp===undefined||cogs===null||cogs===undefined||cogs==="") return null;
+  const M=Number(msrp), C=Number(cogs);
+  if(!isFinite(M)||!isFinite(C)||M===0) return null;
+  return ((M - C) / M) * 100;
+}
+function renderDrawerMargin(msrp, cogs){
+  const m=computeMargin(msrp, cogs);
+  const el=document.getElementById("dr-margin");
+  if(m===null){ el.textContent="Not set"; el.classList.add("notset"); el.style.color=""; el.style.fontWeight=""; }
+  else { el.textContent=m.toFixed(1)+"%"; el.classList.remove("notset"); el.style.color="var(--sbx-pos)"; el.style.fontWeight="600"; }
+}
+
+function openDrawer(d, node){
+  curData = d; curNode = node || null;
+  document.getElementById("dr-cat").textContent = d.category || "SKU";
+  document.getElementById("dr-name").textContent = d.name;
+  document.getElementById("dr-code").textContent = d.sku + (d.tiktok_sku_id ? ` · TikTok ${d.tiktok_sku_id}` : "");
+
+  setDD("dr-ttid", d.tiktok_sku_id);
+  setDD("dr-alt", d.tiktok_alt_sku);
+  setDD("dr-brand", d.brand);
+  setDD("dr-type", d.item_type);
+  setDD("dr-size", (d.size && d.size!=="—") ? d.size : null);
+
+  setDD("dr-msrp", money2(d.msrp));
+
+  // editable fields (Unit COGS at 2 dp + planning); origState anchors dirty/reset
+  fillEditable(d);
+  origState = formState();
+  onDrawerInput();       // recompute margin + completeness, dirty=false → Save disabled
+  setSaveMsg("");
+
+  const st=document.getElementById("dr-status");
+  st.className = "status" + (d.is_active ? "" : " inactive");
+  st.innerHTML = `<span class="dot"></span> ${d.is_active ? "Active" : "Inactive"}`;
+
+  document.getElementById("drawer").classList.add("open");
+  document.getElementById("drawer").setAttribute("aria-hidden","false");
+  document.getElementById("scrim").classList.add("open");
+}
+function closeDrawer(){
+  document.getElementById("drawer").classList.remove("open");
+  document.getElementById("drawer").setAttribute("aria-hidden","true");
+  document.getElementById("scrim").classList.remove("open");
+}
+</script>
 {% endblock %}
