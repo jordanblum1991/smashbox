@@ -170,13 +170,11 @@
 {# ===========================================================================
    POLISHED MODULES — Top SKUs + Samples by SKU
    =========================================================================== #}
-{% macro module_summary(title, subtitle, icon_path) %}
+{% macro module_summary(title, subtitle, icon_name) %}
 <summary class="-m-6 flex cursor-pointer items-center justify-between rounded-2xl p-6 transition hover:bg-slate-50/60">
   <div class="flex items-center gap-3.5">
     <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100 transition group-open:bg-indigo-600 group-open:text-white">
-      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}"/>
-      </svg>
+      {{ ui.icon(icon_name, "h-4 w-4") }}
     </span>
     <div>
       <h2 class="text-base font-semibold text-slate-900">{{ title }}</h2>
@@ -184,9 +182,7 @@
     </div>
   </div>
   <span class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition group-open:border-slate-900 group-open:bg-slate-900 group-open:text-white">
-    <svg class="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-    </svg>
+    {{ ui.icon("chevron-right", "h-3.5 w-3.5 transition-transform group-open:rotate-90") }}
   </span>
 </summary>
 {% endmacro %}
@@ -197,7 +193,7 @@
     {{ module_summary(
         "Top 10 Best Selling SKUs",
         "Ranked by units sold · " ~ view.title_suffix,
-        "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z") }}
+        "shopping-bag") }}
 
     <div class="mt-6">
       {% if top_skus %}
@@ -257,7 +253,7 @@
     {{ module_summary(
         "Samples Sent by SKU",
         "Samples shipped · " ~ view.title_suffix,
-        "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12") }}
+        "package") }}
 
     <div class="mt-6">
       {% if samples_by_sku %}
@@ -320,17 +316,13 @@
         <div class="flex items-center gap-3">
           <a href="/export/samples-by-sku.csv{{ samples_qs }}"
              class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-slate-700 transition hover:bg-slate-50">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-            </svg>
+            {{ ui.icon("download", "h-3.5 w-3.5") }}
             Download CSV
           </a>
           <a href="/reports/samples{{ samples_qs }}"
              class="inline-flex items-center gap-1 font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">
             Open Samples page
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-            </svg>
+            {{ ui.icon("arrow-right", "h-3.5 w-3.5") }}
           </a>
         </div>
       </div>

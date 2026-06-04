@@ -136,9 +136,7 @@
 <details class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm group" open>
   <summary class="cursor-pointer list-none flex items-baseline justify-between">
     <div class="flex items-center gap-2">
-      <svg class="h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-      </svg>
+      {{ ui.icon("chevron-right", "h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90") }}
       <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         Daily sales reconciliation · {{ month_label(report.year, report.month) }}
       </h2>
