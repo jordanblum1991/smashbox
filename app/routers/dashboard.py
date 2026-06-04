@@ -6,22 +6,59 @@ lives on /uploads; the dashboard only surfaces a small alert when the most
 recent import failed.
 """
 from datetime import date, timedelta
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.import_batch import ImportBatch, ImportBatchStatus
+from app.models.order import Order
 from app.reports.dashboard_trends import build_dashboard_trends
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
-from app.reports.sample_tracking import count_samples_shipped, samples_by_sku_shipped
+from app.reports.sample_tracking import (
+    count_sample_orders_shipped,
+    count_samples_shipped,
+    samples_by_sku_shipped,
+)
 from app.reports.sku_profitability import compute_top_skus
 from app.services.data_freshness import compute_freshness
-from app.templating import templates
+from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["dashboard"])
+
+
+def _top_sku_view(r) -> dict:
+    """Serialize a TopSkuRow for the dashboard's AG Grid (JSON-ready)."""
+    return {
+        "rank": r.rank,
+        "tiktok_sku_id": r.tiktok_sku_id,
+        "sku_code": r.sku_code,
+        "name": (title_case(strip_size(r.name)) if r.name else None),
+        "is_bundle": r.is_bundle,
+        "is_unmapped": r.is_unmapped,
+        "units_sold": r.units_sold,
+        "net_customer_sales": float(r.net_customer_sales),
+        "aov": float(r.aov),
+    }
+
+
+def _sample_sku_view(r) -> dict:
+    """Serialize a ShippedSamplesBySkuRow for the dashboard's AG Grid."""
+    return {
+        "tiktok_sku_id": r.tiktok_sku_id,
+        "sku_code": r.sku_code,
+        "name": (title_case(strip_size(r.name)) if r.name else None),
+        "is_bundle": r.is_bundle,
+        "is_unmapped": r.is_unmapped,
+        "samples_sent": r.samples_sent,
+        "sample_orders_shipped": r.sample_orders_shipped,
+        "units_sold": r.units_sold,
+        "sold_per_sample": float(r.sold_per_sample),
+    }
 
 
 @router.get("/")
@@ -76,8 +113,31 @@ def home(
     start, end = window_for(view)
     top_skus = compute_top_skus(db, start, end, limit=10)
     samples_shipped = count_samples_shipped(db, start, end)
+    sample_orders_shipped = count_sample_orders_shipped(db, start, end)
+    # All-time lifetime total — period-independent, shown beside the period figure.
+    # Wide window captures every sample regardless of the selected period.
+    samples_shipped_all_time = count_samples_shipped(db, date(1970, 1, 1), date(2100, 1, 1))
     samples_by_sku = samples_by_sku_shipped(db, start, end)
     freshness = compute_freshness(db)
+
+    # All-time ROAS — canonical: a full-range P&L view read with the same
+    # `roas` definition (Net Customer Sales ÷ net ad spend) as the period figure,
+    # shown beside it in the same KPI box. The window is bounded to the actual
+    # order-date range: compute_window_pnl ORs one clause per month touched, so
+    # an open-ended span would blow SQLite's expression-depth limit.
+    bounds = db.execute(
+        select(func.min(Order.placed_at), func.max(Order.placed_at))
+    ).one()
+    if bounds[0] is not None and bounds[1] is not None:
+        all_time_view = compute_pnl_view(
+            db, PeriodKind.CUSTOM, None, None,
+            start_date=bounds[0].date(), end_date=bounds[1].date() + timedelta(days=1),
+        )
+        roas_all_time = all_time_view.total.roas
+        has_ads_all_time = all_time_view.total.net_ad_spend > 0
+    else:
+        roas_all_time = Decimal("0")
+        has_ads_all_time = False
 
     # Trend affordances: trailing-6-month sparklines per headline KPI, plus a
     # MoM delta vs the previous calendar month. `end` is exclusive, so the last
@@ -96,10 +156,16 @@ def home(
             "view": view,
             "pnl": view.total,            # convenience for existing tile/waterfall code
             "samples_shipped": samples_shipped,
+            "sample_orders_shipped": sample_orders_shipped,
+            "samples_shipped_all_time": samples_shipped_all_time,
+            "roas_all_time": roas_all_time,
+            "has_ads_all_time": has_ads_all_time,
             "last_failed": last_failed,
             "today": date.today(),
             "top_skus": top_skus,
             "samples_by_sku": samples_by_sku,
+            "top_skus_json": [_top_sku_view(r) for r in top_skus],
+            "samples_json": [_sample_sku_view(r) for r in samples_by_sku],
             "freshness": freshness,
             "trends": trends,
             "error": error,

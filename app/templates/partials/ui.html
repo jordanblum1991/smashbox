@@ -49,11 +49,15 @@
    - `subtitle` : short description below the title (optional)
    - `caller()` : right-aligned action slot — use for buttons/links
    ========================================================================== #}
-{% macro page_header(eyebrow="", title="", period=none, subtitle="") -%}
+{% macro page_header(eyebrow="", title="", period=none, subtitle="", accent_bar=false) -%}
 <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
     {% if eyebrow %}
+    {% if accent_bar %}
+    <p class="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600"><span class="inline-block h-px w-4 bg-indigo-600"></span>{{ eyebrow }}</p>
+    {% else %}
     <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600">{{ eyebrow }}</p>
+    {% endif %}
     {% endif %}
     <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
       {{ title }}{% if period %} <span class="font-normal text-slate-300">·</span> <span class="text-sky-700">{{ period }}</span>{% endif %}
@@ -194,7 +198,7 @@
    - `bar`    : when truthy, draws a thin colored bar at the top in the tone color
    - `size`   : 'sm' (compact) | 'md' (default) | 'lg' (hero — bigger value)
    ========================================================================== #}
-{% macro kpi(label, value, hint="", tone="none", href=none, bar=none, size="md", col_span="", delta=none, delta_polarity="higher_better", spark=none) -%}
+{% macro kpi(label, value, hint="", tone="none", href=none, bar=none, size="md", col_span="", delta=none, delta_polarity="higher_better", spark=none, surface="bg-white") -%}
   {# Supporting KPI card. Stripe-restraint: white surface, ring-1 ring-slate-900/5
      (no drawn-on border), shadow grows on hover with NO Y-translate, tone shows
      up as a thin top bar when set (auto-derived from tone; pass bar=False to
@@ -215,7 +219,7 @@
   {% set show_bar = bar if (bar is sameas true or bar is sameas false) else (tone != 'none') %}
   {% set tag = 'a' if href else 'div' %}
   <{{ tag }} {% if href %}href="{{ href }}"{% endif %}
-    class="{{ col_span }} relative block overflow-hidden rounded-2xl bg-white p-6 ring-1 ring-slate-900/5 shadow-sm{% if href %} transition hover:shadow-md hover:ring-slate-900/10{% endif %}">
+    class="{{ col_span }} relative block overflow-hidden rounded-2xl {{ surface }} p-6 ring-1 ring-slate-900/5 shadow-sm{% if href %} transition hover:shadow-md hover:ring-slate-900/10{% endif %}">
     {% if show_bar %}<span class="absolute inset-x-0 top-0 h-0.5 {{ tone_bg }}"></span>{% endif %}
     <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{{ label }}</div>
     <div class="mt-2 flex flex-wrap items-baseline gap-2">

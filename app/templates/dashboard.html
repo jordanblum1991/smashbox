@@ -2,6 +2,26 @@
 {% import "partials/ui.html" as ui %}
 {% block title %}Dashboard: {{ view.title_suffix }} · Smashbox{% endblock %}
 
+{% block head %}
+{# Shared admin design system + AG Grid (self-hosted) for the dashboard's two
+   data grids. The grids are wrapped in .agx; the rest of the page keeps its
+   ui.html / Tailwind chrome. ---- #}
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
+<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
+<link rel="stylesheet" href="/static/css/admin-grid.css">
+<style>
+/* dashboard-grid-only bits layered on the shared .agx system */
+.agx .tag.bundle{ background:#eef2ff; color:#4338ca; }
+.agx .cell-link{ color:var(--sbx-neg); font-weight:600; text-decoration:underline; text-underline-offset:2px; }
+.agx .num.warn{ color:#b45309; }
+.agx .ag-theme-smashbox .ag-row.dash-unmapped{ background:#fff1f2; }
+.agx .ag-theme-smashbox .ag-row.dash-zero{ background:#fffbeb; }
+.agx .ag-theme-smashbox .ag-row-pinned{ font-weight:600; background:var(--sbx-sunk); }
+.agx .ag-theme-smashbox .ag-row-pinned .num{ color:var(--sbx-ink); }
+</style>
+{% endblock %}
+
 {% block content %}
 {# ---- Period-derived query strings (used for cross-page links) -------------- #}
 {% set kind = view.period_kind.value %}
@@ -35,7 +55,8 @@
   eyebrow="Smashbox TikTok Shop",
   title="Dashboard",
   period=view.title_suffix,
-  subtitle="All figures tie to the P&L for this period."
+  subtitle="All figures tie to the P&L for this period.",
+  accent_bar=true
 ) %}
   {{ ui.btn_primary("Open P&L", href="/reports/pnl" ~ pnl_qs) }}
 {% endcall %}
@@ -71,100 +92,74 @@
 {% endif %}
 
 {# ===========================================================================
-   KPI GRID — hero Net Profit card + supporting financial + operating metrics
+   KPI GRID — sales snapshot, then ad efficiency, then samples
    =========================================================================== #}
-{% set net_tone = 'pos' if pnl.managed_net_profit >= 0 else 'neg' %}
+{# ROAS tone from the derived ad signals above #}
+{% set roas_tone = 'none' %}
+{% if has_ads %}
+  {% if roas_strong %}{% set roas_tone = 'pos' %}
+  {% elif roas_ok %}{% set roas_tone = 'warn' %}
+  {% else %}{% set roas_tone = 'neg' %}{% endif %}
+{% endif %}
 
-<section aria-label="Headline metrics" class="stagger-in mb-4 grid grid-cols-12 gap-3">
-  {# Hero #}
-  {% call ui.kpi_hero(
-      label="Net Profit",
-      value=pnl.managed_net_profit | money,
-      tone=net_tone,
-      badge=(pnl.managed_net_margin | pct) ~ " margin",
-      href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-12 md:col-span-6 lg:col-span-4",
-      delta=trends.net_profit.delta,
-      spark=trends.net_profit.spark
-  ) %}
-    Net Customer Sales of <span class="font-medium text-slate-700">{{ pnl.managed_net_customer_sales | money }}</span>
-    after COGS of <span class="font-medium text-slate-700">{{ pnl.cogs | money }}</span>,
-    TikTok fees, ads (net of credits), affiliate, and shipping.
-  {% endcall %}
-
-  {# Supporting financial metrics #}
-  {{ ui.kpi(
-      label="GMV",
-      value=pnl.gmv | money,
-      hint="Tie-out to TikTok Seller Center",
-      href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-6 md:col-span-3 lg:col-span-2",
-      delta=trends.gmv.delta,
-      spark=trends.gmv.spark
-  ) }}
-
-  {{ ui.kpi(
-      label="Net Customer Sales",
-      value=pnl.managed_net_customer_sales | money,
-      hint="After all discounts & refunds",
-      href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-6 md:col-span-3 lg:col-span-2",
-      delta=trends.net_customer_sales.delta,
-      spark=trends.net_customer_sales.spark
-  ) }}
-
-  {{ ui.kpi(
-      label="Gross Margin",
-      value=pnl.managed_gross_margin | pct,
-      hint="Gross Profit ÷ Net Sales",
-      href="/reports/pnl" ~ pnl_qs,
-      col_span="col-span-6 md:col-span-3 lg:col-span-2",
-      delta=trends.gross_margin.delta,
-      spark=trends.gross_margin.spark
-  ) }}
-
-  {# ROAS — conditional tone based on derived signals from above #}
-  {% set roas_tone = 'none' %}
-  {% if has_ads %}
-    {% if roas_strong %}{% set roas_tone = 'pos' %}
-    {% elif roas_ok %}{% set roas_tone = 'warn' %}
-    {% else %}{% set roas_tone = 'neg' %}{% endif %}
-  {% endif %}
-  {{ ui.kpi(
-      label="ROAS",
-      value=("%.2fx" % pnl.roas) if has_ads else "—",
-      hint="Sales per $1 net ad spend",
-      tone=roas_tone,
-      href="/reports/ad-spend",
-      col_span="col-span-6 md:col-span-3 lg:col-span-2",
-      delta=trends.roas.delta,
-      spark=trends.roas.spark
-  ) }}
-
-  {{ ui.kpi(
-      label="Ad Spend",
-      value=pnl.net_ad_spend | money,
-      hint="Net of credits",
-      href="/reports/ad-spend",
-      col_span="col-span-6 md:col-span-3 lg:col-span-2",
-      delta=trends.ad_spend.delta,
-      delta_polarity="neutral",
-      spark=trends.ad_spend.spark
-  ) }}
+{# Sales — GMV · Orders · Units · AOV #}
+<section aria-label="Sales metrics" class="stagger-in mb-3 grid grid-cols-12 gap-3">
+  {{ ui.kpi(label="GMV", value=pnl.gmv | money, hint="Tie-out to TikTok Seller Center",
+      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
+      delta=trends.gmv.delta, spark=trends.gmv.spark) }}
+  {{ ui.kpi(label="Total Orders", value="{:,}".format(pnl.orders_count), hint="Paid orders only",
+      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
+      delta=trends.orders.delta, spark=trends.orders.spark) }}
+  {{ ui.kpi(label="Total Units Sold", value="{:,}".format(pnl.units_sold), hint="Bundles count as 1 unit",
+      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
+      delta=trends.units.delta, spark=trends.units.spark) }}
+  {{ ui.kpi(label="Avg Order Value", value=pnl.aov_after_discounts | money, hint="Net Sales ÷ Orders",
+      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
+      delta=trends.aov.delta, spark=trends.aov.spark) }}
 </section>
 
-<section aria-label="Operating metrics" class="stagger-in mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-  {% set ops = [
-    ("Total Orders", "{:,}".format(pnl.orders_count), "Paid orders only", "/reports/pnl" ~ pnl_qs, "orders"),
-    ("Total Units Sold", "{:,}".format(pnl.units_sold), "Bundles count as 1 unit", "/reports/pnl" ~ pnl_qs, "units"),
-    ("Samples Shipped", "{:,}".format(samples_shipped), "Free + paid sample units", "/reports/samples" ~ samples_qs, none),
-    ("Avg Order Value", pnl.aov_after_discounts | money, "Net Sales ÷ Orders", "/reports/pnl" ~ pnl_qs, "aov"),
-  ] %}
-  {% for label, value, hint, href, tkey in ops %}
-    {% set t = trends[tkey] if tkey else none %}
-    {{ ui.kpi(label=label, value=value, hint=hint, href=href,
-              delta=(t.delta if t else none), spark=(t.spark if t else none)) }}
-  {% endfor %}
+{# Row 2 — ad efficiency + samples #}
+<section aria-label="Ad &amp; sample metrics" class="stagger-in mb-8 grid grid-cols-12 gap-3">
+  {{ ui.kpi(label="Ad Spend", value=pnl.net_ad_spend | money, hint="Net of credits",
+      href="/reports/ad-spend", col_span="col-span-6 md:col-span-3", surface="bg-amber-50",
+      delta=trends.ad_spend.delta, delta_polarity="neutral", spark=trends.ad_spend.spark) }}
+  {# ROAS — dual figure: this period (tone-colored by efficiency) + all-time #}
+  {% set roas_text = {'pos':'text-emerald-700','warn':'text-amber-700','neg':'text-rose-700','none':'text-slate-900'}[roas_tone] %}
+  <a href="/reports/ad-spend"
+     class="col-span-6 md:col-span-3 relative block overflow-hidden rounded-2xl bg-amber-50 p-6 ring-1 ring-slate-900/5 shadow-sm transition hover:shadow-md hover:ring-slate-900/10">
+    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">ROAS</div>
+    <div class="mt-2 flex items-end gap-5">
+      <div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums {{ roas_text }}">{{ ("%.2fx" % pnl.roas) if has_ads else "—" }}</div>
+        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">This period</div>
+      </div>
+      <div class="mb-1.5 h-8 w-px bg-slate-200"></div>
+      <div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ ("%.2fx" % roas_all_time) if has_ads_all_time else "—" }}</div>
+        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">All-time</div>
+      </div>
+    </div>
+    <div class="mt-1.5 text-xs text-slate-400">Sales per $1 net ad spend</div>
+  </a>
+  {# Samples Shipped — dual figure: units + distinct orders, this period #}
+  <a href="/reports/samples{{ samples_qs }}"
+     class="col-span-6 md:col-span-3 relative block overflow-hidden rounded-2xl bg-indigo-50 p-6 ring-1 ring-slate-900/5 shadow-sm transition hover:shadow-md hover:ring-slate-900/10">
+    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">Samples Shipped</div>
+    <div class="mt-2 flex items-end gap-5">
+      <div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ "{:,}".format(samples_shipped) }}</div>
+        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Units</div>
+      </div>
+      <div class="mb-1.5 h-8 w-px bg-slate-200"></div>
+      <div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ "{:,}".format(sample_orders_shipped) }}</div>
+        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Orders</div>
+      </div>
+    </div>
+    <div class="mt-1.5 text-xs text-slate-400">Free + paid · this period</div>
+  </a>
+  {{ ui.kpi(label="Total Samples Shipped All-Time", value="{:,}".format(samples_shipped_all_time), hint="Every period",
+      href="/reports/samples", col_span="col-span-6 md:col-span-3", surface="bg-indigo-50") }}
 </section>
 
 {# ===========================================================================
@@ -197,40 +192,8 @@
 
     <div class="mt-6">
       {% if top_skus %}
-      <div class="overflow-x-auto -mx-6">
-        <table class="min-w-full text-sm">
-          <thead class="border-y border-slate-200 bg-slate-50/60 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            <tr>
-              <th class="px-6 py-2.5 text-right">Rank</th>
-              <th class="px-3 py-2.5">SKU</th>
-              <th class="px-3 py-2.5">Product Name</th>
-              <th class="px-3 py-2.5">TikTok SKU ID</th>
-              <th class="px-3 py-2.5 text-right">Units Sold</th>
-              <th class="px-3 py-2.5 text-right">Net Customer Sales</th>
-              <th class="px-6 py-2.5 text-right">AOV</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            {% for r in top_skus %}
-            <tr class="transition hover:bg-slate-50/60 {% if r.is_unmapped %}bg-rose-50/40{% endif %}">
-              <td class="px-6 py-3 text-right tabular-nums text-slate-400">{{ r.rank }}</td>
-              <td class="px-3 py-3 font-medium text-slate-900">
-                {% if r.is_unmapped %}
-                  <a href="/reports/unmapped-skus" class="text-rose-700 underline underline-offset-2">Unmapped</a>
-                {% else %}
-                  {{ r.sku_code or "—" }}
-                  {% if r.is_bundle %}<span class="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Bundle</span>{% endif %}
-                {% endif %}
-              </td>
-              <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ (r.name | strip_size | title_case) or "—" }}</td>
-              <td class="px-3 py-3 font-mono text-[11px] text-slate-500">{{ r.tiktok_sku_id }}</td>
-              <td class="px-3 py-3 text-right tabular-nums font-medium text-slate-900">{{ "{:,}".format(r.units_sold) }}</td>
-              <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ r.net_customer_sales | money }}</td>
-              <td class="px-6 py-3 text-right tabular-nums text-slate-900">{{ r.aov | money }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="agx -mx-6">
+        <div id="top-skus-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%"></div>
       </div>
       <p class="mt-4 text-xs leading-relaxed text-slate-400">
         Bundles count as 1 unit per order (not exploded into components). Net Customer Sales is computed at the line level
@@ -257,54 +220,8 @@
 
     <div class="mt-6">
       {% if samples_by_sku %}
-      <div class="overflow-x-auto -mx-6">
-        <table id="samples-table" class="min-w-full text-sm">
-          <thead class="border-y border-slate-200 bg-slate-50/60 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            <tr>
-              <th class="cursor-pointer select-none px-6 py-2.5">SKU<span class="sort-arrow ml-1 text-[10px]"></span></th>
-              <th class="cursor-pointer select-none px-3 py-2.5">Product Name<span class="sort-arrow ml-1 text-[10px]"></span></th>
-              <th class="cursor-pointer select-none px-3 py-2.5">TikTok SKU ID<span class="sort-arrow ml-1 text-[10px]"></span></th>
-              <th class="cursor-pointer select-none px-3 py-2.5 text-right">Samples Sent<span class="sort-arrow ml-1 text-[10px]"></span></th>
-              <th class="cursor-pointer select-none px-3 py-2.5 text-right">Sample Orders Shipped<span class="sort-arrow ml-1 text-[10px]"></span></th>
-              <th class="cursor-pointer select-none px-3 py-2.5 text-right">Units Sold<span class="sort-arrow ml-1 text-[10px]"></span></th>
-              <th class="cursor-pointer select-none px-6 py-2.5 text-right">Sold / Sample<span class="sort-arrow ml-1 text-[10px]"></span></th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            {% for r in samples_by_sku %}
-            <tr class="transition hover:bg-slate-50/60 {% if r.is_unmapped %}bg-rose-50/40{% elif r.units_sold == 0 %}bg-amber-50/40{% endif %}">
-              <td class="px-6 py-3 font-medium text-slate-900">
-                {% if r.is_unmapped %}
-                  <a href="/reports/unmapped-skus" class="text-rose-700 underline underline-offset-2">Unmapped</a>
-                {% else %}
-                  {{ r.sku_code or "—" }}
-                  {% if r.is_bundle %}<span class="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-100">Bundle</span>{% endif %}
-                {% endif %}
-              </td>
-              <td class="px-3 py-3 {% if r.is_unmapped %}text-rose-700{% else %}text-slate-700{% endif %}">{{ (r.name | strip_size | title_case) or "—" }}</td>
-              <td class="px-3 py-3 font-mono text-[11px] text-slate-500">{{ r.tiktok_sku_id }}</td>
-              <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.samples_sent) }}</td>
-              <td class="px-3 py-3 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.sample_orders_shipped) }}</td>
-              <td class="px-3 py-3 text-right tabular-nums {% if r.units_sold == 0 %}text-amber-700{% else %}text-slate-900{% endif %}">{{ "{:,}".format(r.units_sold) }}</td>
-              <td class="px-6 py-3 text-right tabular-nums text-slate-900">{{ "%.2f" % r.sold_per_sample }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-          {% set tot_sent = samples_by_sku | sum(attribute='samples_sent') %}
-          {% set tot_orders = samples_by_sku | sum(attribute='sample_orders_shipped') %}
-          {% set tot_units = samples_by_sku | sum(attribute='units_sold') %}
-          <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
-            <tr>
-              <td class="px-6 py-3" colspan="3">Total</td>
-              <td class="px-3 py-3 text-right tabular-nums">{{ "{:,}".format(tot_sent) }}</td>
-              <td class="px-3 py-3 text-right tabular-nums">{{ "{:,}".format(tot_orders) }}</td>
-              <td class="px-3 py-3 text-right tabular-nums">{{ "{:,}".format(tot_units) }}</td>
-              <td class="px-6 py-3 text-right tabular-nums">
-                {% if tot_sent > 0 %}{{ "%.2f" % (tot_units / tot_sent) }}{% else %}—{% endif %}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+      <div class="agx -mx-6">
+        <div id="samples-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:460px"></div>
       </div>
       <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs">
         <p class="max-w-2xl leading-relaxed text-slate-400">
@@ -360,30 +277,90 @@
 </section>
 
 <script>
-(function () {
-  const tbl = document.getElementById('samples-table');
-  if (!tbl) return;
-  let col = -1, asc = true;
-  const ths = Array.from(tbl.querySelectorAll('thead th'));
-  const arrows = ths.map(th => th.querySelector('.sort-arrow'));
-  ths.forEach((th, i) => {
-    th.addEventListener('click', () => {
-      asc = (col === i) ? !asc : true;
-      col = i;
-      const tbody = tbl.querySelector('tbody');
-      Array.from(tbody.rows)
-        .sort((a, b) => {
-          const av = a.cells[i]?.textContent.trim().replace(/,/g, '') ?? '';
-          const bv = b.cells[i]?.textContent.trim().replace(/,/g, '') ?? '';
-          const an = parseFloat(av), bn = parseFloat(bv);
-          const cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : av.localeCompare(bv);
-          return asc ? cmp : -cmp;
-        })
-        .forEach(r => tbody.appendChild(r));
-      arrows.forEach((a, j) => { if (a) a.textContent = j === i ? (asc ? ' ▲' : ' ▼') : ''; });
-    });
-  });
-})();
+/* Dashboard data grids — Top SKUs + Samples by SKU, on the shared .agx system.
+   Both live in collapsible <details>, so each grid is created lazily the first
+   time its module opens (AG Grid needs a visible container to size itself). */
+const TOP_SKUS = {{ top_skus_json | tojson }};
+const SAMPLES = {{ samples_json | tojson }};
+
+const dollars = v => (v===null||v===undefined) ? "—" : "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const intc = v => (v===null||v===undefined) ? "" : Number(v).toLocaleString("en-US");
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function skuCellRenderer(p){
+  if(p.node.rowPinned) return `<span style="font-weight:600">Total</span>`;
+  const d=p.data;
+  if(d.is_unmapped) return `<a class="cell-link" href="/reports/unmapped-skus">Unmapped</a>`;
+  const pill = d.is_bundle ? ` <span class="tag bundle" style="height:18px;font-size:10px;padding:0 6px;text-transform:uppercase;letter-spacing:.04em">Bundle</span>` : "";
+  return `<span style="font-weight:600;color:var(--sbx-ink)">${esc(d.sku_code||"—")}</span>${pill}`;
+}
+const nameRenderer = p => p.node.rowPinned ? "" : (p.data.is_unmapped ? `<span class="cell-link" style="text-decoration:none">${esc(p.data.name||"—")}</span>` : `<span style="color:var(--sbx-ink-soft)">${esc(p.data.name||"—")}</span>`);
+const ttRenderer = p => p.node.rowPinned ? "" : `<span class="code" style="font-family:var(--sbx-mono);font-size:11px;color:var(--sbx-ink-faint)">${esc(p.value)}</span>`;
+const intRenderer = p => `<span class="num">${intc(p.value)}</span>`;
+const moneyRenderer = p => `<span class="num">${dollars(p.value)}</span>`;
+
+const baseCol = { sortable:true, suppressHeaderMenuButton:true, resizable:true };
+
+function makeTopSkusGrid(){
+  return {
+    columnDefs:[
+      { headerName:"Rank", field:"rank", width:84, type:"rightAligned",
+        cellRenderer:p=>`<span class="num muted">${p.value}</span>` },
+      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuCellRenderer },
+      { headerName:"Product", field:"name", flex:1.8, minWidth:180, cellRenderer:nameRenderer },
+      { headerName:"TikTok SKU ID", field:"tiktok_sku_id", width:170, cellRenderer:ttRenderer },
+      { headerName:"Units Sold", field:"units_sold", width:120, type:"rightAligned", cellRenderer:intRenderer },
+      { headerName:"Net Customer Sales", field:"net_customer_sales", width:180, type:"rightAligned", cellRenderer:moneyRenderer },
+      { headerName:"AOV", field:"aov", width:120, type:"rightAligned", cellRenderer:moneyRenderer },
+    ],
+    defaultColDef:baseCol,
+    rowData:TOP_SKUS,
+    domLayout:"autoHeight",
+    suppressCellFocus:true,
+    rowClassRules:{ "dash-unmapped": p => p.data && p.data.is_unmapped },
+  };
+}
+
+function makeSamplesGrid(){
+  const tot = SAMPLES.reduce((a,r)=>({ samples_sent:a.samples_sent+r.samples_sent, sample_orders_shipped:a.sample_orders_shipped+r.sample_orders_shipped, units_sold:a.units_sold+r.units_sold }), {samples_sent:0,sample_orders_shipped:0,units_sold:0});
+  const pinned = { _total:true, samples_sent:tot.samples_sent, sample_orders_shipped:tot.sample_orders_shipped, units_sold:tot.units_sold,
+                   sold_per_sample: tot.samples_sent>0 ? tot.units_sold/tot.samples_sent : null };
+  return {
+    columnDefs:[
+      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuCellRenderer },
+      { headerName:"Product", field:"name", flex:1.8, minWidth:180, cellRenderer:nameRenderer },
+      { headerName:"TikTok SKU ID", field:"tiktok_sku_id", width:170, cellRenderer:ttRenderer },
+      { headerName:"Samples Sent", field:"samples_sent", width:130, type:"rightAligned", cellRenderer:intRenderer },
+      { headerName:"Sample Orders", field:"sample_orders_shipped", width:140, type:"rightAligned", cellRenderer:intRenderer },
+      { headerName:"Units Sold", field:"units_sold", width:120, type:"rightAligned",
+        cellRenderer:p=>`<span class="num${(!p.node.rowPinned && p.data.units_sold===0)?' warn':''}">${intc(p.value)}</span>` },
+      { headerName:"Sold / Sample", field:"sold_per_sample", width:140, type:"rightAligned",
+        cellRenderer:p=> p.value===null||p.value===undefined ? `<span class="num muted">—</span>` : `<span class="num">${Number(p.value).toFixed(2)}</span>` },
+    ],
+    defaultColDef:baseCol,
+    rowData:SAMPLES,
+    pinnedBottomRowData:[pinned],
+    suppressCellFocus:true,
+    rowClassRules:{ "dash-unmapped": p => p.data && !p.node.rowPinned && p.data.is_unmapped,
+                    "dash-zero": p => p.data && !p.node.rowPinned && !p.data.is_unmapped && p.data.units_sold===0 },
+  };
+}
+
+/* lazy-create a grid the first time its enclosing <details> is opened */
+function lazyGrid(gridId, makeOptions){
+  const el = document.getElementById(gridId);
+  if(!el) return;                       // empty period → no grid div rendered
+  const det = el.closest("details");
+  let created = false;
+  const make = ()=>{ if(!created && (!det || det.open)){ created=true; agGrid.createGrid(el, makeOptions()); } };
+  if(det) det.addEventListener("toggle", make);
+  make();                               // in case the module is already open
+}
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  lazyGrid("top-skus-grid", makeTopSkusGrid);
+  lazyGrid("samples-grid", makeSamplesGrid);
+});
 </script>
 
 {% endblock %}
