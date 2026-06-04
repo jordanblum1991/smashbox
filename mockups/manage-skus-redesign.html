@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Manage SKUs · Smashbox</title>
+
+<!-- Fonts: IBM Plex Sans (UI) + IBM Plex Mono (all figures) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- AG Grid (Community) — pinned to a stable v32 legacy-theme build -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-quartz.css">
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
+
+<style>
+/* ============================================================
+   DESIGN TOKENS  —  Smashbox internal design system
+   Reusable across list-heavy admin pages. Calm, refined, credible.
+   ============================================================ */
+:root{
+  /* Surface + ink */
+  --canvas:        #FAFAF7;   /* warm off-white page */
+  --surface:       #FFFFFF;   /* cards, grid, drawer */
+  --surface-sunk:  #F4F3EE;   /* inset / hover wells */
+  --ink:           #14201F;   /* deep slate-teal — primary text */
+  --ink-soft:      #5A6663;   /* secondary text */
+  --ink-faint:     #8A938F;   /* tertiary / placeholders */
+  --hairline:      #E7E5DE;   /* borders, dividers */
+  --hairline-soft: #EFEDE6;
+
+  /* ONE accent */
+  --accent:        #0C6B5E;   /* teal */
+  --accent-press:  #095448;
+  --accent-tint:   #E8F1EF;   /* teal wash for pills/focus */
+  --accent-tint-2: #DCEAE7;
+
+  /* Financial semantics ONLY */
+  --pos:           #1A7F55;   /* gain / positive margin */
+  --neg:           #B23A2E;   /* loss / negative */
+
+  /* Neutral chip (non-financial categorical tags) */
+  --chip-bg:       #F1F0EA;
+  --chip-ink:      #44504D;
+
+  /* Type */
+  --ui:   'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Elevation — whisper-soft, never heavy */
+  --shadow-sm: 0 1px 2px rgba(20,32,31,.04), 0 1px 3px rgba(20,32,31,.05);
+  --shadow-md: 0 4px 14px rgba(20,32,31,.07), 0 1px 4px rgba(20,32,31,.05);
+  --shadow-lg: 0 18px 50px rgba(20,32,31,.16), 0 6px 18px rgba(20,32,31,.10);
+
+  --radius:    10px;
+  --radius-sm: 7px;
+  --radius-pill: 999px;
+}
+
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; }
+body{
+  font-family:var(--ui);
+  background:var(--canvas);
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  font-size:14px;
+  line-height:1.45;
+}
+
+/* Tabular figures everywhere we show a number */
+.mono{ font-family:var(--mono); font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
+
+::selection{ background:var(--accent-tint-2); }
+
+/* ============================================================
+   TOP NAV
+   ============================================================ */
+.topbar{
+  position:sticky; top:0; z-index:40;
+  display:flex; align-items:center; gap:28px;
+  height:58px; padding:0 28px;
+  background:rgba(250,250,247,.85);
+  backdrop-filter:saturate(140%) blur(10px);
+  border-bottom:1px solid var(--hairline);
+}
+.brand{
+  display:flex; align-items:center; gap:9px;
+  font-weight:700; letter-spacing:.14em; font-size:12.5px;
+  color:var(--ink); text-transform:uppercase;
+}
+.brand .glyph{
+  width:22px; height:22px; border-radius:6px;
+  background:var(--ink); color:var(--canvas);
+  display:grid; place-items:center; font-size:12px; font-weight:700;
+  letter-spacing:0; transform:rotate(-4deg);
+}
+.nav{ display:flex; align-items:center; gap:3px; margin-left:6px; }
+.nav a{
+  text-decoration:none; color:var(--ink-soft);
+  font-size:13.5px; font-weight:500;
+  padding:7px 11px; border-radius:7px; line-height:1;
+  transition:background .15s ease, color .15s ease;
+}
+.nav a:hover{ background:var(--surface-sunk); color:var(--ink); }
+.nav a.active{ color:var(--ink); font-weight:600; background:var(--surface); box-shadow:var(--shadow-sm); }
+.topbar .spacer{ flex:1; }
+.nav-right{ display:flex; align-items:center; gap:14px; }
+.import-link{
+  display:inline-flex; align-items:center; gap:7px;
+  font-size:13.5px; font-weight:500; color:var(--accent);
+  text-decoration:none; padding:7px 11px; border-radius:7px;
+  transition:background .15s ease;
+}
+.import-link:hover{ background:var(--accent-tint); }
+.acct{
+  display:flex; align-items:center; gap:9px;
+  padding:5px 9px 5px 5px; border-radius:var(--radius-pill);
+  border:1px solid var(--hairline); background:var(--surface);
+  font-size:13px; color:var(--ink); cursor:default;
+}
+.acct .av{
+  width:26px; height:26px; border-radius:50%;
+  background:linear-gradient(140deg,var(--accent),#0b4f45);
+  color:#fff; display:grid; place-items:center;
+  font-size:11px; font-weight:600; letter-spacing:.02em;
+}
+
+/* ============================================================
+   PAGE SHELL
+   ============================================================ */
+.page{ max-width:1320px; margin:0 auto; padding:34px 28px 80px; }
+
+.page-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:28px; margin-bottom:26px; }
+.eyebrow{
+  font-size:11px; font-weight:600; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 9px;
+  display:flex; align-items:center; gap:8px;
+}
+.eyebrow::before{ content:""; width:18px; height:1.5px; background:var(--accent); display:inline-block; }
+h1.title{ font-size:30px; font-weight:700; letter-spacing:-.02em; margin:0 0 8px; color:var(--ink); }
+.subtitle{ font-size:14px; color:var(--ink-soft); max-width:62ch; margin:0; }
+.subtitle .pill-inline{
+  font-family:var(--mono); font-size:12px; background:var(--surface-sunk);
+  border:1px solid var(--hairline); border-radius:5px; padding:1px 6px; color:var(--chip-ink);
+}
+
+/* ============================================================
+   TOOLBAR
+   ============================================================ */
+.toolbar{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  padding:14px 16px;
+  background:var(--surface);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius) var(--radius) 0 0;
+  border-bottom:none;
+}
+.tb-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:1; min-width:0; }
+.tb-right{ display:flex; align-items:center; gap:14px; }
+
+.search{
+  position:relative; display:flex; align-items:center;
+  min-width:248px;
+}
+.search svg{ position:absolute; left:11px; width:15px; height:15px; color:var(--ink-faint); pointer-events:none; }
+.search input{
+  width:100%; height:38px; padding:0 12px 0 33px;
+  font-family:var(--ui); font-size:13.5px; color:var(--ink);
+  background:var(--surface); border:1px solid var(--hairline);
+  border-radius:var(--radius-sm); outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.search input::placeholder{ color:var(--ink-faint); }
+.search input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-tint); }
+
+.fselect{ position:relative; }
+.fselect select{
+  appearance:none; -webkit-appearance:none;
+  height:38px; padding:0 30px 0 12px;
+  font-family:var(--ui); font-size:13px; font-weight:500; color:var(--ink);
+  background:var(--surface); border:1px solid var(--hairline);
+  border-radius:var(--radius-sm); cursor:pointer; outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.fselect select:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-tint); }
+.fselect.dirty select{ border-color:var(--accent); background:var(--accent-tint); color:var(--accent-press); font-weight:600; }
+.fselect::after{
+  content:""; position:absolute; right:12px; top:50%; width:7px; height:7px;
+  border-right:1.5px solid var(--ink-soft); border-bottom:1.5px solid var(--ink-soft);
+  transform:translateY(-70%) rotate(45deg); pointer-events:none;
+}
+.clear-btn{
+  height:38px; padding:0 12px; border:none; background:transparent;
+  color:var(--ink-soft); font-family:var(--ui); font-size:13px; font-weight:500;
+  cursor:pointer; border-radius:var(--radius-sm); display:none; align-items:center; gap:6px;
+}
+.clear-btn:hover{ background:var(--surface-sunk); color:var(--ink); }
+.clear-btn.show{ display:inline-flex; }
+
+.count-chip{
+  font-size:13px; color:var(--ink-soft); white-space:nowrap;
+}
+.count-chip strong{ color:var(--ink); font-weight:600; }
+.count-chip .mono{ font-size:13px; }
+.count-note{ color:var(--ink-faint); }
+
+.btn-primary{
+  display:inline-flex; align-items:center; gap:8px;
+  height:38px; padding:0 16px;
+  background:var(--accent); color:#fff;
+  font-family:var(--ui); font-size:13.5px; font-weight:600;
+  border:none; border-radius:var(--radius-sm); cursor:pointer;
+  box-shadow:var(--shadow-sm);
+  transition:background .15s ease, transform .05s ease;
+}
+.btn-primary:hover{ background:var(--accent-press); }
+.btn-primary:active{ transform:translateY(1px); }
+.btn-primary svg{ width:15px; height:15px; }
+
+/* ============================================================
+   AG GRID — Quartz theme retuned to the design system
+   ============================================================ */
+.grid-wrap{
+  border:1px solid var(--hairline);
+  border-radius:0 0 var(--radius) var(--radius);
+  overflow:hidden; background:var(--surface);
+  box-shadow:var(--shadow-sm);
+}
+.ag-theme-smashbox{
+  --ag-font-family:var(--ui);
+  --ag-font-size:13.5px;
+  --ag-foreground-color:var(--ink);
+  --ag-secondary-foreground-color:var(--ink-soft);
+  --ag-background-color:var(--surface);
+  --ag-header-background-color:var(--surface);
+  --ag-odd-row-background-color:var(--surface);
+  --ag-row-hover-color:var(--surface-sunk);
+  --ag-border-color:var(--hairline-soft);
+  --ag-row-border-color:var(--hairline-soft);
+  --ag-header-column-separator-display:none;
+  --ag-header-foreground-color:var(--ink-soft);
+  --ag-header-height:44px;
+  --ag-row-height:56px;
+  --ag-cell-horizontal-padding:16px;
+  --ag-selected-row-background-color:var(--accent-tint);
+  --ag-input-focus-border-color:var(--accent);
+  --ag-range-selection-border-color:transparent;
+  --ag-wrapper-border-radius:0;
+  --ag-borders:none;
+}
+.ag-theme-smashbox .ag-root-wrapper{ border:none; }
+.ag-theme-smashbox .ag-header{
+  border-bottom:1px solid var(--hairline);
+  font-weight:600;
+}
+.ag-theme-smashbox .ag-header-cell-text{
+  font-size:11px; letter-spacing:.07em; text-transform:uppercase; font-weight:600;
+}
+.ag-theme-smashbox .ag-row{ cursor:pointer; transition:background .12s ease; }
+.ag-theme-smashbox .ag-row-hover{ background:var(--surface-sunk); }
+.ag-theme-smashbox .ag-cell{ display:flex; align-items:center; }
+.ag-theme-smashbox .ag-cell-focus{ outline:none; }
+.ag-theme-smashbox .ag-paging-panel{
+  border-top:1px solid var(--hairline); color:var(--ink-soft);
+  font-size:12.5px; height:50px;
+}
+.ag-theme-smashbox .ag-paging-row-summary-panel,
+.ag-theme-smashbox .ag-paging-page-summary-panel{ font-family:var(--mono); }
+.ag-theme-smashbox .ag-icon{ color:var(--ink-faint); }
+.ag-theme-smashbox .ag-header-cell-sortable:hover{ color:var(--ink); }
+.ag-theme-smashbox .ag-sort-indicator-icon{ color:var(--accent); }
+
+/* numeric header alignment */
+.ag-theme-smashbox .ag-right-aligned-header .ag-header-cell-label{ justify-content:flex-end; }
+
+/* ---- cell content ---- */
+.cell-product{ display:flex; flex-direction:column; gap:1px; line-height:1.25; }
+.cell-product .nm{ font-weight:600; color:var(--ink); font-size:13.5px; }
+.cell-product .code{ font-family:var(--mono); font-size:11.5px; color:var(--ink-faint); letter-spacing:.01em; }
+.cell-product .illus{ display:inline-block; margin-left:6px; font-size:9.5px; font-weight:600; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--ink-faint); border:1px solid var(--hairline); border-radius:4px; padding:0 4px; vertical-align:1px; }
+
+.tag{
+  display:inline-flex; align-items:center; height:23px; padding:0 9px;
+  border-radius:var(--radius-pill); font-size:12px; font-weight:500;
+  background:var(--chip-bg); color:var(--chip-ink); white-space:nowrap;
+}
+.tag.brand{ background:transparent; border:1px solid var(--hairline); color:var(--ink-soft); }
+.tag.type{ background:var(--accent-tint); color:var(--accent-press); }
+
+.num{ font-family:var(--mono); font-variant-numeric:tabular-nums; width:100%; text-align:right; color:var(--ink); }
+.num.margin{ color:var(--pos); font-weight:600; }
+.num.muted{ color:var(--ink-faint); }
+
+.reorder{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-soft); }
+.reorder .dot{ width:7px; height:7px; border-radius:50%; }
+.reorder.yes .dot{ background:var(--accent); }
+.reorder.no .dot{ background:var(--ink-faint); opacity:.5; }
+
+/* completeness ring */
+.comp{ display:flex; align-items:center; gap:9px; }
+.comp svg{ width:26px; height:26px; flex:none; }
+.comp .track{ stroke:var(--hairline); }
+.comp .arc{ stroke:var(--accent); transition:stroke-dashoffset .3s ease; }
+.comp.full .arc{ stroke:var(--accent); }
+.comp.empty .arc{ stroke:var(--hairline); }
+.comp .lbl{ font-family:var(--mono); font-size:12px; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.comp.full .lbl{ color:var(--accent-press); font-weight:600; }
+.comp .lbl .of{ color:var(--ink-faint); }
+.comp .check{ fill:var(--accent); }
+
+.actions{ display:flex; align-items:center; justify-content:flex-end; gap:4px; width:100%; }
+.edit-link{
+  font-size:12.5px; font-weight:600; color:var(--accent);
+  background:transparent; border:none; cursor:pointer; padding:6px 8px;
+  border-radius:6px; font-family:var(--ui);
+}
+.edit-link:hover{ background:var(--accent-tint); }
+
+/* ============================================================
+   SLIDE-OVER DRAWER
+   ============================================================ */
+.scrim{
+  position:fixed; inset:0; background:rgba(20,32,31,.34);
+  opacity:0; visibility:hidden; transition:opacity .28s ease, visibility .28s ease;
+  z-index:60; backdrop-filter:blur(1.5px);
+}
+.scrim.open{ opacity:1; visibility:visible; }
+.drawer{
+  position:fixed; top:0; right:0; height:100vh; width:480px; max-width:94vw;
+  background:var(--surface); box-shadow:var(--shadow-lg);
+  transform:translateX(100%); transition:transform .32s cubic-bezier(.22,.61,.36,1);
+  z-index:61; display:flex; flex-direction:column;
+  border-left:1px solid var(--hairline);
+}
+.drawer.open{ transform:translateX(0); }
+
+.dr-head{
+  padding:22px 24px 18px; border-bottom:1px solid var(--hairline);
+  display:flex; align-items:flex-start; gap:16px;
+}
+.dr-head .ttl{ flex:1; min-width:0; }
+.dr-head .eyebrow{ margin-bottom:7px; }
+.dr-head h2{ font-size:20px; font-weight:700; margin:0 0 5px; letter-spacing:-.01em; color:var(--ink); line-height:1.2; }
+.dr-head .sub{ font-family:var(--mono); font-size:12.5px; color:var(--ink-faint); }
+.dr-close{
+  width:34px; height:34px; flex:none; border-radius:8px; border:1px solid var(--hairline);
+  background:var(--surface); color:var(--ink-soft); cursor:pointer; display:grid; place-items:center;
+  transition:background .15s ease, color .15s ease;
+}
+.dr-close:hover{ background:var(--surface-sunk); color:var(--ink); }
+
+.dr-body{ flex:1; overflow-y:auto; padding:8px 24px 24px; }
+
+.dr-section{ padding:20px 0; border-bottom:1px solid var(--hairline-soft); }
+.dr-section:last-child{ border-bottom:none; }
+.dr-section-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.dr-section-head h3{
+  font-size:11px; font-weight:600; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--ink-soft); margin:0;
+}
+.dr-section-head .meta{ font-family:var(--mono); font-size:11.5px; color:var(--ink-faint); }
+
+.field{ margin-bottom:13px; }
+.field:last-child{ margin-bottom:0; }
+.field label{ display:block; font-size:11.5px; font-weight:500; color:var(--ink-soft); margin-bottom:5px; letter-spacing:.01em; }
+.field-row{ display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+.field-row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:13px; }
+
+.input{
+  width:100%; height:38px; padding:0 12px;
+  font-family:var(--ui); font-size:13.5px; color:var(--ink);
+  background:var(--surface); border:1px solid var(--hairline); border-radius:var(--radius-sm);
+  outline:none; transition:border-color .15s ease, box-shadow .15s ease;
+}
+.input.mono{ font-family:var(--mono); }
+.input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-tint); }
+.input:read-only{ background:var(--surface-sunk); color:var(--ink-soft); cursor:default; }
+.input.empty{ border-style:dashed; color:var(--ink-faint); }
+.input.empty::placeholder{ color:var(--ink-faint); }
+
+.field.missing label::after{
+  content:"Not set"; margin-left:7px; font-size:10px; font-weight:600; letter-spacing:.04em;
+  color:var(--accent); background:var(--accent-tint); border-radius:4px; padding:1px 5px;
+  text-transform:none;
+}
+
+.dr-foot{
+  padding:16px 24px; border-top:1px solid var(--hairline);
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  background:var(--surface);
+}
+.dr-foot .status{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-soft); }
+.dr-foot .status .dot{ width:7px; height:7px; border-radius:50%; background:var(--pos); }
+.dr-foot .btns{ display:flex; gap:9px; }
+.btn-ghost{
+  height:38px; padding:0 15px; background:var(--surface); color:var(--ink-soft);
+  border:1px solid var(--hairline); border-radius:var(--radius-sm); font-family:var(--ui);
+  font-size:13.5px; font-weight:500; cursor:pointer; transition:background .15s ease;
+}
+.btn-ghost:hover{ background:var(--surface-sunk); color:var(--ink); }
+
+/* completeness summary bar inside drawer */
+.comp-bar{ display:flex; align-items:center; gap:11px; margin-bottom:2px; }
+.comp-bar .meter{ flex:1; height:6px; border-radius:3px; background:var(--hairline); overflow:hidden; }
+.comp-bar .meter span{ display:block; height:100%; background:var(--accent); border-radius:3px; transition:width .3s ease; }
+.comp-bar .pct{ font-family:var(--mono); font-size:12px; color:var(--ink-soft); }
+
+/* footnote */
+.footnote{ margin-top:18px; font-size:12px; color:var(--ink-faint); display:flex; align-items:center; gap:8px; }
+.footnote .mono{ font-size:11.5px; }
+
+@media (max-width:720px){
+  .nav{ display:none; }
+  .page-head{ flex-direction:column; align-items:flex-start; gap:18px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== TOP NAV ===================== -->
+<header class="topbar">
+  <div class="brand"><span class="glyph">S</span>Smashbox</div>
+  <nav class="nav">
+    <a href="#">Dashboard</a>
+    <a href="#">P&amp;L</a>
+    <a href="#">Samples</a>
+    <a href="#">Ad Spend</a>
+    <a href="#">Inventory</a>
+    <a href="#">Data Health</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="nav-right">
+    <a class="import-link" href="#">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Import
+    </a>
+    <div class="acct"><span class="av">JB</span> Jordan Blum</div>
+  </div>
+</header>
+
+<!-- ===================== PAGE ===================== -->
+<main class="page">
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Admin</p>
+      <h1 class="title">Manage SKUs</h1>
+      <p class="subtitle">The active product catalog feeding the P&amp;L and Demand Planning. Edit identity, pricing, and planning fields inline — the <span class="pill-inline">SKU master.xlsx</span> bulk-upload path still works in parallel and stays in sync.</p>
+    </div>
+    <button class="btn-primary" onclick="alert('Add SKU — mockup only')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add SKU
+    </button>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="tb-left">
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search" type="text" placeholder="Search name, SBX code, TikTok SKU ID…" autocomplete="off" />
+      </div>
+      <div class="fselect" data-filter="category"><select id="f-category"><option value="">All categories</option></select></div>
+      <div class="fselect" data-filter="brand"><select id="f-brand"><option value="">All brands</option></select></div>
+      <div class="fselect" data-filter="type"><select id="f-type"><option value="">All item types</option></select></div>
+      <div class="fselect" data-filter="reorder"><select id="f-reorder"><option value="">Reorderable: any</option><option value="Yes">Reorderable</option><option value="No">Not reorderable</option></select></div>
+      <div class="fselect" data-filter="comp"><select id="f-comp"><option value="">Completeness: all</option><option value="incomplete">Incomplete only</option><option value="complete">Complete only</option></select></div>
+      <button class="clear-btn" id="clear-filters">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Clear
+      </button>
+    </div>
+    <div class="tb-right">
+      <div class="count-chip"><span class="mono"><strong id="count-active">74</strong></span> active <span class="count-note">· <span id="count-shown" class="mono">—</span> shown</span></div>
+    </div>
+  </div>
+
+  <!-- GRID -->
+  <div class="grid-wrap">
+    <div id="grid" class="ag-theme-quartz ag-theme-smashbox" style="height:632px; width:100%;"></div>
+  </div>
+
+  <p class="footnote">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--ink-faint)"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+    <span><strong style="color:var(--ink-soft)">Gross Margin</strong> = (Retail − Cost) ÷ Retail.
+    <strong style="color:var(--ink-soft)">Completeness</strong> counts the five planning fields that feed the Demand Planning reorder math — Lead time, MOQ, Case pack, Safety stock, Service level.
+    Rows tagged <span class="mono" style="font-size:10px; border:1px solid var(--hairline); border-radius:4px; padding:0 4px; color:var(--ink-faint)">ILLUSTRATIVE</span> are sample non-eyeshadow products for filter demonstration.</span>
+  </p>
+</main>
+
+<!-- ===================== DRAWER ===================== -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dr-head">
+    <div class="ttl">
+      <p class="eyebrow" id="dr-cat">Eyeshadow</p>
+      <h2 id="dr-name">Big Flirt</h2>
+      <div class="sub" id="dr-code">SBX-C0DM06</div>
+    </div>
+    <button class="dr-close" id="dr-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+
+  <div class="dr-body">
+    <!-- completeness summary -->
+    <div class="dr-section" style="padding-top:18px;">
+      <div class="dr-section-head"><h3>Planning Completeness</h3><span class="meta" id="dr-comp-meta">0 of 5</span></div>
+      <div class="comp-bar"><div class="meter"><span id="dr-meter" style="width:0%"></span></div><span class="pct" id="dr-pct">0%</span></div>
+    </div>
+
+    <!-- IDENTITY -->
+    <div class="dr-section">
+      <div class="dr-section-head"><h3>Identity</h3></div>
+      <div class="field">
+        <label>TikTok SKU ID</label>
+        <input class="input mono" id="dr-ttid" readonly />
+      </div>
+      <div class="field-row">
+        <div class="field"><label>TikTok ALT</label><input class="input mono" id="dr-alt" /></div>
+        <div class="field"><label>Brand</label><input class="input" id="dr-brand" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Item type</label><input class="input" id="dr-type" /></div>
+        <div class="field"><label>Size</label><input class="input" id="dr-size" /></div>
+      </div>
+    </div>
+
+    <!-- PRICING -->
+    <div class="dr-section">
+      <div class="dr-section-head"><h3>Pricing</h3><span class="meta">USD · per unit</span></div>
+      <div class="field-row3">
+        <div class="field"><label>Retail</label><input class="input mono" id="dr-retail" /></div>
+        <div class="field"><label>Unit Cost</label><input class="input mono" id="dr-cost" /></div>
+        <div class="field"><label>Gross Margin</label><input class="input mono" id="dr-margin" readonly /></div>
+      </div>
+    </div>
+
+    <!-- PLANNING -->
+    <div class="dr-section">
+      <div class="dr-section-head"><h3>Planning</h3><span class="meta">feeds reorder math</span></div>
+      <div class="field-row" id="dr-plan-row1">
+        <div class="field" data-key="lead"><label>Lead time (days)</label><input class="input mono" id="dr-lead" /></div>
+        <div class="field" data-key="moq"><label>MOQ</label><input class="input mono" id="dr-moq" /></div>
+      </div>
+      <div class="field-row3" id="dr-plan-row2">
+        <div class="field" data-key="casepack"><label>Case pack</label><input class="input mono" id="dr-casepack" /></div>
+        <div class="field" data-key="safety"><label>Safety stock</label><input class="input mono" id="dr-safety" /></div>
+        <div class="field" data-key="service"><label>Service level</label><input class="input mono" id="dr-service" /></div>
+      </div>
+      <div class="field" style="margin-top:13px;">
+        <label>Reorderable</label>
+        <input class="input" id="dr-reorder" readonly />
+      </div>
+    </div>
+  </div>
+
+  <div class="dr-foot">
+    <span class="status"><span class="dot"></span> Active</span>
+    <div class="btns">
+      <button class="btn-ghost" id="dr-cancel">Cancel</button>
+      <button class="btn-primary" onclick="alert('Save — mockup only')">Save changes</button>
+    </div>
+  </div>
+</aside>
+
+<script>
+/* ============================================================
+   SAMPLE DATA — representative of the 74-SKU catalog.
+   Eyeshadows are real (per spec). Non-eyeshadow rows are
+   flagged `illustrative:true` — financials reuse the
+   $25.00 / $12.50 / 50% pattern, planning varied so the
+   completeness + category filters are demonstrable.
+   ============================================================ */
+const SKUS = [
+  // --- Eyeshadows (real) : retail 25.00, cost 12.50, planning blank, reorderable Yes ---
+  { name:"Big Flirt",  code:"SBX-C0DM06", ttid:"1732267436950786219", alt:"C0DM06", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+  { name:"Hot Shot",   code:"SBX-C0DM03", ttid:"1732267436950783003", alt:"C0DM03", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+  { name:"Loaded",     code:"SBX-C0DM08", ttid:"1732267436950788008", alt:"C0DM08", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+  { name:"Nepo Babe",  code:"SBX-C0DM07", ttid:"1732267436950787007", alt:"C0DM07", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+  { name:"Night Rider",code:"SBX-C0DM04", ttid:"1732267436950784004", alt:"C0DM04", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+  { name:"No Angel",   code:"SBX-C0DM02", ttid:"1732267436950782002", alt:"C0DM02", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+  { name:"Stone Fox",  code:"SBX-C0DM05", ttid:"1732267436950785005", alt:"C0DM05", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+  { name:"Trouble",    code:"SBX-C0DM10", ttid:"1732267436950790010", alt:"C0DM10", category:"Eyeshadow", brand:"Smashbox", type:"Single Item", size:".04 oz / 1.3g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"Yes" },
+
+  // --- Illustrative (non-eyeshadow) : varied planning completeness + categories ---
+  { name:"Halo Healthy Glow All-In-One Tinted Moisturizer SPF 25", code:"SBX-HALO25", ttid:"1732267436951001125", alt:"HALO25", category:"Face", brand:"Smashbox", type:"Single Item", size:"1.4 oz / 40ml", retail:25.00, cost:12.50, lead:45, moq:500, casepack:24, safety:120, service:"95%", reorder:"Yes", illustrative:true },
+  { name:"Photo Finish Smooth & Blur Primer", code:"SBX-PFPRIM", ttid:"1732267436951002231", alt:"PFPRIM", category:"Primer", brand:"Smashbox", type:"Single Item", size:"1.0 oz / 30ml", retail:25.00, cost:12.50, lead:30, moq:250, casepack:null, safety:null, service:"90%", reorder:"Yes", illustrative:true },
+  { name:"Photo Finish Hydrating Primer", code:"SBX-PFHYDR", ttid:"1732267436951003318", alt:"PFHYDR", category:"Primer", brand:"Smashbox", type:"Single Item", size:"1.0 oz / 30ml", retail:25.00, cost:null, lead:30, moq:null, casepack:36, safety:null, service:null, reorder:"Yes", illustrative:true },
+  { name:"Cali Contour Palette", code:"SBX-CALICON", ttid:"1732267436951004422", alt:"CALICON", category:"Palette", brand:"Smashbox", type:"Palette", size:"0.5 oz / 14g", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"No", illustrative:true },
+  { name:"Cover Shot Eyeshadow Palette — Smoky", code:"SBX-CSSMOKY", ttid:"1732267436951005529", alt:"CSSMOKY", category:"Palette", brand:"Smashbox", type:"Palette", size:"0.27 oz / 7.8g", retail:25.00, cost:12.50, lead:60, moq:300, casepack:12, safety:null, service:null, reorder:"Yes", illustrative:true },
+  { name:"Be Legendary Line & Prime Pencil", code:"SBX-BLPENC", ttid:"1732267436951006634", alt:"BLPENC", category:"Lip", brand:"Smashbox", type:"Single Item", size:"0.04 oz / 1.2g", retail:25.00, cost:12.50, lead:60, moq:null, casepack:48, safety:null, service:null, reorder:"Yes", illustrative:true },
+  { name:"Be Legendary Prime & Plush Lipstick", code:"SBX-BLPLUSH", ttid:"1732267436951007748", alt:"BLPLUSH", category:"Lip", brand:"Smashbox", type:"Single Item", size:"0.1 oz / 2.9g", retail:25.00, cost:12.50, lead:42, moq:500, casepack:24, safety:90, service:"96%", reorder:"Yes", illustrative:true },
+  { name:"Always On Liquid Lipstick", code:"SBX-AOLIQ", ttid:"1732267436951008852", alt:"AOLIQ", category:"Lip", brand:"Smashbox", type:"Single Item", size:"0.13 oz / 4ml", retail:25.00, cost:12.50, lead:null, moq:null, casepack:null, safety:null, service:null, reorder:"No", illustrative:true },
+  { name:"Smashbox x Outlandish Glow Duo", code:"SBX-GLOWDUO", ttid:"1732267436951009967", alt:"GLOWDUO", category:"Face", brand:"Smashbox", type:"Bundle", size:"Kit", retail:25.00, cost:12.50, lead:50, moq:200, casepack:null, safety:60, service:null, reorder:"Yes", illustrative:true },
+];
+
+const PLAN_KEYS = ["lead","moq","casepack","safety","service"];
+const filledCount = r => PLAN_KEYS.reduce((n,k)=> n + (r[k]!==null && r[k]!=="" && r[k]!==undefined ? 1 : 0), 0);
+
+/* ---------- formatters ---------- */
+const usd = v => (v===null||v===undefined||v==="") ? null : "$" + Number(v).toFixed(2);
+const marginPct = r => {
+  if(r.retail===null||r.cost===null) return null;
+  if(Number(r.retail)===0) return null;
+  return ((r.retail - r.cost) / r.retail) * 100;
+};
+
+/* ============================================================
+   CELL RENDERERS
+   ============================================================ */
+function productRenderer(p){
+  const illus = p.data.illustrative ? `<span class="illus">illustrative</span>` : "";
+  return `<div class="cell-product"><span class="nm">${p.data.name}${illus}</span><span class="code">${p.data.code} · TT ${p.data.ttid.slice(-6)}</span></div>`;
+}
+function categoryRenderer(p){ return `<span class="tag">${p.value}</span>`; }
+function brandRenderer(p){ return `<span class="tag brand">${p.value}</span>`; }
+function typeRenderer(p){ return `<span class="tag type">${p.value}</span>`; }
+
+function marginRenderer(p){
+  const m = marginPct(p.data);
+  if(m===null) return `<span class="num muted">—</span>`;
+  return `<span class="num margin">${m.toFixed(1)}%</span>`;
+}
+function moneyRenderer(field){
+  return p => { const v = usd(p.data[field]); return v===null ? `<span class="num muted">—</span>` : `<span class="num">${v}</span>`; };
+}
+function reorderRenderer(p){
+  const yes = p.value==="Yes";
+  return `<span class="reorder ${yes?'yes':'no'}"><span class="dot"></span>${p.value}</span>`;
+}
+function completenessRenderer(p){
+  const n = filledCount(p.data), total = 5;
+  const r = 9, c = 2*Math.PI*r, off = c * (1 - n/total);
+  const cls = n===total ? "full" : (n===0 ? "empty" : "");
+  const check = n===total
+    ? `<path class="check" transform="translate(8.5,8.7) scale(.5)" d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z"/>`
+    : `<text x="13" y="16.5" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="${n===0?'#8A938F':'#5A6663'}" font-weight="600">${n}</text>`;
+  return `<div class="comp ${cls}">
+    <svg viewBox="0 0 26 26">
+      <circle class="track" cx="13" cy="13" r="${r}" fill="none" stroke-width="3"/>
+      <circle class="arc" cx="13" cy="13" r="${r}" fill="none" stroke-width="3" stroke-linecap="round"
+        stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 13 13)"/>
+      ${check}
+    </svg>
+    <span class="lbl">${n}<span class="of">/${total}</span></span>
+  </div>`;
+}
+function actionsRenderer(){ return `<div class="actions"><button class="edit-link">Edit</button></div>`; }
+
+/* ============================================================
+   GRID
+   ============================================================ */
+let gridApi;
+const externalFilters = { category:"", brand:"", type:"", reorder:"", comp:"" };
+
+const columnDefs = [
+  { headerName:"Product", field:"name", flex:2.4, minWidth:240, cellRenderer:productRenderer,
+    getQuickFilterText:p=>`${p.data.name} ${p.data.code} ${p.data.ttid} ${p.data.alt}`, sortable:true },
+  { headerName:"Category", field:"category", width:140, cellRenderer:categoryRenderer, sortable:true },
+  { headerName:"Brand", field:"brand", width:120, cellRenderer:brandRenderer, sortable:true },
+  { headerName:"Item type", field:"type", width:128, cellRenderer:typeRenderer, sortable:true },
+  { headerName:"Gross Margin", field:"_margin", width:138, type:"rightAligned",
+    headerTooltip:"(Retail − Cost) ÷ Retail", cellRenderer:marginRenderer, sortable:true,
+    comparator:(a,b,na,nb)=>{ const x=marginPct(na.data), y=marginPct(nb.data); return (x??-1)-(y??-1); } },
+  { headerName:"Retail", field:"retail", width:108, type:"rightAligned", cellRenderer:moneyRenderer("retail"), sortable:true },
+  { headerName:"Unit Cost", field:"cost", width:112, type:"rightAligned", cellRenderer:moneyRenderer("cost"), sortable:true },
+  { headerName:"Completeness", field:"_comp", width:150, cellRenderer:completenessRenderer, sortable:true,
+    comparator:(a,b,na,nb)=> filledCount(na.data)-filledCount(nb.data) },
+  { headerName:"Reorder", field:"reorder", width:130, cellRenderer:reorderRenderer, sortable:true },
+  { headerName:"", field:"_actions", width:84, cellRenderer:actionsRenderer, sortable:false, resizable:false, suppressMovable:true },
+];
+
+const gridOptions = {
+  columnDefs,
+  rowData:SKUS,
+  defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
+  pagination:true,
+  paginationPageSize:10,
+  paginationPageSizeSelector:[10,20,50],
+  animateRows:true,
+  suppressCellFocus:true,
+  rowHeight:56,
+  headerHeight:44,
+
+  isExternalFilterPresent:()=> Object.values(externalFilters).some(v=>v!==""),
+  doesExternalFilterPass:(node)=>{
+    const d=node.data;
+    if(externalFilters.category && d.category!==externalFilters.category) return false;
+    if(externalFilters.brand && d.brand!==externalFilters.brand) return false;
+    if(externalFilters.type && d.type!==externalFilters.type) return false;
+    if(externalFilters.reorder && d.reorder!==externalFilters.reorder) return false;
+    if(externalFilters.comp){
+      const full = filledCount(d)===5;
+      if(externalFilters.comp==="complete" && !full) return false;
+      if(externalFilters.comp==="incomplete" && full) return false;
+    }
+    return true;
+  },
+
+  onGridReady:(e)=>{
+    gridApi = e.api;
+    populateFilterOptions();
+    updateShownCount();
+  },
+  onModelUpdated:updateShownCount,
+  onRowClicked:(e)=>{ openDrawer(e.data); },
+};
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  agGrid.createGrid(document.getElementById("grid"), gridOptions);
+
+  // global quick search
+  document.getElementById("search").addEventListener("input", (e)=>{
+    gridApi.setGridOption("quickFilterText", e.target.value);
+  });
+
+  // dropdown filters
+  const map = { "f-category":"category", "f-brand":"brand", "f-type":"type", "f-reorder":"reorder", "f-comp":"comp" };
+  Object.entries(map).forEach(([id,key])=>{
+    const el=document.getElementById(id);
+    el.addEventListener("change",()=>{
+      externalFilters[key]=el.value;
+      el.closest(".fselect").classList.toggle("dirty", el.value!=="");
+      gridApi.onFilterChanged();
+      refreshClearBtn();
+    });
+  });
+
+  document.getElementById("clear-filters").addEventListener("click", clearAll);
+
+  // drawer close
+  document.getElementById("dr-close").addEventListener("click", closeDrawer);
+  document.getElementById("dr-cancel").addEventListener("click", closeDrawer);
+  document.getElementById("scrim").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") closeDrawer(); });
+});
+
+function populateFilterOptions(){
+  const uniq = (k)=> [...new Set(SKUS.map(s=>s[k]))].sort();
+  addOpts("f-category", uniq("category"));
+  addOpts("f-brand", uniq("brand"));
+  addOpts("f-type", uniq("type"));
+}
+function addOpts(id, vals){
+  const sel=document.getElementById(id);
+  vals.forEach(v=>{ const o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o); });
+}
+function updateShownCount(){
+  if(!gridApi) return;
+  document.getElementById("count-shown").textContent = gridApi.getDisplayedRowCount();
+}
+function refreshClearBtn(){
+  const anyFilter = Object.values(externalFilters).some(v=>v!=="") || document.getElementById("search").value!=="";
+  document.getElementById("clear-filters").classList.toggle("show", anyFilter);
+}
+function clearAll(){
+  Object.keys(externalFilters).forEach(k=> externalFilters[k]="");
+  ["f-category","f-brand","f-type","f-reorder","f-comp"].forEach(id=>{
+    const el=document.getElementById(id); el.value=""; el.closest(".fselect").classList.remove("dirty");
+  });
+  const s=document.getElementById("search"); s.value=""; gridApi.setGridOption("quickFilterText","");
+  gridApi.onFilterChanged();
+  refreshClearBtn();
+}
+
+/* ============================================================
+   DRAWER
+   ============================================================ */
+function val(v, mono){ return (v===null||v===undefined||v==="") ? "" : v; }
+function setField(id, v, placeholder){
+  const el=document.getElementById(id);
+  const empty = (v===null||v===undefined||v==="");
+  el.value = empty ? "" : v;
+  el.classList.toggle("empty", empty);
+  el.placeholder = placeholder || "Not set";
+  const field = el.closest(".field");
+  if(field) field.classList.toggle("missing", empty);
+}
+function openDrawer(d){
+  document.getElementById("dr-cat").textContent = d.category;
+  document.getElementById("dr-name").textContent = d.name;
+  document.getElementById("dr-code").textContent = `${d.code} · TikTok ${d.ttid}`;
+
+  setField("dr-ttid", d.ttid);
+  setField("dr-alt", d.alt);
+  setField("dr-brand", d.brand);
+  setField("dr-type", d.type);
+  setField("dr-size", d.size);
+
+  setField("dr-retail", usd(d.retail), "Not set");
+  setField("dr-cost", usd(d.cost), "Not set");
+  const m = marginPct(d);
+  setField("dr-margin", m===null ? "" : m.toFixed(1)+"%", "—");
+
+  setField("dr-lead", d.lead, "Not set");
+  setField("dr-moq", d.moq, "Not set");
+  setField("dr-casepack", d.casepack, "Not set");
+  setField("dr-safety", d.safety, "Not set");
+  setField("dr-service", d.service, "Not set");
+  setField("dr-reorder", d.reorder);
+
+  const n=filledCount(d), pct=Math.round(n/5*100);
+  document.getElementById("dr-comp-meta").textContent = `${n} of 5`;
+  document.getElementById("dr-meter").style.width = pct+"%";
+  document.getElementById("dr-pct").textContent = pct+"%";
+
+  document.getElementById("drawer").classList.add("open");
+  document.getElementById("drawer").setAttribute("aria-hidden","false");
+  document.getElementById("scrim").classList.add("open");
+}
+function closeDrawer(){
+  document.getElementById("drawer").classList.remove("open");
+  document.getElementById("drawer").setAttribute("aria-hidden","true");
+  document.getElementById("scrim").classList.remove("open");
+}
+</script>
+</body>
+</html>
