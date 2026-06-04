@@ -10,6 +10,9 @@ edge-case guards the spec calls out can be exercised directly:
 from decimal import Decimal
 
 from app.reports.dashboard_trends import (
+    Bar,
+    BarChart,
+    bar_chart,
     Delta,
     compute_delta,
     sparkline_points,
@@ -194,3 +197,49 @@ def test_trailing_months_crosses_year_boundary():
 
 def test_trailing_months_single():
     assert trailing_months(2026, 1, 1) == [(2026, 1)]
+
+
+# --------------------------------------------------------------------------- #
+# bar_chart — zero-baseline bar geometry (the negatives / div-by-zero traps)
+# --------------------------------------------------------------------------- #
+def test_bar_chart_empty_has_no_bars():
+    assert bar_chart([]).bars == []
+
+
+def test_bar_chart_all_positive_rise_from_bottom_baseline():
+    c = bar_chart([D("10"), D("20")], width=100, height=40, pad=0)
+    assert len(c.bars) == 2
+    assert all(b.sign == "pos" for b in c.bars)
+    assert abs(c.baseline - 40) < 0.01           # no negatives -> baseline at bottom
+    assert c.bars[1].h > c.bars[0].h             # taller value -> taller bar
+    for b in c.bars:                             # positive bars sit ON the baseline
+        assert abs((b.y + b.h) - c.baseline) < 0.01
+
+
+def test_bar_chart_all_negative_hang_from_top_baseline():
+    c = bar_chart([D("-10"), D("-20")], width=100, height=40, pad=0)
+    assert all(b.sign == "neg" for b in c.bars)
+    assert abs(c.baseline - 0) < 0.01            # no positives -> baseline at top
+    for b in c.bars:                             # negative bars hang FROM the baseline
+        assert abs(b.y - c.baseline) < 0.01
+
+
+def test_bar_chart_mixed_places_baseline_between():
+    c = bar_chart([D("10"), D("-5")], width=100, height=40, pad=0)
+    assert c.bars[0].sign == "pos"
+    assert c.bars[1].sign == "neg"
+    assert 0 < c.baseline < 40
+    assert abs((c.bars[0].y + c.bars[0].h) - c.baseline) < 0.01   # pos above
+    assert abs(c.bars[1].y - c.baseline) < 0.01                   # neg below
+
+
+def test_bar_chart_all_zero_no_divide_by_zero():
+    c = bar_chart([D("0"), D("0")], width=100, height=40, pad=0)
+    assert len(c.bars) == 2
+    assert all(b.h == 0 for b in c.bars)
+
+
+def test_bar_chart_single_value():
+    c = bar_chart([D("10")], width=100, height=40, pad=0)
+    assert len(c.bars) == 1
+    assert c.bars[0].sign == "pos"

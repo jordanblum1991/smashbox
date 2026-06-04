@@ -20,7 +20,12 @@ from app.models.order import OrderLine
 from app.models.sku import Sku
 from app.reports.ad_spend import compute_ad_spend_summary
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
-from app.reports.dashboard_trends import build_dashboard_trends, compute_delta, sparkline_points
+from app.reports.dashboard_trends import (
+    bar_chart,
+    build_dashboard_trends,
+    compute_delta,
+    sparkline_points,
+)
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.policy_violations import (
@@ -99,10 +104,22 @@ def pnl_view(
         db, ref.year, ref.month, with_delta=(period == PeriodKind.MONTH)
     )
 
+    # Inline-SVG bar charts for the multi-month views (ytd/year/range), where a
+    # real monthly series exists. Net Profit goes negative -> zero-baseline bar
+    # chart; Net Customer Sales is the top-line companion. Geometry is computed
+    # server-side; the template builds hover tooltips from the same months.
+    charts = None
+    if view.monthly_breakdown:
+        bm = view.monthly_breakdown
+        charts = {
+            "net_profit": bar_chart([m.managed_net_profit for m in bm]),
+            "net_customer_sales": bar_chart([m.managed_net_customer_sales for m in bm]),
+        }
+
     return templates.TemplateResponse(
         request,
         "reports/pnl.html",
-        {"view": view, "PeriodKind": PeriodKind, "trends": trends, "error": error},
+        {"view": view, "PeriodKind": PeriodKind, "trends": trends, "charts": charts, "error": error},
     )
 
 

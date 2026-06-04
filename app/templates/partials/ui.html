@@ -136,6 +136,42 @@
 
 
 {# ==========================================================================
+   BAR CHART  —  zero-dep inline-SVG monthly bar chart with a zero baseline.
+
+   - `chart`     : a dashboard_trends.BarChart (bars + baseline + viewBox dims),
+                   computed server-side. Empty -> renders nothing.
+   - `tooltips`  : optional list (parallel to chart.bars) of native-<title>
+                   hover strings, e.g. "May 2026: $12,340".
+   - `pos_tone`  : tone for bars above the baseline (pos|info|accent|none)
+   - `neg_tone`  : tone for bars below the baseline (typically neg)
+
+   Same zero-dep contract as sparkline: currentColor + a literal tone text-*
+   class per <rect> (all safelisted), viewBox for fluid width. The baseline is
+   a hairline so an all-positive chart still reads as sitting on zero.
+   ========================================================================== #}
+{% macro barchart(chart, tooltips=none, pos_tone="pos", neg_tone="neg") -%}
+  {% if chart.bars %}
+  {% set fills = {
+    'pos':'text-emerald-500', 'neg':'text-rose-500', 'info':'text-sky-500',
+    'accent':'text-indigo-500', 'none':'text-slate-400', 'zero':'text-slate-300',
+  } %}
+  <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" preserveAspectRatio="none"
+       class="h-16 w-full" fill="none">
+    <line x1="0" y1="{{ chart.baseline | round(2) }}" x2="{{ chart.width }}" y2="{{ chart.baseline | round(2) }}"
+          stroke="currentColor" class="text-slate-200" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
+    {% for b in chart.bars %}
+    {% set tone = pos_tone if b.sign == 'pos' else (neg_tone if b.sign == 'neg' else 'zero') %}
+    <rect x="{{ b.x | round(2) }}" y="{{ b.y | round(2) }}" width="{{ b.w | round(2) }}" height="{{ b.h | round(2) }}"
+          rx="0.4" fill="currentColor" class="{{ fills[tone] }}">
+      {% if tooltips %}<title>{{ tooltips[loop.index0] }}</title>{% endif %}
+    </rect>
+    {% endfor %}
+  </svg>
+  {% endif %}
+{%- endmacro %}
+
+
+{# ==========================================================================
    KPI / METRIC CARD  —  the small tiles used across Dashboard, P&L, Ad Spend.
 
    - `label`  : the small uppercase label above the value
