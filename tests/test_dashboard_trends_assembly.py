@@ -84,6 +84,12 @@ def test_assembly_computes_real_delta_when_prior_month_has_data():
 
         # Per-metric mode wiring: margin must be percentage-POINTS (pp), not %.
         assert trends["gross_margin"].delta.label.endswith("pp")
+
+        # P&L-page metrics: gross_sales/gross_profit (relative %), net_margin (pp).
+        assert {"gross_sales", "gross_profit", "net_margin"}.issubset(trends.keys())
+        assert trends["gross_sales"].delta.label.endswith("%")
+        assert trends["gross_profit"].delta.label.endswith("%")
+        assert trends["net_margin"].delta.label.endswith("pp")
     finally:
         db.close()
 
