@@ -17,9 +17,7 @@
    anywhere in the dataset (independent of the selector below). #}
 {% if pending_months %}
 <div class="mb-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-900 print:hidden">
-  <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-  </svg>
+  {{ ui.icon("triangle-alert", "mt-0.5 h-4 w-4 shrink-0 text-amber-500") }}
   <div class="min-w-0 flex-1">
     <span class="font-semibold">Unacknowledged violations in:</span>
     {% for y, m in pending_months %}

@@ -24,9 +24,7 @@
 {# ---- Add bundle (collapsed by default; auto-opens on validation error) ---- #}
 <details class="group/addform mb-6" {% if error %}open{% endif %}>
   <summary class="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 [&::-webkit-details-marker]:hidden">
-    <svg class="h-3.5 w-3.5 transition-transform group-open/addform:rotate-45" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-    </svg>
+    {{ ui.icon("plus", "h-3.5 w-3.5 transition-transform group-open/addform:rotate-45") }}
     Add bundle
   </summary>
   <section class="mt-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -188,9 +186,7 @@
           <div class="text-[11px] tabular-nums text-slate-400">$0.00 <span class="text-slate-300">&rarr;</span> ${{ '%.2f'|format(b.calculated_cogs) }}</div>
           {% endif %}
         </div>
-        <svg class="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-        </svg>
+        {{ ui.icon("chevron-right", "h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-90") }}
       </summary>
       <div class="border-t border-slate-100 bg-slate-50/40 px-5 py-4">
         <dl class="mb-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] text-slate-500">
@@ -255,9 +251,7 @@
       <summary class="group/familyhdr flex cursor-pointer list-none items-center gap-2 bg-slate-50/60 px-5 py-2 [&::-webkit-details-marker]:hidden">
         <span class="truncate text-xs font-semibold text-slate-700">{{ family_name | strip_size | title_case }}</span>
         <span class="shrink-0 text-[11px] font-normal text-slate-500">&middot; {{ family_bundles | length }} variant{{ '' if family_bundles | length == 1 else 's' }}</span>
-        <svg class="ml-auto h-3 w-3 shrink-0 text-slate-400 opacity-0 transition-all group-hover/familyhdr:opacity-100 group-open/family:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-        </svg>
+        {{ ui.icon("chevron-right", "ml-auto h-3 w-3 shrink-0 text-slate-400 opacity-0 transition-all group-hover/familyhdr:opacity-100 group-open/family:rotate-90") }}
       </summary>
       <div class="divide-y divide-slate-100">
         {% for b in family_bundles %}{{ bundle_row(b) }}{% endfor %}
@@ -272,9 +266,7 @@
 {% if inactive_bundles | length > 0 %}
 <details class="group/inactive mt-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
   <summary class="flex cursor-pointer items-center gap-2 border-b border-transparent px-5 py-3 hover:bg-slate-50 group-open/inactive:border-slate-200">
-    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform group-open/inactive:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-    </svg>
+    {{ ui.icon("chevron-right", "h-3.5 w-3.5 text-slate-400 transition-transform group-open/inactive:rotate-90") }}
     <h2 class="text-sm font-semibold text-slate-700">
       Inactive bundles
       <span class="ml-2 text-xs font-normal text-slate-500">{{ inactive_bundles | length }} inactive</span>

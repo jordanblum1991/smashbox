@@ -36,7 +36,7 @@
     </label>
     <a href="/reports/demand-planning.csv{% if request.query_params %}?{{ request.query_params }}{% endif %}"
        class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
+      {{ ui.icon("download", "h-3.5 w-3.5") }}
       CSV
     </a>
     <button onclick="window.print()" type="button"
@@ -53,25 +53,25 @@
 {% if state == "fresh" %}
   {% set tone_classes = "bg-emerald-50 border-emerald-200 text-emerald-900" %}
   {% set icon_color = "text-emerald-500" %}
-  {% set icon_path = "M5 13l4 4L19 7" %}
+  {% set icon_name = "check" %}
   {% set title = "Inventory snapshot is " ~ v.snapshot_age_days ~ " day" ~ ("" if v.snapshot_age_days == 1 else "s") ~ " old" %}
   {% set body = "" %}
 {% elif state == "aging" %}
   {% set tone_classes = "bg-amber-50 border-amber-200 text-amber-900" %}
   {% set icon_color = "text-amber-500" %}
-  {% set icon_path = "M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" %}
+  {% set icon_name = "triangle-alert" %}
   {% set title = "Snapshot is " ~ v.snapshot_age_days ~ " days old — upload a fresh one soon." %}
   {% set body = "" %}
 {% elif state == "stale" %}
   {% set tone_classes = "bg-rose-50 border-rose-300 text-rose-900" %}
   {% set icon_color = "text-rose-500" %}
-  {% set icon_path = "M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" %}
+  {% set icon_name = "triangle-alert" %}
   {% set title = "Snapshot is " ~ v.snapshot_age_days ~ " days old. Upload current inventory before trusting reorder recommendations." %}
   {% set body = "Reorder numbers off stale stock are unreliable — retained snapshot history is required to validate the demand math." %}
 {% else %}
   {% set tone_classes = "bg-rose-50 border-rose-300 text-rose-900" %}
   {% set icon_color = "text-rose-500" %}
-  {% set icon_path = "M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" %}
+  {% set icon_name = "triangle-alert" %}
   {% set title = "No inventory snapshot uploaded yet." %}
   {% set body = "Sales velocity is available, but days-of-supply and reorder math need at least one snapshot before they're meaningful." %}
 {% endif %}
@@ -79,9 +79,7 @@
 <div id="snapshot-freshness-banner" data-state="{{ state }}"
      class="mb-6 flex items-start gap-3 rounded-xl border px-4 py-3 text-sm leading-snug print:hidden {{ tone_classes }} {% if state == 'fresh' %}py-2 text-xs{% endif %}"
      style="display: none;">
-  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ icon_color }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon_path }}"/>
-  </svg>
+  {{ ui.icon(icon_name, "mt-0.5 h-4 w-4 shrink-0 " ~ icon_color) }}
   <div class="min-w-0 flex-1">
     <span class="font-semibold">{{ title }}</span>
     {% if body %}<div class="mt-0.5 text-xs opacity-90">{{ body }}</div>{% endif %}
@@ -95,9 +93,7 @@
   <button type="button" id="snapshot-freshness-dismiss"
           aria-label="Dismiss for this session"
           class="shrink-0 self-start rounded-md p-1 opacity-60 transition hover:bg-white/40 hover:opacity-100">
-    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-    </svg>
+    {{ ui.icon("x", "h-4 w-4") }}
   </button>
 </div>
 <script>

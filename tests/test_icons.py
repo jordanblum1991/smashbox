@@ -62,3 +62,24 @@ def test_icon_reads_a_real_bundled_svg():
 def test_icon_unknown_name_raises():
     with pytest.raises(ValueError):
         icon("definitely-not-a-real-icon")
+
+
+def test_every_ui_icon_reference_has_a_committed_svg():
+    """Regression guard: every `ui.icon("name")` literal across the templates
+    must have a committed app/static/icons/<name>.svg, so a missed copy can't
+    ship a 500/blank icon. (Indirect names passed through a variable — e.g.
+    module_summary args or `icon_name` set-vars — are covered by page renders.)"""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    icons_dir = root / "app" / "static" / "icons"
+    pat = re.compile(r"""ui\.icon\(\s*["']([a-z0-9-]+)["']""")
+
+    referenced: set[str] = set()
+    for html in (root / "app" / "templates").rglob("*.html"):
+        referenced |= set(pat.findall(html.read_text(encoding="utf-8")))
+
+    assert referenced, "expected to find ui.icon() references in templates"
+    missing = sorted(n for n in referenced if not (icons_dir / f"{n}.svg").is_file())
+    assert not missing, f"ui.icon() references with no committed SVG: {missing}"

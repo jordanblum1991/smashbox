@@ -1,3 +1,4 @@
+{% import "partials/ui.html" as ui %}
 <nav class="border-b border-slate-200 bg-white print:hidden">
   <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
     <a href="/" class="flex items-center gap-2">
@@ -40,10 +41,7 @@
         <button type="button"
                 class="relative inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 group-hover:bg-slate-100 group-focus-within:bg-slate-100">
           Samples
-          <svg class="h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180"
-               fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-          </svg>
+          {{ ui.icon("chevron-down", "h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
         </button>
         <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
           {% for href, label in sample_links %}
@@ -75,10 +73,7 @@
             {{ health_total }}
           </span>
           {% endif %}
-          <svg class="h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180"
-               fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-          </svg>
+          {{ ui.icon("chevron-down", "h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
         </button>
         <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
           {% for href, label, count in health_links %}
@@ -103,9 +98,7 @@
       <span class="mx-2 h-5 w-px bg-slate-200" aria-hidden="true"></span>
       <a href="/uploads" title="Import file"
          class="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
-        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-        </svg>
+        {{ ui.icon("upload", "h-3.5 w-3.5") }}
         Import
       </a>
 
@@ -119,9 +112,7 @@
             {{ _user.name[:1] | upper }}
           </span>
           <span class="max-w-[8rem] truncate">{{ _user.name }}</span>
-          <svg class="h-3 w-3 text-slate-400 transition-transform group-hover:rotate-180 group-focus-within:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-          </svg>
+          {{ ui.icon("chevron-down", "h-3 w-3 text-slate-400 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
         </button>
         <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
           <div class="px-3 pb-2 pt-1">

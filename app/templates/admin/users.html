@@ -98,9 +98,7 @@
             {% if u.last_login_at %}Last login {{ u.last_login_at.strftime("%Y-%m-%d %H:%M") }}{% else %}Never logged in{% endif %}
           </div>
         </div>
-        <svg class="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-        </svg>
+        {{ ui.icon("chevron-right", "h-4 w-4 text-slate-400 transition-transform group-open:rotate-90") }}
       </summary>
       <div class="border-t border-slate-100 bg-slate-50/40 px-5 py-4">
         <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
