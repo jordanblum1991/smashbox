@@ -2,6 +2,40 @@
 {% import "partials/ui.html" as ui %}
 {% block title %}Demand Planning · Smashbox{% endblock %}
 
+{% block head %}
+{# Shared admin design system + AG Grid (self-hosted) for the two planner grids.
+   Grids are wrapped in .agx; KPI tiles / banner / explainer keep ui.html chrome. #}
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
+<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
+<link rel="stylesheet" href="/static/css/admin-grid.css">
+<style>
+/* planner-grid-only bits layered on the shared .agx system */
+.agx .sku-link{ color:var(--sbx-accent); font-weight:600; }
+.agx .sku-code{ font-family:var(--sbx-mono); font-size:10.5px; color:var(--sbx-ink-faint); }
+.agx .num.up{ color:var(--sbx-pos); font-weight:600; }
+.agx .num.down{ color:var(--sbx-neg); font-weight:600; }
+.agx .num.warn{ color:var(--sbx-neg); font-weight:600; }
+.agx .num.pos{ color:var(--sbx-pos); }
+.agx .vel-sep{ color:#cbd5e1; }
+.agx .vel-60{ color:var(--sbx-ink-soft); }
+.agx .dp-pill{ display:inline-flex; align-items:center; height:21px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
+.agx .dp-pill.t-neg{ background:#fff1f2; color:#be123c; }
+.agx .dp-pill.t-warn{ background:#fffbeb; color:#b45309; }
+.agx .dp-pill.t-accent{ background:#eef2ff; color:#4338ca; }
+.agx .dp-pill.t-pos{ background:#ecfdf5; color:#047857; }
+.agx .dp-pill.t-info{ background:#f0f9ff; color:#0369a1; }
+.agx .dp-pill.t-neutral{ background:#f1f5f9; color:#475569; }
+.agx .ag-theme-smashbox .ag-row.dp-out{ background:#fef2f2; }
+.agx .ag-theme-smashbox .ag-row.dp-risk{ background:#fffbeb; }
+.agx .ag-theme-smashbox .ag-row.dp-reorder{ background:#eef2ff; }
+.agx .ag-theme-smashbox .ag-row.dp-over{ background:#f0f9ff; }
+.agx .ag-theme-smashbox .ag-row.dp-novel{ background:#f8fafc; }
+.agx .ag-theme-smashbox .ag-row.dp-disc{ background:#f1f5f9; opacity:.62; }
+.agx .grid-wrap.flush{ border-radius:0; border-left:none; border-right:none; border-bottom:none; box-shadow:none; }
+</style>
+{% endblock %}
+
 {% block content %}
 {% set v = view %}
 
@@ -9,6 +43,7 @@
   eyebrow="Operations",
   title="Demand Planning",
   subtitle="Per-SKU replenishment recommendations from trailing sales velocity, current on-hand inventory, and your procurement settings.",
+  accent_bar=true,
 ) %}
   <form method="get" action="/reports/demand-planning" class="flex flex-wrap items-end gap-2">
     <label class="block" title="Drives z in the variance-based safety-stock formula z × σ × √lead_time">
@@ -160,63 +195,9 @@
     {% endfor %}
   </div>
 
-  {# Detail table — every PO in the next 90 days, sorted by order-by date. #}
-  <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-        <tr>
-          <th class="px-6 py-2.5">Order by</th>
-          <th class="px-4 py-2.5">SKU</th>
-          <th class="px-4 py-2.5">Product</th>
-          <th class="px-3 py-2.5">Status</th>
-          <th class="px-3 py-2.5 text-right">On hand</th>
-          <th class="px-3 py-2.5 text-right">Velocity / day</th>
-          <th class="px-3 py-2.5 text-right">Reorder qty</th>
-          <th class="px-3 py-2.5 text-right">Investment</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100">
-        {% for item in p.all_items_sorted %}
-        {% set row_tone = {
-          'out_of_stock':  'bg-rose-50/30',
-          'at_risk':       'bg-amber-50/30',
-          'reorder_now':   'bg-indigo-50/20',
-          'healthy':       '',
-          'overstocked':   '',
-        }.get(item.status.value, '') %}
-        <tr class="{{ row_tone }} hover:bg-slate-50/60">
-          <td class="px-6 py-2.5 whitespace-nowrap tabular-nums text-slate-700">
-            {% if item.days_until_reorder == 0 %}
-            <span class="font-semibold text-rose-700">Today</span>
-            {% else %}
-            {{ item.order_by_date.strftime("%b %d") }}
-            <span class="ml-1 text-[10px] text-slate-400">(+{{ item.days_until_reorder }}d)</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-2.5 font-medium text-slate-900">
-            <a href="/reports/demand-planning/sku/{{ item.component_sku }}"
-               class="hover:text-indigo-700 hover:underline">
-              {{ item.sku_code or "—" }}
-            </a>
-          </td>
-          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ (item.name | strip_size | title_case) or "—" }}</td>
-          <td class="px-3 py-2.5">
-            {% set pill_tone = {
-              'out_of_stock': 'neg', 'at_risk': 'warn', 'reorder_now': 'accent',
-              'healthy': 'pos', 'overstocked': 'info',
-            }.get(item.status.value, 'neutral') %}
-            {{ ui.pill(item.status.value.replace('_', ' '), tone=pill_tone) }}
-          </td>
-          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(item.on_hand) }}</td>
-          <td class="px-3 py-2.5 text-right tabular-nums text-slate-700">{{ item.daily_velocity }}</td>
-          <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">{{ "{:,}".format(item.suggested_qty) }}</td>
-          <td class="px-3 py-2.5 text-right tabular-nums {% if item.investment > 0 %}font-semibold text-slate-900{% else %}text-slate-300{% endif %}">
-            {% if item.investment > 0 %}{{ item.investment | money }}{% else %}—{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {# Detail grid — every PO in the next 90 days, sorted by order-by date. #}
+  <div class="agx">
+    <div id="pipeline-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%"></div>
   </div>
   <footer class="border-t border-slate-200 bg-slate-50/40 px-6 py-3 text-xs text-slate-500">
     Order-by date = today + (on_hand − reorder_point) / daily_velocity. For currently-healthy SKUs, the reorder quantity
@@ -364,125 +345,40 @@
   Upload an orders file and an inventory snapshot to populate the planner.
 {% endcall %}
 {% else %}
-<section class="mb-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5">
+<section class="agx mb-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-900/5">
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">Replenishment plan</h2>
       <p class="mt-0.5 text-xs text-slate-500">
-        {% if sort_key %}
-        Sorted by <span class="font-medium text-slate-700">{{ sort_key.replace('_', ' ') }}</span> ({{ sort_dir }}).
-        <a href="?{% set non_sort = [] %}{% for k, val in request.query_params.items() if k not in ('sort','dir') %}{% if non_sort.append(k ~ '=' ~ val) %}{% endif %}{% endfor %}{{ non_sort | join('&') }}"
-           class="font-medium text-indigo-600 hover:text-indigo-500">Reset to urgency</a>.
-        {% else %}
-        Sorted urgency-first. <span class="text-amber-700">Amber rows</span> = at-risk;
-        <span class="text-rose-700">red rows</span> = out of stock;
-        <span class="text-indigo-700">indigo rows</span> = reorder now.
-        {% endif %}
+        Urgency-first by default. Row color marks status — <span class="text-rose-700">red</span> out of stock,
+        <span class="text-amber-700">amber</span> at-risk, <span class="text-indigo-700">indigo</span> reorder-now.
+        Sort any column; click a row for the SKU drill-down.
       </p>
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ v.rows | length }} SKU{{ "" if v.rows | length == 1 else "s" }}</span>
   </header>
-  <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-        <tr>
-          <th class="px-4 py-2.5">SKU</th>
-          <th class="px-4 py-2.5">Product</th>
-          <th class="px-3 py-2.5 text-right">
-            <a href="{{ sort_links.on_hand.href }}"
-               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.on_hand.is_active %}text-slate-900{% endif %}">
-              On hand
-              <span class="text-[9px] tabular-nums {% if not sort_links.on_hand.is_active %}text-slate-300{% endif %}">{{ sort_links.on_hand.arrow or '↕' }}</span>
-            </a>
-          </th>
-          <th class="px-3 py-2.5 text-right">In transit</th>
-          <th class="px-3 py-2.5 text-right">
-            14d <span class="font-normal normal-case text-slate-400">/</span> 60d
-            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">units / day</div>
-          </th>
-          <th class="px-3 py-2.5 text-right">
-            <a href="{{ sort_links.days_of_supply.href }}"
-               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.days_of_supply.is_active %}text-slate-900{% endif %}">
-              Days supply
-              <span class="text-[9px] tabular-nums {% if not sort_links.days_of_supply.is_active %}text-slate-300{% endif %}">{{ sort_links.days_of_supply.arrow or '↕' }}</span>
-            </a>
-          </th>
-          <th class="px-3 py-2.5 text-right">
-            <a href="{{ sort_links.stockout_date.href }}"
-               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.stockout_date.is_active %}text-slate-900{% endif %}"
-               title="Projected date inventory hits zero at current velocity">
-              Stockout
-              <span class="text-[9px] tabular-nums {% if not sort_links.stockout_date.is_active %}text-slate-300{% endif %}">{{ sort_links.stockout_date.arrow or '↕' }}</span>
-            </a>
-          </th>
-          <th class="px-3 py-2.5 text-right">Lead time</th>
-          <th class="px-3 py-2.5 text-right">Reorder pt</th>
-          <th class="px-3 py-2.5 text-right">
-            <a href="{{ sort_links.suggested_qty.href }}"
-               class="inline-flex items-center justify-end gap-1 transition hover:text-slate-900 {% if sort_links.suggested_qty.is_active %}text-slate-900{% endif %}">
-              Suggested qty
-              <span class="text-[9px] tabular-nums {% if not sort_links.suggested_qty.is_active %}text-slate-300{% endif %}">{{ sort_links.suggested_qty.arrow or '↕' }}</span>
-            </a>
-          </th>
-          <th class="px-3 py-2.5 text-right">Investment</th>
-          <th class="px-3 py-2.5">Status</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100">
-        {% for r in v.rows %}
-        {% set row_bg = {
-          'out_of_stock':  'bg-rose-50/40',
-          'at_risk':       'bg-amber-50/40',
-          'reorder_now':   'bg-indigo-50/30',
-          'healthy':       '',
-          'overstocked':   'bg-sky-50/30',
-          'no_velocity':   'bg-slate-50/40',
-          'discontinued':  'bg-slate-50/60 opacity-60',
-        }[r.status.value] %}
-        <tr class="{{ row_bg }} hover:bg-slate-50/60">
-          <td class="px-4 py-2.5 font-medium text-slate-900">
-            <a href="/reports/demand-planning/sku/{{ r.component_sku }}"
-               class="hover:text-indigo-700 hover:underline">
-              {{ r.sku_code or "—" }}
-            </a>
-            <div class="font-mono text-[10px] text-slate-400">{{ r.component_sku }}</div>
-          </td>
-          <td class="px-4 py-2.5 text-slate-700 max-w-md whitespace-normal break-words">{{ (r.name | strip_size | title_case) or "—" }}</td>
-          <td class="px-3 py-2.5 text-right tabular-nums">{{ "{:,}".format(r.on_hand) }}</td>
-          <td class="px-3 py-2.5 text-right tabular-nums {% if r.expected_receipts > 0 %}text-emerald-700{% else %}text-slate-300{% endif %}">
-            {% if r.expected_receipts > 0 %}+{{ "{:,}".format(r.expected_receipts) }}{% else %}—{% endif %}
-          </td>
-          <td class="px-3 py-2.5 text-right tabular-nums">
-            <span class="{% if r.trend_ratio > 1.5 %}text-emerald-700 font-semibold{% elif r.trend_ratio < 0.5 and r.daily_velocity > 0 %}text-rose-700 font-semibold{% else %}text-slate-700{% endif %}">{{ r.daily_velocity_14d }}</span>
-            <span class="text-slate-300"> / </span>
-            <span class="text-slate-500">{{ r.daily_velocity }}</span>
-          </td>
-          <td class="px-3 py-2.5 text-right tabular-nums {% if r.days_of_supply is none %}text-slate-300{% elif r.days_of_supply < r.lead_time_days %}text-rose-700 font-semibold{% else %}text-slate-700{% endif %}">
-            {% if r.days_of_supply is not none %}{{ r.days_of_supply }}{% else %}—{% endif %}
-          </td>
-          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">
-            {% if r.stockout_date %}{{ r.stockout_date.strftime("%b %d") }}{% else %}—{% endif %}
-          </td>
-          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ r.lead_time_days }} d</td>
-          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">{{ "{:,}".format(r.reorder_point) }}</td>
-          <td class="px-3 py-2.5 text-right tabular-nums font-semibold {% if r.suggested_order_qty > 0 %}text-slate-900{% else %}text-slate-300{% endif %}">
-            {% if r.suggested_order_qty > 0 %}{{ "{:,}".format(r.suggested_order_qty) }}{% else %}—{% endif %}
-          </td>
-          <td class="px-3 py-2.5 text-right tabular-nums {% if r.investment > 0 %}text-slate-900{% else %}text-slate-300{% endif %}">
-            {% if r.investment > 0 %}{{ r.investment | money }}{% else %}—{% endif %}
-          </td>
-          <td class="px-3 py-2.5">
-            {% set pill_tone = {
-              'out_of_stock': 'neg', 'at_risk': 'warn', 'reorder_now': 'accent',
-              'healthy': 'pos', 'overstocked': 'info',
-              'no_velocity': 'neutral', 'discontinued': 'neutral',
-            }[r.status.value] %}
-            {{ ui.pill(r.status.value.replace('_', ' '), tone=pill_tone) }}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="toolbar" style="border:none; border-bottom:1px solid var(--sbx-hair); border-radius:0;">
+    <div class="tb-left">
+      <div class="search"><span class="ic">{{ ui.icon("search", "h-4 w-4") }}</span>
+        <input id="dp-search" type="text" placeholder="Search SKU, code, product…" autocomplete="off"></div>
+      <div class="fselect"><select id="dp-status">
+        <option value="">All statuses</option>
+        <option value="out_of_stock">Out of stock</option>
+        <option value="at_risk">At risk</option>
+        <option value="reorder_now">Reorder now</option>
+        <option value="healthy">Healthy</option>
+        <option value="overstocked">Overstocked</option>
+        <option value="no_velocity">No velocity</option>
+        <option value="discontinued">Discontinued</option>
+      </select></div>
+      <button class="clear-btn" id="dp-clear">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
+    </div>
+    <div class="tb-right">
+      <div class="count-chip"><span class="mono"><strong>{{ v.rows | length }}</strong></span> SKUs <span class="note">· <span id="dp-shown" class="mono">—</span> shown</span></div>
+    </div>
+  </div>
+  <div class="grid-wrap flush">
+    <div id="replenishment-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:600px"></div>
   </div>
   <footer class="border-t border-slate-200 bg-slate-50/40 px-6 py-3 text-xs text-slate-500">
     Velocity uses trailing 14-day and 60-day rates across shipped/completed PAID orders, with bundle SKUs expanded into their components.
@@ -493,4 +389,116 @@
   </footer>
 </section>
 {% endif %}
+
+<script>
+/* Demand Planning grids on the shared .agx system: Upcoming Purchase Pipeline
+   + the main Replenishment plan. Read-only; row click drills into the SKU. */
+const DP_ROWS = {{ dp_rows | tojson }};
+const DP_PIPELINE = {{ dp_pipeline | tojson }};
+
+const dollars = v => (v===null||v===undefined) ? "—" : "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const intc = v => (v===null||v===undefined) ? "—" : Number(v).toLocaleString("en-US");
+const vel = v => (v===null||v===undefined) ? "0" : Number(v).toFixed(2);
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const STATUS_TONE = { out_of_stock:"neg", at_risk:"warn", reorder_now:"accent", healthy:"pos", overstocked:"info", no_velocity:"neutral", discontinued:"neutral" };
+const STATUS_ROWCLASS = { out_of_stock:"dp-out", at_risk:"dp-risk", reorder_now:"dp-reorder", overstocked:"dp-over", no_velocity:"dp-novel", discontinued:"dp-disc" };
+const statusLabel = s => s.replace(/_/g," ");
+
+function skuRenderer(p){
+  const d=p.data;
+  return `<div class="cell-product"><span class="nm sku-link">${esc(d.sku_code||"—")}</span><span class="sku-code">${esc(d.component_sku)}</span></div>`;
+}
+const nameRenderer = p => `<span style="color:var(--sbx-ink-soft)">${esc(p.data.name||"—")}</span>`;
+const statusRenderer = p => `<span class="dp-pill t-${STATUS_TONE[p.value]||'neutral'}">${esc(statusLabel(p.value))}</span>`;
+const intRenderer = p => `<span class="num">${intc(p.value)}</span>`;
+const moneyRenderer = p => `<span class="num${p.value>0?'':' muted'}">${p.value>0?dollars(p.value):"—"}</span>`;
+const qtyRenderer = p => `<span class="num${p.value>0?'':' muted'}" style="${p.value>0?'font-weight:600':''}">${p.value>0?intc(p.value):"—"}</span>`;
+
+function inTransitRenderer(p){ const n=p.value; return n>0 ? `<span class="num pos">+${intc(n)}</span>` : `<span class="num muted">—</span>`; }
+function velocityRenderer(p){
+  const d=p.data, t=d.trend_ratio;
+  const cls = t>1.5 ? "up" : (t<0.5 && d.daily_velocity>0 ? "down" : "");
+  return `<span class="num"><span class="${cls}">${vel(d.daily_velocity_14d)}</span><span class="vel-sep"> / </span><span class="vel-60">${vel(d.daily_velocity)}</span></span>`;
+}
+function daysSupplyRenderer(p){
+  const d=p.data;
+  if(d.days_of_supply===null||d.days_of_supply===undefined) return `<span class="num muted">—</span>`;
+  const warn = d.days_of_supply < d.lead_time_days;
+  return `<span class="num${warn?' warn':''}">${Math.round(d.days_of_supply)}</span>`;
+}
+function orderByRenderer(p){
+  const d=p.data;
+  if(d.days_until_reorder===0) return `<span class="num" style="text-align:left;font-weight:600;color:var(--sbx-neg)">Today</span>`;
+  return `<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${esc(d.order_by_label)}<span class="sku-code"> +${d.days_until_reorder}d</span></span>`;
+}
+
+const drill = e => { if(e.data) window.location.href = `/reports/demand-planning/sku/${encodeURIComponent(e.data.component_sku)}`; };
+const baseCol = { sortable:true, resizable:true, suppressHeaderMenuButton:true };
+
+function makePipelineGrid(){
+  return {
+    columnDefs:[
+      { headerName:"Order by", field:"order_by_sort", width:130, cellRenderer:orderByRenderer, sort:"asc" },
+      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuRenderer },
+      { headerName:"Product", field:"name", flex:1.8, minWidth:180, cellRenderer:nameRenderer },
+      { headerName:"Status", field:"status", width:140, cellRenderer:statusRenderer },
+      { headerName:"On hand", field:"on_hand", width:110, type:"rightAligned", cellRenderer:intRenderer },
+      { headerName:"Velocity / day", field:"daily_velocity", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num">${vel(p.value)}</span>` },
+      { headerName:"Reorder qty", field:"suggested_qty", width:130, type:"rightAligned", cellRenderer:qtyRenderer },
+      { headerName:"Investment", field:"investment", width:130, type:"rightAligned", cellRenderer:moneyRenderer },
+    ],
+    defaultColDef:baseCol, rowData:DP_PIPELINE, domLayout:"autoHeight", suppressCellFocus:true,
+    onRowClicked:drill,
+    rowClassRules:{ "dp-out":p=>p.data&&p.data.status==="out_of_stock", "dp-risk":p=>p.data&&p.data.status==="at_risk", "dp-reorder":p=>p.data&&p.data.status==="reorder_now" },
+  };
+}
+
+let dpApi;
+const dpExt = { status:"" };
+function makeReplenishmentGrid(){
+  return {
+    columnDefs:[
+      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuRenderer,
+        getQuickFilterText:p=>`${p.data.sku_code} ${p.data.component_sku} ${p.data.name}` },
+      { headerName:"Product", field:"name", flex:1.7, minWidth:170, cellRenderer:nameRenderer },
+      { headerName:"On hand", field:"on_hand", width:104, type:"rightAligned", cellRenderer:intRenderer },
+      { headerName:"In transit", field:"expected_receipts", width:108, type:"rightAligned", cellRenderer:inTransitRenderer },
+      { headerName:"14d / 60d", field:"daily_velocity_14d", width:120, type:"rightAligned", headerTooltip:"units/day: 14-day / 60-day", cellRenderer:velocityRenderer,
+        comparator:(a,b,na,nb)=> na.data.daily_velocity_14d - nb.data.daily_velocity_14d },
+      { headerName:"Days supply", field:"days_of_supply", width:122, type:"rightAligned", cellRenderer:daysSupplyRenderer },
+      { headerName:"Stockout", field:"stockout_sort", width:110, type:"rightAligned", cellRenderer:p=>`<span class="num${p.value?'':' muted'}">${p.data.stockout_label||"—"}</span>` },
+      { headerName:"Lead", field:"lead_time_days", width:90, type:"rightAligned", cellRenderer:p=>`<span class="num">${p.value} d</span>` },
+      { headerName:"Reorder pt", field:"reorder_point", width:116, type:"rightAligned", cellRenderer:intRenderer },
+      { headerName:"Suggested qty", field:"suggested_order_qty", width:134, type:"rightAligned", cellRenderer:qtyRenderer },
+      { headerName:"Investment", field:"investment", width:124, type:"rightAligned", cellRenderer:moneyRenderer },
+      { headerName:"Status", field:"status", width:138, cellRenderer:statusRenderer },
+    ],
+    defaultColDef:baseCol, rowData:DP_ROWS, suppressCellFocus:true,
+    pagination:true, paginationPageSize:25, paginationPageSizeSelector:[25,50,100],
+    onRowClicked:drill,
+    rowClassRules:Object.fromEntries(Object.entries(STATUS_ROWCLASS).map(([s,c])=>[c, p=>p.data&&p.data.status===s])),
+    isExternalFilterPresent:()=> dpExt.status!=="",
+    doesExternalFilterPass:(node)=> !dpExt.status || node.data.status===dpExt.status,
+    onGridReady:(e)=>{ dpApi=e.api; updateDpShown(); },
+    onModelUpdated:updateDpShown,
+  };
+}
+function updateDpShown(){ if(dpApi){ const el=document.getElementById("dp-shown"); if(el) el.textContent=dpApi.getDisplayedRowCount(); } }
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  const pg=document.getElementById("pipeline-grid"); if(pg) agGrid.createGrid(pg, makePipelineGrid());
+  const rg=document.getElementById("replenishment-grid");
+  if(rg){
+    agGrid.createGrid(rg, makeReplenishmentGrid());
+    const search=document.getElementById("dp-search");
+    const status=document.getElementById("dp-status");
+    const clear=document.getElementById("dp-clear");
+    const refreshClear=()=>{ clear.classList.toggle("show", search.value!=="" || dpExt.status!==""); };
+    search.addEventListener("input", e=>{ dpApi.setGridOption("quickFilterText", e.target.value); refreshClear(); });
+    status.addEventListener("change", ()=>{ dpExt.status=status.value; status.closest(".fselect").classList.toggle("dirty", status.value!==""); dpApi.onFilterChanged(); refreshClear(); });
+    clear.addEventListener("click", ()=>{ search.value=""; status.value=""; dpExt.status=""; status.closest(".fselect").classList.remove("dirty"); dpApi.setGridOption("quickFilterText",""); dpApi.onFilterChanged(); refreshClear(); });
+  }
+});
+</script>
 {% endblock %}
