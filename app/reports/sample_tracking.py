@@ -481,6 +481,26 @@ def count_samples_shipped(db: Session, start: datetime, end: datetime) -> int:
     return int(from_sample_table) + int(from_orders)
 
 
+def count_sample_orders_shipped(db: Session, start: datetime, end: datetime) -> int:
+    """Total sample *orders* in [start, end), as a single integer for tiles.
+
+    Companion to count_samples_shipped (which counts units): same population —
+    manual Sample rows (by shipped_at) plus TikTok sample/paid-sample orders (by
+    placed_at) — but counts orders rather than units. Each Sample row is one
+    order; TikTok orders are de-duplicated via COUNT(DISTINCT Order.id) so an
+    order with several sample SKUs still counts once."""
+    from_sample_table = db.execute(
+        select(func.count(Sample.id))
+        .where(Sample.shipped_at >= start, Sample.shipped_at < end)
+    ).scalar() or 0
+    from_orders = db.execute(
+        select(func.count(func.distinct(Order.id)))
+        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
+    ).scalar() or 0
+    return int(from_sample_table) + int(from_orders)
+
+
 def samples_vs_sales_by_sku(
     db: Session, start: datetime, end: datetime,
     *, alias_map: dict[str, str] | None = None,
