@@ -4,7 +4,7 @@ Each report renders to a Jinja template. Print styles live in static/css/app.css
 so any report page can be sent to PDF or paper for brand meetings.
 """
 import calendar
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
@@ -20,8 +20,9 @@ from app.models.order import OrderLine
 from app.models.sku import Sku
 from app.reports.ad_spend import compute_ad_spend_summary
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
+from app.reports.dashboard_trends import build_dashboard_trends
 from app.reports.monthly_pnl import compute_monthly_pnl
-from app.reports.pnl import PeriodKind, compute_pnl_view
+from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.policy_violations import (
     compute_policy_violations,
     months_with_unacknowledged_violations,
@@ -87,10 +88,21 @@ def pnl_view(
         end_year=end_year, end_month=end_month,
         start_date=sd_obj, end_date=ed_obj,
     )
+
+    # Trend affordances on the period-summary tiles — mirrors the dashboard.
+    # `end` is exclusive, so the last included month is end - 1 day. Deltas only
+    # in single-month view (a MoM delta on a multi-month aggregate is
+    # apples-to-oranges); sparklines render on every period kind.
+    start, end = window_for(view)
+    ref = end - timedelta(days=1)
+    trends = build_dashboard_trends(
+        db, ref.year, ref.month, with_delta=(period == PeriodKind.MONTH)
+    )
+
     return templates.TemplateResponse(
         request,
         "reports/pnl.html",
-        {"view": view, "PeriodKind": PeriodKind, "error": error},
+        {"view": view, "PeriodKind": PeriodKind, "trends": trends, "error": error},
     )
 
 

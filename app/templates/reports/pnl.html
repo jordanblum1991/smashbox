@@ -47,24 +47,30 @@
 
 <!-- Period summary cards — give the big picture before the line-level detail -->
 {% if pnl.orders_count > 0 %}
-<section aria-label="Period summary" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+<section aria-label="Period summary" class="stagger-in mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+  {# (label, formatted value, sign accent, trends key, delta polarity) #}
   {% set summary_cards = [
-    ("Gross Sales", pnl.gross_sales | money, none),
-    ("GMV", pnl.gmv | money, none),
-    ("Net Customer Sales", pnl.managed_net_customer_sales | money, none),
-    ("Gross Profit", pnl.managed_gross_profit | money, "emerald" if pnl.managed_gross_profit >= 0 else "rose"),
-    ("Total Ad Spend", pnl.net_ad_spend | money, none),
-    ("Net Profit", pnl.managed_net_profit | money, "emerald" if pnl.managed_net_profit >= 0 else "rose"),
-    ("Gross Margin", pnl.managed_gross_margin | pct, none),
-    ("Net Margin", pnl.managed_net_margin | pct, "emerald" if pnl.managed_net_margin >= 0 else "rose"),
+    ("Gross Sales", pnl.gross_sales | money, none, "gross_sales", "higher_better"),
+    ("GMV", pnl.gmv | money, none, "gmv", "higher_better"),
+    ("Net Customer Sales", pnl.managed_net_customer_sales | money, none, "net_customer_sales", "higher_better"),
+    ("Gross Profit", pnl.managed_gross_profit | money, "emerald" if pnl.managed_gross_profit >= 0 else "rose", "gross_profit", "higher_better"),
+    ("Total Ad Spend", pnl.net_ad_spend | money, none, "ad_spend", "neutral"),
+    ("Net Profit", pnl.managed_net_profit | money, "emerald" if pnl.managed_net_profit >= 0 else "rose", "net_profit", "higher_better"),
+    ("Gross Margin", pnl.managed_gross_margin | pct, none, "gross_margin", "higher_better"),
+    ("Net Margin", pnl.managed_net_margin | pct, "emerald" if pnl.managed_net_margin >= 0 else "rose", "net_margin", "higher_better"),
   ] %}
-  {% for label, value, accent in summary_cards %}
+  {% for label, value, accent, tkey, polarity in summary_cards %}
+  {% set t = trends[tkey] %}
   <div class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
     <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{{ label }}</div>
-    <div class="mt-1 text-lg font-semibold tabular-nums
-      {% if accent == 'emerald' %}text-emerald-700
-      {% elif accent == 'rose' %}text-rose-700
-      {% else %}text-slate-900{% endif %}">{{ value }}</div>
+    <div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+      <span class="text-lg font-semibold tabular-nums
+        {% if accent == 'emerald' %}text-emerald-700
+        {% elif accent == 'rose' %}text-rose-700
+        {% else %}text-slate-900{% endif %}">{{ value }}</span>
+      {% if t.delta %}{{ ui.delta_chip(t.delta, polarity) }}{% endif %}
+    </div>
+    {% if t.spark %}<div class="mt-2">{{ ui.sparkline(t.spark, "none", label) }}</div>{% endif %}
   </div>
   {% endfor %}
 </section>

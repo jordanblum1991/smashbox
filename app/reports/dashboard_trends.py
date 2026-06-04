@@ -144,8 +144,11 @@ _METRICS = {
     "gmv": (lambda p: p.gmv, "relative"),
     "net_customer_sales": (lambda p: p.managed_net_customer_sales, "relative"),
     "gross_margin": (lambda p: p.managed_gross_margin, "points"),   # pp, not %
+    "net_margin": (lambda p: p.managed_net_margin, "points"),       # pp, not %
     "roas": (lambda p: p.roas, "absolute"),                          # "+0.3x"
     "ad_spend": (lambda p: p.net_ad_spend, "relative"),
+    "gross_sales": (lambda p: p.gross_sales, "relative"),
+    "gross_profit": (lambda p: p.managed_gross_profit, "relative"),
     "orders": (lambda p: p.orders_count, "relative"),
     "units": (lambda p: p.units_sold, "relative"),
     "aov": (lambda p: p.aov_after_discounts, "relative"),
