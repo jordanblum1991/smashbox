@@ -172,6 +172,39 @@ def _back(request: Request, *, error: str | None = None, notice: str | None = No
 # Mapping) still writes to the same Bundle table.
 # ---------------------------------------------------------------------------
 
+def _bundle_view(b: Bundle) -> dict:
+    """Serialize a Bundle (+ its components) into a JSON-ready dict for the AG
+    Grid front-end. Presentation only — reads the ORM row, applies the display
+    filters the template would, and converts Decimals to floats. The bundle's
+    MSRP/COGS economics are the component-derived `calculated_*` properties;
+    `msrp`/`selling_price` are the editable bundle-level entered values. The
+    `is_active` column is a String('Active'/'Inactive'), normalized to bool."""
+    return {
+        "id": b.id,
+        "name": title_case(strip_size(b.name)) or b.name,
+        "variation": (title_case(strip_size(b.variation)) if b.variation else ""),
+        "headline": (title_case(strip_size(b.variation or b.name)) or (b.variation or b.name)),
+        "bundle_sku": b.bundle_sku or "",
+        "tiktok_sku_id": b.tiktok_sku_id or "",
+        "brand": b.brand or "",
+        "is_active": (b.is_active or "Active") == "Active",
+        "msrp": float(b.msrp) if b.msrp is not None else None,
+        "selling_price": float(b.selling_price) if b.selling_price is not None else None,
+        "calc_msrp": float(b.calculated_msrp),
+        "calc_cogs": float(b.calculated_cogs),
+        "components": [
+            {
+                "sku": c.component_sku,
+                "name": c.component_name or "",
+                "qty": c.quantity,
+                "msrp": float(c.msrp) if c.msrp is not None else None,
+                "cogs": float(c.unit_cogs) if c.unit_cogs is not None else None,
+            }
+            for c in b.components
+        ],
+    }
+
+
 @router.get("/bundles", dependencies=[Depends(require_admin)])
 def bundles_page(
     request: Request,
@@ -180,25 +213,50 @@ def bundles_page(
     notice: str | None = None,
 ):
     """List all bundles + render the add-bundle form. A-Z by name."""
-    # Split into active vs inactive lists. The template renders active as the
-    # primary list and inactive in a collapsible disclosure below — defensive
-    # `(is_active or "Active")` matches the template, since the column is a
-    # String("Active"/"Inactive") with a default of "Active".
     bundles = db.execute(
         select(Bundle).order_by(Bundle.name.asc())
     ).scalars().all()
-    active_bundles = [b for b in bundles if (b.is_active or "Active") == "Active"]
-    inactive_bundles = [b for b in bundles if (b.is_active or "Active") != "Active"]
+    bundle_rows = [_bundle_view(b) for b in bundles]
+    active_count = sum(1 for b in bundles if (b.is_active or "Active") == "Active")
     return templates.TemplateResponse(
         request,
         "admin/bundles.html",
         {
-            "active_bundles": active_bundles,
-            "inactive_bundles": inactive_bundles,
+            "bundle_rows": bundle_rows,
+            "total_count": len(bundles),
+            "active_count": active_count,
+            "inactive_count": len(bundles) - active_count,
             "error": error,
             "notice": notice,
         },
     )
+
+
+@router.post("/bundles/{bundle_id}/edit", dependencies=[Depends(require_admin)])
+def update_bundle_details(
+    bundle_id: int,
+    msrp: str = Form(default=""),
+    selling_price: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Inline-edit a bundle's entered MSRP + Selling Price from the Manage
+    Bundles drawer. Component rows (and thus the component-derived
+    calculated_msrp/calculated_cogs) are NOT edited here — they come from the
+    Bundle Mapping import. Reuses create_sku's strict money parser, so garbage
+    is rejected rather than coerced. Returns the refreshed row JSON for the
+    fetch-based drawer save (no page reload)."""
+    bundle = db.get(Bundle, bundle_id)
+    if bundle is None:
+        raise HTTPException(status_code=404, detail="Bundle not found.")
+    try:
+        msrp_dec = _money_strict(msrp, "Bundle MSRP", min_value=Decimal("0"))
+        selling_dec = _money_strict(selling_price, "Selling price", min_value=Decimal("0"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    bundle.msrp = msrp_dec
+    bundle.selling_price = selling_dec
+    db.commit()
+    return {"ok": True, "bundle": _bundle_view(bundle)}
 
 
 @router.post("/bundles", dependencies=[Depends(require_admin)])
