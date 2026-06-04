@@ -66,6 +66,18 @@
 
 
 {# ==========================================================================
+   ICON  —  inline Lucide icon, bundled via lucide-static (no runtime JS/CDN).
+
+   - `name`    : a lucide icon name with a committed app/static/icons/<name>.svg
+   - `classes` : size + color, e.g. "h-4 w-4 text-sky-500" (the SVG strokes in
+                 currentColor, so a text-* class colors it).
+   Add an icon by copying node_modules/lucide-static/icons/<name>.svg into
+   app/static/icons/ and committing it.
+   ========================================================================== #}
+{% macro icon(name, classes="h-4 w-4") -%}{{ lucide_icon(name, classes) }}{%- endmacro %}
+
+
+{# ==========================================================================
    DELTA CHIP  —  a small month-over-month change pill shown beside a KPI value.
 
    - `delta`    : an app.reports.dashboard_trends.Delta (state / pct / label)
@@ -237,7 +249,7 @@
                   when the description needs embedded markup (e.g. inline
                   emphasis on specific dollar amounts).
    ========================================================================== #}
-{% macro kpi_hero(label, value, tone="none", badge=none, icon=none, href=none, col_span="col-span-12", delta=none, delta_polarity="higher_better", spark=none) -%}
+{% macro kpi_hero(label, value, tone="none", badge=none, icon_name=none, href=none, col_span="col-span-12", delta=none, delta_polarity="higher_better", spark=none) -%}
   {% set tone_grad = {
     'pos':    'from-emerald-50/40 via-white to-white',
     'neg':    'from-rose-50/40 via-white to-white',
@@ -264,12 +276,8 @@
     'accent':'bg-indigo-100 text-indigo-700',
     'none':'bg-slate-100 text-slate-700',
   }[tone] %}
-  {# Default directional icon based on tone — caller can override with icon= #}
-  {% set default_icons = {
-    'pos': 'M3 17l6-6 4 4 8-8M17 7h4v4',
-    'neg': 'M3 7l6 6 4-4 8 8M17 17h4v-4',
-  } %}
-  {% set icon_path = icon or default_icons.get(tone) %}
+  {# Directional icon by tone (lucide name); caller can override via icon_name=. #}
+  {% set glyph = icon_name or {'pos': 'trending-up', 'neg': 'trending-down'}.get(tone) %}
   {% set tag = 'a' if href else 'div' %}
   <{{ tag }} {% if href %}href="{{ href }}"{% endif %}
     class="{{ col_span }} relative block overflow-hidden rounded-2xl bg-gradient-to-br {{ tone_grad }} p-6 ring-1 ring-slate-900/5 shadow-sm{% if href %} transition hover:shadow-md hover:ring-slate-900/10{% endif %}">
@@ -289,11 +297,9 @@
         {% endif %}
         {% if spark %}<div class="mt-3 max-w-md">{{ sparkline(spark, tone, label) }}</div>{% endif %}
       </div>
-      {% if icon_path %}
+      {% if glyph %}
       <div class="hidden shrink-0 rounded-xl bg-white/70 p-3 ring-1 ring-slate-200 md:block">
-        <svg class="h-6 w-6 {{ tone_text }}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon_path }}"/>
-        </svg>
+        {{ icon(glyph, "h-6 w-6 " ~ tone_text) }}
       </div>
       {% endif %}
     </div>
@@ -318,16 +324,9 @@
     'success': {'bg':'bg-emerald-50', 'border':'border-emerald-200','text':'text-emerald-900','icon':'text-emerald-500'},
   } %}
   {% set t = tones[tone] %}
-  {% set icon = {
-    'info':    'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-    'warn':    'M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z',
-    'error':   'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-    'success': 'M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-  }[tone] %}
+  {% set glyph = {'info': 'info', 'warn': 'triangle-alert', 'error': 'circle-alert', 'success': 'circle-check'}[tone] %}
 <div class="mb-6 flex items-start gap-3 rounded-xl border {{ t.bg }} {{ t.border }} px-4 py-3 text-sm leading-snug {{ t.text }}">
-  <svg class="mt-0.5 h-4 w-4 shrink-0 {{ t.icon }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon }}"/>
-  </svg>
+  {{ icon(glyph, "mt-0.5 h-4 w-4 shrink-0 " ~ t.icon) }}
   <div class="min-w-0 flex-1">
     {% if title %}<span class="font-semibold">{{ title }}</span>{% if caller %} — {% endif %}{% endif %}
     {% if caller %}{{ caller() }}{% endif %}

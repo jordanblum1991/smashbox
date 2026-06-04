@@ -8,6 +8,8 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
+from app.icons import icon as lucide_icon
+
 BASE_DIR = Path(__file__).resolve().parent
 
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
@@ -78,6 +80,7 @@ def title_case(value) -> str:
 templates.env.filters["money"] = money
 templates.env.filters["pct"] = pct
 templates.env.globals["month_label"] = month_label
+templates.env.globals["lucide_icon"] = lucide_icon
 templates.env.filters["month_short"] = month_short
 templates.env.filters["strip_size"] = strip_size
 templates.env.filters["extract_size"] = extract_size
