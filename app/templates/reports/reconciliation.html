@@ -145,7 +145,7 @@
     <span class="text-xs text-slate-400">{{ daily_recon | length }} day{{ '' if daily_recon | length == 1 else 's' }} with activity</span>
   </summary>
 
-  {% set d_ours = daily_recon | sum(attribute='tiktok_equivalent_sales') %}
+  {% set d_ours = daily_recon | sum(attribute='gmv') %}
   {% set d_refunds = daily_recon | sum(attribute='refunds') %}
   {% set d_net = daily_recon | sum(attribute='net_customer_sales') %}
 
@@ -159,8 +159,8 @@
       <thead class="border-b border-slate-200 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         <tr>
           <th class="px-2 py-2">Day</th>
-          <th class="px-2 py-2 text-right">Our Pre-refund Sales
-            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">derived from orders file</div>
+          <th class="px-2 py-2 text-right">Our GMV
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">TikTok GMV definition, from orders file</div>
           </th>
           {% if has_tt %}
           <th class="px-2 py-2 text-right">TikTok GMV
@@ -183,7 +183,7 @@
         {% set off = (v is not none) and (v | abs > 0.005) %}
         <tr class="{% if off %}bg-amber-50/40{% else %}hover:bg-slate-50/60{% endif %}">
           <td class="px-2 py-1.5 font-medium text-slate-900 whitespace-nowrap">{{ d.day.strftime("%a %b %d") }}</td>
-          <td class="px-2 py-1.5 text-right tabular-nums text-slate-900">{{ d.tiktok_equivalent_sales | money }}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums text-slate-900">{{ d.gmv | money }}</td>
           {% if has_tt %}
           <td class="px-2 py-1.5 text-right tabular-nums {% if d.tiktok_gmv is none %}text-slate-300{% else %}text-slate-900{% endif %}">
             {% if d.tiktok_gmv is none %}—{% else %}{{ d.tiktok_gmv | money }}{% endif %}
@@ -224,7 +224,7 @@
   <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3 text-xs leading-relaxed text-slate-600">
     <p class="font-semibold text-slate-900">About daily-level variances</p>
     <p class="mt-1.5">
-      <strong class="text-amber-700">Amber rows</strong> are days where our pre-refund total disagrees with TikTok's GMV by more than a cent.
+      <strong class="text-amber-700">Amber rows</strong> are days where our GMV disagrees with TikTok's reported GMV by more than a cent.
       Variance is shown as <em>ours − TikTok</em>: positive means we're counting more than TikTok on that day, negative means TikTok is counting more.
     </p>
     <p class="mt-2">

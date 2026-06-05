@@ -161,13 +161,19 @@ class DailySalesReconciliation:
     """One row of the by-day sales-reconciliation table — used to drill into
     a specific month and isolate which day TikTok and our P&L diverge.
 
+    `gmv` is OUR GMV-equivalent for the day, computed the same way TikTok
+    defines GMV (gross + shipping − seller promos − platform co-funding), so
+    it compares like-for-like against `tiktok_gmv`. Refunds are NOT subtracted
+    from either (GMV is pre-refund); `net_customer_sales` is the refund-adjusted
+    P&L figure, shown alongside for context.
+
     `tiktok_gmv` / `tiktok_orders` come from the Shop Analytics import (the
-    same numbers TikTok shows on its "Sales" tile). They're None when no
-    analytics file has been uploaded yet — the template falls back to "—" in
-    that case so the row still renders.
+    same numbers TikTok shows on its dashboard). They're None when no analytics
+    file has been uploaded yet — the template falls back to "—" in that case so
+    the row still renders.
     """
     day: date
-    tiktok_equivalent_sales: Decimal  # our pre-refund total derived from orders
+    gmv: Decimal                      # our GMV-equivalent for this day
     refunds: Decimal
     net_customer_sales: Decimal
     orders_count: int
@@ -175,17 +181,13 @@ class DailySalesReconciliation:
     tiktok_orders: int | None = None   # TikTok-reported order count
 
     @property
-    def gap(self) -> Decimal:
-        return self.tiktok_equivalent_sales - self.net_customer_sales
-
-    @property
     def tiktok_variance(self) -> Decimal | None:
-        """Our pre-refund total minus TikTok's GMV for the same day. Should
-        be exactly zero when everything reconciles; non-zero = the day worth
+        """Our GMV minus TikTok's reported GMV for the same day. Should be
+        exactly zero when everything reconciles; non-zero = the day worth
         investigating. None when no TikTok data is available."""
         if self.tiktok_gmv is None:
             return None
-        return self.tiktok_equivalent_sales - self.tiktok_gmv
+        return self.gmv - self.tiktok_gmv
 
 
 def daily_sales_reconciliation(
@@ -211,6 +213,8 @@ def daily_sales_reconciliation(
             Order.platform_discount_total,
             Order.seller_funded_outlandish,
             Order.seller_funded_smashbox,
+            Order.payment_platform_discount,
+            Order.shipping_revenue,
             Order.refunds,
         )
         .where(Order.placed_at >= shop_boundary_to_source(start),
@@ -237,16 +241,25 @@ def daily_sales_reconciliation(
     # Aggregate per shop-local day (placed_local_date handles the DST-varying
     # offset per order).
     acc: dict[date, dict] = {}
-    for placed, gross, plat, outl, smash, refund in rows:
+    for placed, gross, plat, outl, smash, ppd, ship_rev, refund in rows:
         day = placed_local_date(placed)
-        a = acc.setdefault(day, {"pre": Decimal("0"), "refund": Decimal("0"), "count": 0})
-        a["pre"] += (Decimal(str(gross or 0)) - Decimal(str(plat or 0))
-                     - Decimal(str(outl or 0)) - Decimal(str(smash or 0)))
+        a = acc.setdefault(day, {"gmv": Decimal("0"), "pre": Decimal("0"),
+                                 "refund": Decimal("0"), "count": 0})
+        g = Decimal(str(gross or 0))
+        p = Decimal(str(plat or 0))
+        o = Decimal(str(outl or 0))
+        s = Decimal(str(smash or 0))
+        # GMV (TikTok definition): + shipping, − seller promos, − all platform
+        # co-funding (SKU platform discount + payment platform discount).
+        a["gmv"] += (g + Decimal(str(ship_rev or 0)) - o - s - p
+                     - Decimal(str(ppd or 0)))
+        # Pre-refund product Sales — feeds net_customer_sales (− refunds).
+        a["pre"] += g - p - o - s
         a["refund"] += Decimal(str(refund or 0))
         a["count"] += 1
     our_by_day: dict[date, dict] = {
         day: {
-            "pre_refund": a["pre"],
+            "gmv": a["gmv"],
             "refund": a["refund"],
             "net": a["pre"] - a["refund"],
             "count": a["count"],
@@ -258,13 +271,13 @@ def daily_sales_reconciliation(
     out: list[DailySalesReconciliation] = []
     for day in all_days:
         ours = our_by_day.get(day, {
-            "pre_refund": Decimal("0"), "refund": Decimal("0"),
+            "gmv": Decimal("0"), "refund": Decimal("0"),
             "net": Decimal("0"), "count": 0,
         })
         tt = tt_by_day.get(day)
         out.append(DailySalesReconciliation(
             day=day,
-            tiktok_equivalent_sales=ours["pre_refund"],
+            gmv=ours["gmv"],
             refunds=ours["refund"],
             net_customer_sales=ours["net"],
             orders_count=ours["count"],
