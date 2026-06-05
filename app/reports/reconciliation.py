@@ -23,6 +23,7 @@ from app.models.payout import Payout
 from app.models.settlement import Settlement
 from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.reports.monthly_pnl import compute_monthly_pnl
+from app.services.reporting_tz import placed_local_date, shop_boundary_to_source
 
 
 # ---- Status: what files are loaded, what dates are covered -----------------
@@ -191,25 +192,26 @@ def daily_sales_reconciliation(
     headline figures as the monthly view (TikTok Sales, Refunds, Net Customer
     Sales) plus an order count for context.
 
-    Single GROUP BY DATE(placed_at) query — works fine on SQLite + Postgres.
+    Bucketed by the shop-local (Seller Center) day: placed_at is converted to
+    America/Los_Angeles per-row, because a single month can straddle the DST
+    boundary so a constant SQL offset would mis-bucket early-month days. The
+    window is the shop-local month converted into placed_at's source zone.
     """
     start = datetime(year, month, 1)
     end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
 
     rows = db.execute(
         select(
-            func.date(Order.placed_at).label("day"),
-            func.coalesce(func.sum(Order.gross_sales), 0),
-            func.coalesce(func.sum(Order.platform_discount_total), 0),
-            func.coalesce(func.sum(Order.seller_funded_outlandish), 0),
-            func.coalesce(func.sum(Order.seller_funded_smashbox), 0),
-            func.coalesce(func.sum(Order.refunds), 0),
-            func.count(Order.id),
+            Order.placed_at,
+            Order.gross_sales,
+            Order.platform_discount_total,
+            Order.seller_funded_outlandish,
+            Order.seller_funded_smashbox,
+            Order.refunds,
         )
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= shop_boundary_to_source(start),
+               Order.placed_at < shop_boundary_to_source(end))
         .where(Order.order_type == OrderType.PAID)
-        .group_by(func.date(Order.placed_at))
-        .order_by(func.date(Order.placed_at))
     ).all()
 
     # Pull TikTok's reported daily GMV + order count for the same window so the
@@ -228,22 +230,25 @@ def daily_sales_reconciliation(
     }
 
     # Union the day keys: orders-only days, analytics-only days, and overlap.
-    our_by_day: dict[date, dict] = {}
-    for row in rows:
-        day_str, gross, plat, outl, smash, refund, count = row
-        day = date.fromisoformat(day_str) if isinstance(day_str, str) else day_str
-        gross, plat, outl, smash, refund = (
-            Decimal(str(gross)), Decimal(str(plat)),
-            Decimal(str(outl)), Decimal(str(smash)),
-            Decimal(str(refund)),
-        )
-        pre_refund = gross - plat - outl - smash
-        our_by_day[day] = {
-            "pre_refund": pre_refund,
-            "refund": refund,
-            "net": pre_refund - refund,
-            "count": int(count or 0),
+    # Aggregate per shop-local day (placed_local_date handles the DST-varying
+    # offset per order).
+    acc: dict[date, dict] = {}
+    for placed, gross, plat, outl, smash, refund in rows:
+        day = placed_local_date(placed)
+        a = acc.setdefault(day, {"pre": Decimal("0"), "refund": Decimal("0"), "count": 0})
+        a["pre"] += (Decimal(str(gross or 0)) - Decimal(str(plat or 0))
+                     - Decimal(str(outl or 0)) - Decimal(str(smash or 0)))
+        a["refund"] += Decimal(str(refund or 0))
+        a["count"] += 1
+    our_by_day: dict[date, dict] = {
+        day: {
+            "pre_refund": a["pre"],
+            "refund": a["refund"],
+            "net": a["pre"] - a["refund"],
+            "count": a["count"],
         }
+        for day, a in acc.items()
+    }
 
     all_days = sorted(set(our_by_day) | set(tt_by_day))
     out: list[DailySalesReconciliation] = []
