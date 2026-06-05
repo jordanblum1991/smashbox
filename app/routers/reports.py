@@ -428,7 +428,7 @@ def upsert_ad_credit(
         existing.amount = amt
         existing.note = note_clean
     db.commit()
-    return RedirectResponse("/reports/ad-spend", status_code=303)
+    return RedirectResponse("/reports/ad-spend/reimbursements", status_code=303)
 
 
 def _credit_error_redirect(ad_date: date | None, reason: str) -> RedirectResponse:
@@ -444,7 +444,7 @@ def _credit_error_redirect(ad_date: date | None, reason: str) -> RedirectRespons
         label = f"{calendar.month_name[ad_date.month]} {ad_date.day}, {ad_date.year}"
         msg = f"Could not save credit for {label}: {reason}"
     qs = urlencode({"error": msg})
-    return RedirectResponse(f"/reports/ad-spend?{qs}", status_code=303)
+    return RedirectResponse(f"/reports/ad-spend/reimbursements?{qs}", status_code=303)
 
 
 # Whitelist of columns the planner table can sort by. Anything else falls
@@ -801,21 +801,88 @@ def demand_planning_sku_detail(
     )
 
 
+def _ad_spend_error_redirect(reason: str) -> RedirectResponse:
+    qs = urlencode({"error": reason})
+    return RedirectResponse(f"/reports/ad-spend?period=month&{qs}", status_code=303)
+
+
 @router.get("/reports/ad-spend")
-def ad_spend_view(request: Request, db: Session = Depends(get_db)):
-    """Monthly TikTok ad spend with cash / credit / ad-credit breakdown."""
+def ad_spend_view(
+    request: Request,
+    period: PeriodKind = PeriodKind.MONTH,
+    year: int | None = None,
+    month: int | None = None,
+    start_year: int | None = None,
+    start_month: int | None = None,
+    end_year: int | None = None,
+    end_month: int | None = None,
+    start_date: str | None = None,    # ISO YYYY-MM-DD; CUSTOM mode only
+    end_date: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Ad Spend Summary — gross / credits / net scoped to a selected period
+    (same period selector as the dashboard / P&L), with a per-month detail.
+    Credit entry + management lives on /reports/ad-spend/reimbursements."""
+    sd_obj: date | None = None
+    ed_obj: date | None = None
+    if period == PeriodKind.CUSTOM:
+        try:
+            sd_obj = date.fromisoformat(start_date) if start_date else None
+            ed_obj = date.fromisoformat(end_date) if end_date else None
+        except ValueError:
+            return _ad_spend_error_redirect("Invalid date format — use YYYY-MM-DD.")
+        if sd_obj is None or ed_obj is None:
+            return _ad_spend_error_redirect("Custom date range requires both start and end dates.")
+        if sd_obj > ed_obj:
+            return _ad_spend_error_redirect("Start date must be on or before end date.")
+
+    # Reuse the P&L period machinery so the shared selector + window match the
+    # rest of the app exactly.
+    view = compute_pnl_view(
+        db, period, year, month,
+        start_year=start_year, start_month=start_month,
+        end_year=end_year, end_month=end_month,
+        start_date=sd_obj, end_date=ed_obj,
+    )
+    start, end = window_for(view)
+
+    summary = compute_ad_spend_summary(db)
+    # Scope to ad-spend months whose calendar month overlaps the window.
+    scoped = []
+    for m in summary.months:
+        ms = datetime(m.year, m.month, 1)
+        me = datetime(m.year + 1, 1, 1) if m.month == 12 else datetime(m.year, m.month + 1, 1)
+        if ms < end and me > start:
+            scoped.append(m)
+
+    gross = sum((m.total for m in scoped), Decimal("0"))
+    credits = sum((m.manual_credit for m in scoped), Decimal("0"))
+
+    return templates.TemplateResponse(
+        request,
+        "reports/ad_spend.html",
+        {
+            "view": view,
+            "summary": summary,                 # to detect "no ad spend at all"
+            "scoped_months": scoped,
+            "gross": gross,
+            "credits": credits,
+            "net": gross - credits,
+            "spark_gross": sparkline_points([m.total for m in scoped]),
+            "spark_credit": sparkline_points([m.manual_credit for m in scoped]),
+            "spark_net": sparkline_points([m.net_total for m in scoped]),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@router.get("/reports/ad-spend/reimbursements")
+def ad_spend_reimbursements_view(request: Request, db: Session = Depends(get_db)):
+    """Ad-credit / reimbursement management — the editable credit table, the
+    catch-all credit form, the TikTok-reported breakdown, and the explainer
+    (moved off the Ad Spend Summary page, which now shows only the KPI tiles)."""
     summary = compute_ad_spend_summary(db)
     months = summary.months
-
-    # Sparklines for the 3 total tiles — the monthly series the page already has.
-    spark_gross = sparkline_points([m.total for m in months])
-    spark_credit = sparkline_points([m.manual_credit for m in months])
-    spark_net = sparkline_points([m.net_total for m in months])
-
-    # Per-row MoM delta on Gross Ad Spend vs the immediately-preceding CALENDAR
-    # month. Neutral polarity — rising ad spend isn't inherently good/bad. The
-    # prior must be the actual previous month present in the series; a gap (or
-    # the first month) reads "new", never a misleading jump across a gap.
     by_key = {(m.year, m.month): m for m in months}
     row_deltas = []
     for m in months:
@@ -824,15 +891,11 @@ def ad_spend_view(request: Request, db: Session = Depends(get_db)):
         row_deltas.append(
             compute_delta(m.total, prior.total if prior else None, prior_has_data=prior is not None)
         )
-
     return templates.TemplateResponse(
         request,
-        "reports/ad_spend.html",
+        "reports/ad_spend_reimbursements.html",
         {
             "summary": summary,
-            "spark_gross": spark_gross,
-            "spark_credit": spark_credit,
-            "spark_net": spark_net,
             "row_deltas": row_deltas,
             "today": date.today(),
             "error": request.query_params.get("error"),
