@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 from app.models.bundle import Bundle
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
+from app.services.reporting_tz import placed_window
 
 
 @dataclass
@@ -82,6 +83,7 @@ class TopSkuRow:
 def compute_sku_profitability(db: Session, start: datetime, end: datetime) -> list[SkuRow]:
     """One row per physical SKU in the window — bundles are exploded into
     their components. Enriched with name/SBX-form code from the catalog."""
+    p_start, p_end = placed_window(start, end)
     agg = (
         select(
             OrderLine.sku.label("key"),
@@ -98,7 +100,7 @@ def compute_sku_profitability(db: Session, start: datetime, end: datetime) -> li
         .select_from(OrderLine)
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.order_type == OrderType.PAID)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .group_by(OrderLine.sku)
     )
     raw = list(db.execute(agg))
@@ -317,6 +319,7 @@ def compute_top_skus(
 
     AOV is Net Customer Sales / DISTINCT orders containing this SKU.
     """
+    p_start, p_end = placed_window(start, end)
     agg = (
         select(
             OrderLine.sku.label("key"),
@@ -335,7 +338,7 @@ def compute_top_skus(
         .select_from(OrderLine)
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.order_type == OrderType.PAID)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .group_by(OrderLine.sku)
         .order_by(func.sum(OrderLine.quantity).desc())
         .limit(limit)

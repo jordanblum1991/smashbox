@@ -94,8 +94,12 @@ def test_violation_math_is_correct():
 
 def test_aggregate_tiles_total_excess_and_affected_orders():
     with SessionLocal() as db:
-        _seed(db, placed_at=datetime(2026, 5, 1), gross="100", seller_funded="50", violates=True, sku="A")  # excess $20
-        _seed(db, placed_at=datetime(2026, 5, 2), gross="200", seller_funded="80", violates=True, sku="B")  # excess $20
+        # Mid-day timestamps so both orders bucket into May under shop-local
+        # (Pacific) reporting — a midnight-of-the-1st here would belong to April
+        # in Pacific terms (see test_reporting_tz). This test is about excess
+        # aggregation, not the period boundary.
+        _seed(db, placed_at=datetime(2026, 5, 1, 12, 0), gross="100", seller_funded="50", violates=True, sku="A")  # excess $20
+        _seed(db, placed_at=datetime(2026, 5, 2, 12, 0), gross="200", seller_funded="80", violates=True, sku="B")  # excess $20
         db.commit()
 
         view = compute_policy_violations(db, PeriodKind.MONTH, year=2026, month=5)

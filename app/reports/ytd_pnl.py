@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.reports.monthly_pnl import MonthlyPnL, compute_monthly_pnl
+from app.services.reporting_tz import today_local
 
 
 @dataclass
@@ -16,7 +17,7 @@ class YtdPnL:
 
 
 def compute_ytd_pnl(db: Session, year: int, through_month: int | None = None) -> YtdPnL:
-    last = through_month or date.today().month
+    last = through_month or today_local().month
     months = [compute_monthly_pnl(db, year, m) for m in range(1, last + 1)]
     return YtdPnL(year=year, months=months, total=_sum(months, year))
 

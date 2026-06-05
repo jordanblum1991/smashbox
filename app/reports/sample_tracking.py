@@ -36,6 +36,7 @@ from app.models.bundle import Bundle, BundleComponent
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
 from app.models.sku import Sku
+from app.services.reporting_tz import now_local, placed_window
 from app.services.sku_alias import load_alias_map
 from app.templating import month_label
 
@@ -148,7 +149,7 @@ def resolve_period(
     today: datetime | None = None,
 ) -> tuple[datetime, datetime, str]:
     """Return (start, end, title_suffix). End is exclusive (first of next month)."""
-    now = today or datetime.now()
+    now = today or now_local()
     y = year or now.year
     m = month or now.month
 
@@ -197,6 +198,7 @@ def compute_sample_view(
     start, end, suffix = resolve_period(
         period, year, month, start_year, start_month, end_year, end_month
     )
+    p_start, p_end = placed_window(start, end)
 
     # Load the alias map once and pass it to every aggregator so the same
     # re-coded SKU collapses identically across all sections of the report.
@@ -219,7 +221,7 @@ def compute_sample_view(
     free_units_orders = db.execute(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type == OrderType.SAMPLE)
     ).scalar() or 0
 
@@ -227,13 +229,13 @@ def compute_sample_view(
     paid_units_orders = db.execute(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type == OrderType.PAID_SAMPLE)
     ).scalar() or 0
 
     status_rows = db.execute(
         select(Order.status, func.count(Order.id))
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         .group_by(Order.status)
         .order_by(func.count(Order.id).desc())
@@ -244,7 +246,7 @@ def compute_sample_view(
         select(Order.placed_at, Order.tiktok_order_id, OrderLine.sku,
                OrderLine.quantity, Order.status, Order.order_type)
         .join(OrderLine, OrderLine.order_id == Order.id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         .order_by(Order.placed_at.desc())
     ).all()
@@ -298,11 +300,12 @@ def count_sku_units_shipped(
     """
     if alias_map is None:
         alias_map = load_alias_map(db)
+    p_start, p_end = placed_window(start, end)
 
     raw_order_rows = db.execute(
         select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         .group_by(OrderLine.sku)
     ).all()
@@ -392,10 +395,11 @@ def samples_by_sku_shipped(
         .where(Sample.shipped_at >= start, Sample.shipped_at < end)
         .group_by(Sample.sku)
     ).all())
+    p_start, p_end = placed_window(start, end)
     samples_orders_units = _by_canonical(db.execute(
         select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
         .group_by(OrderLine.sku)
@@ -403,7 +407,7 @@ def samples_by_sku_shipped(
     samples_orders_count = _by_canonical(db.execute(
         select(OrderLine.sku, func.count(func.distinct(Order.id)))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         .where(Order.status.in_(SHIPPED_SAMPLE_STATUSES))
         .group_by(OrderLine.sku)
@@ -412,7 +416,7 @@ def samples_by_sku_shipped(
         select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.order_type == OrderType.PAID)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .group_by(OrderLine.sku)
     ).all())
 
@@ -468,6 +472,7 @@ def samples_by_sku_shipped(
 def count_samples_shipped(db: Session, start: datetime, end: datetime) -> int:
     """Total units shipped as samples in [start, end). Same definition the Sample
     Tracking page uses (free + explicit-paid), but a single integer for tiles."""
+    p_start, p_end = placed_window(start, end)
     from_sample_table = db.execute(
         select(func.coalesce(func.sum(Sample.quantity), 0))
         .where(Sample.shipped_at >= start, Sample.shipped_at < end)
@@ -475,7 +480,7 @@ def count_samples_shipped(db: Session, start: datetime, end: datetime) -> int:
     from_orders = db.execute(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
     ).scalar() or 0
     return int(from_sample_table) + int(from_orders)
@@ -489,13 +494,14 @@ def count_sample_orders_shipped(db: Session, start: datetime, end: datetime) -> 
     placed_at) — but counts orders rather than units. Each Sample row is one
     order; TikTok orders are de-duplicated via COUNT(DISTINCT Order.id) so an
     order with several sample SKUs still counts once."""
+    p_start, p_end = placed_window(start, end)
     from_sample_table = db.execute(
         select(func.count(Sample.id))
         .where(Sample.shipped_at >= start, Sample.shipped_at < end)
     ).scalar() or 0
     from_orders = db.execute(
         select(func.count(func.distinct(Order.id)))
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
     ).scalar() or 0
     return int(from_sample_table) + int(from_orders)
@@ -534,10 +540,11 @@ def samples_vs_sales_by_sku(
         .where(Sample.shipped_at >= start, Sample.shipped_at < end)
         .group_by(Sample.sku)
     ).all())
+    p_start, p_end = placed_window(start, end)
     samples_orders = _by_canonical(db.execute(
         select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         .group_by(OrderLine.sku)
     ).all())
@@ -545,7 +552,7 @@ def samples_vs_sales_by_sku(
         select(OrderLine.sku, func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.order_type == OrderType.PAID)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .group_by(OrderLine.sku)
     ).all())
 
