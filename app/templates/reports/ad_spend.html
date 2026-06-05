@@ -1,224 +1,101 @@
 {% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
-{% block title %}TikTok Ad Spend · Smashbox{% endblock %}
+{% block title %}Ad Spend Summary · Smashbox{% endblock %}
 
 {% block content %}
-{% set period_label = (summary.period_start.strftime("%b %d, %Y") ~ " – " ~ summary.period_end.strftime("%b %d, %Y")) if summary.period_start else none %}
-{% set subtitle_text = ("Across " ~ summary.months | length ~ (" month" if summary.months | length == 1 else " months")) if summary.months else "No ad spend imported yet." %}
-
 {% call ui.page_header(
   eyebrow="TikTok Ads",
   title="Ad Spend Summary",
-  period=period_label,
-  subtitle=subtitle_text,
+  period=view.title_suffix,
+  subtitle="Total ad spend for the selected period — gross, credits applied, and net of credits.",
   accent_bar=true,
 ) %}
-  <button onclick="window.print()"
+  <a href="/reports/ad-spend/reimbursements"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    Reimbursements →
+  </a>
+  <button onclick="window.print()" type="button"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
 
+{% set selector_action = "/reports/ad-spend" %}
+{% include "partials/period_selector.html" %}
+
 {% if error %}
 <div class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
-  <strong>Could not save:</strong> {{ error }}
+  <strong>Could not load:</strong> {{ error }}
 </div>
 {% endif %}
 
-{# Top KPIs — Gross / Credits / Net at a glance. #}
-{% if summary.months %}
+{% if not summary.months %}
+{% call ui.banner(tone="info", title="No ad spend imported yet") %}
+  Upload a TikTok Ads (GMV Max) cost export from the <a href="/uploads" class="underline underline-offset-2">Imports page</a>,
+  then enter any promo credits on the
+  <a href="/reports/ad-spend/reimbursements" class="underline underline-offset-2">Ad Spend Reimbursements</a> page.
+{% endcall %}
+{% else %}
+
+{# KPIs — scoped to the selected period. #}
 <section class="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
   {% set tiles = [
-    ("Gross Ad Spend", summary.total, "Total reported by TikTok", spark_gross),
-    ("Ad Credits", summary.manual_credit, "Manually-entered TikTok promo credits", spark_credit),
-    ("Net Ad Spend", summary.net_total, "Gross − Credits · flows into P&L", spark_net),
+    ("Gross Ad Spend", gross, spark_gross),
+    ("Total Ad Credits Applied", credits, spark_credit),
+    ("Total Ad Spend (Net of Credits)", net, spark_net),
   ] %}
-  {% for label, value, hint, spark in tiles %}
+  {% for label, value, spark in tiles %}
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
     <div class="mt-2 text-2xl font-semibold tabular-nums
-      {% if label == 'Ad Credits' and value > 0 %}text-emerald-700
-      {% elif label == 'Net Ad Spend' %}text-slate-900
-      {% else %}text-slate-900{% endif %}">{{ value | money }}</div>
-    <div class="mt-1 text-xs text-slate-400">{{ hint }}</div>
+      {% if label == 'Total Ad Credits Applied' and value > 0 %}text-emerald-700{% else %}text-slate-900{% endif %}">{{ value | money }}</div>
     {% if spark %}<div class="mt-3">{{ ui.sparkline(spark, "none", label ~ " — monthly trend") }}</div>{% endif %}
   </div>
   {% endfor %}
 </section>
 
-<section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-  <table class="w-full text-sm">
-    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-slate-500">
-      <tr class="align-bottom">
-        <th class="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider">Month</th>
-        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Gross Ad Spend</th>
-        <th class="px-3 py-2.5">
-          <div class="flex items-end justify-between gap-2">
-            <div class="text-[10px] font-medium uppercase tracking-wider text-slate-400">Date Applied</div>
-            <div class="text-right">
-              <div class="text-[11px] font-semibold uppercase tracking-wider">Ad Credits</div>
-              <div class="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400">Editable · offsets P&amp;L</div>
-            </div>
-          </div>
-        </th>
-        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider">Net Ad Spend</th>
-        <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider print:hidden">Note</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100">
-      {% for r in summary.months %}
-      {# Default the row's date picker to the saved applied_date, falling back
-         to the 1st of the row's month for "never entered" credits. #}
-      {% set row_date_default = (r.credit_applied_date.isoformat() if r.credit_applied_date else "%04d-%02d-01" % (r.year, r.month)) %}
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-3 py-3 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
-        <td class="px-3 py-3 text-right tabular-nums text-slate-900">
-          <div class="flex items-baseline justify-end gap-2">
-            <span>{{ r.total | money }}</span>
-            {% set d = row_deltas[loop.index0] %}
-            {% if d %}{{ ui.delta_chip(d, "neutral") }}{% endif %}
-          </div>
-        </td>
-        {# AD CREDITS cell: every sub-element has a fixed/min width so columns
-           align across rows. min-h-[4rem] is belt-and-suspenders so empty
-           NOTE cells don't shrink the row. #}
-        <td class="px-3 py-3 print:py-1 min-h-[4rem]">
-          <form action="/reports/ad-spend/credits" method="post"
-                class="flex items-center justify-end gap-1.5 print:hidden">
-            <input type="date" name="applied_date" required value="{{ row_date_default }}"
-                   title="Date this credit is applied on — drives which P&amp;L period it lands in"
-                   class="w-[150px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-            <span class="inline-block w-3 text-right text-slate-400">$</span>
-            <input type="number" name="amount" step="0.01" min="0" required
-                   value="{{ '%.2f'|format(r.manual_credit) if r.credit_saved else '' }}"
-                   placeholder="0.00"
-                   class="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-            <input type="text" name="note" value="{{ r.credit_note or '' }}" placeholder="note (optional)"
-                   class="w-48 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-            <button type="submit"
-                    class="inline-flex items-center rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">Save</button>
-            {# Badge has min-w so the right-edge of the saved-state area
-               anchors at a consistent x across rows; content stays left-
-               aligned so the short variant doesn't read as trailing space. #}
-            {% if r.credit_saved %}
-              <span class="ml-1 inline-flex items-center justify-start min-w-44 whitespace-nowrap text-xs font-medium text-emerald-700"
-                    title="Confirmed entry — persists across reload">
-                ✓ Saved{% if r.manual_credit == 0 %} — $0, no credit{% endif %}
-              </span>
-            {% else %}
-              <span class="ml-1 inline-flex items-center justify-start min-w-44 whitespace-nowrap text-xs italic text-slate-400">— not entered</span>
-            {% endif %}
-          </form>
-          <span class="hidden text-right tabular-nums text-emerald-700 print:inline">
-            {% if r.credit_applied_date %}{{ r.credit_applied_date.strftime("%b %d") }} · {% endif %}{{ r.manual_credit | money }}
-          </span>
-        </td>
-        <td class="px-3 py-3 text-right tabular-nums font-semibold text-slate-900">{{ r.net_total | money }}</td>
-        {# NOTE cell capped at 18rem so long notes wrap predictably (~2 lines
-           max) instead of stretching the column and dictating row height. #}
-        <td class="px-3 py-3 text-right text-xs text-slate-500 max-w-[18rem] print:hidden">
-          {% if r.credit_applied_date %}<span class="block text-[10px] uppercase tracking-wide text-slate-400">applied {{ r.credit_applied_date.strftime("%b %d, %Y") }}</span>{% endif %}
-          {% if r.credit_note %}<span class="block">{{ r.credit_note }}</span>{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-    <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
-      <tr>
-        <td class="px-3 py-3">Total ({{ summary.months | length }} month{{ "" if summary.months | length == 1 else "s" }})</td>
-        <td class="px-3 py-3 text-right tabular-nums">{{ summary.total | money }}</td>
-        <td class="px-3 py-3 text-right tabular-nums {% if summary.manual_credit > 0 %}text-emerald-700{% endif %}">{{ summary.manual_credit | money }}</td>
-        <td class="px-3 py-3 text-right tabular-nums">{{ summary.net_total | money }}</td>
-        <td class="px-3 py-3 print:hidden"></td>
-      </tr>
-    </tfoot>
-  </table>
-</section>
-{% endif %}
-
-{# Catch-all form: enter a credit on any date, even for a month with no spend rows. #}
-<section class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm print:hidden">
-  <header class="border-b border-slate-200 px-6 py-3">
-    <h2 class="text-base font-semibold text-slate-900">Add or update a credit on any date</h2>
-    <p class="mt-0.5 text-xs text-slate-500">
-      Use this when the credit's month doesn't yet appear in the table above (e.g. a credit issued
-      for a month with no campaign spend). Pick the exact date the credit applies on — that's what
-      custom-range P&amp;Ls filter against. Submitting another date in the same month overwrites the
-      existing entry (one credit per calendar month).
-      <strong>Saving $0 is a valid confirmed entry</strong> — it records "no credit this month"
-      distinctly from a month that was never touched.
-    </p>
+{# Detailed monthly summary for the selected period (read-only — credit entry
+   lives on the Reimbursements page). #}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Monthly detail</h2>
+      <p class="mt-0.5 text-xs text-slate-500">Gross ad spend, credits applied, and net per month within the selected period.</p>
+    </div>
+    <span class="shrink-0 text-xs text-slate-500">{{ scoped_months | length }} month{{ "" if scoped_months | length == 1 else "s" }}</span>
   </header>
-  <form action="/reports/ad-spend/credits" method="post"
-        class="flex flex-wrap items-end gap-3 p-6">
-    <label class="block">
-      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Applied date</span>
-      <input type="date" name="applied_date" required value="{{ today.isoformat() }}"
-             class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-    </label>
-    <label class="block">
-      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
-      <input type="number" name="amount" step="0.01" min="0" placeholder="0.00" required
-             class="mt-1 w-32 rounded-lg border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-    </label>
-    <label class="block flex-1 min-w-[12rem]">
-      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Note (optional)</span>
-      <input type="text" name="note" placeholder="e.g. Performance incentive Q1"
-             class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-    </label>
-    <button type="submit"
-            class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
-      Save credit
-    </button>
-  </form>
-</section>
-
-{# TikTok-reported breakdown (collapsible) — keeps the original Cash/Credit/AdCredit detail
-   accessible for reconciliation but de-emphasized since most users want Gross/Credits/Net. #}
-{% if summary.months %}
-<details class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm print:hidden">
-  <summary class="cursor-pointer text-sm font-semibold text-slate-900">
-    TikTok-reported spend breakdown (Cash / Credit / Ad Credits)
-  </summary>
-  <div class="mt-4">
+  {% if scoped_months %}
+  <div class="overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         <tr>
-          <th class="px-3 py-2">Month</th>
-          <th class="px-3 py-2 text-right">Cash <span class="font-normal text-slate-400">pay-as-you-go</span></th>
-          <th class="px-3 py-2 text-right">Credit <span class="font-normal text-slate-400">pre-funded balance</span></th>
-          <th class="px-3 py-2 text-right">Ad Credits <span class="font-normal text-slate-400">TikTok promo</span></th>
-          <th class="px-3 py-2 text-right">Total</th>
+          <th class="px-4 py-2.5">Month</th>
+          <th class="px-4 py-2.5 text-right">Gross Ad Spend</th>
+          <th class="px-4 py-2.5 text-right">Ad Credits Applied</th>
+          <th class="px-4 py-2.5 text-right">Net Ad Spend</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100">
-        {% for r in summary.months %}
-        <tr>
-          <td class="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
-          <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.cash_cost | money }}</td>
-          <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.credit_cost | money }}</td>
-          <td class="px-3 py-2 text-right tabular-nums {% if r.ad_credit_cost > 0 %}text-emerald-700{% else %}text-slate-400{% endif %}">{{ r.ad_credit_cost | money }}</td>
-          <td class="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{{ r.total | money }}</td>
+        {% for r in scoped_months %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.total | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums {% if r.manual_credit > 0 %}text-emerald-700{% else %}text-slate-400{% endif %}">{{ r.manual_credit | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums font-semibold text-slate-900">{{ r.net_total | money }}</td>
         </tr>
         {% endfor %}
       </tbody>
+      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
+        <tr>
+          <td class="px-4 py-3">Total ({{ scoped_months | length }} month{{ "" if scoped_months | length == 1 else "s" }})</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ gross | money }}</td>
+          <td class="px-4 py-3 text-right tabular-nums {% if credits > 0 %}text-emerald-700{% endif %}">{{ credits | money }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ net | money }}</td>
+        </tr>
+      </tfoot>
     </table>
-    <p class="mt-3 text-xs text-slate-500">
-      <strong>Note:</strong> the <em>Ad Credits</em> column here reflects what TikTok auto-reports in the Cost export.
-      The <strong>Ad Credits</strong> column in the main table above is for credits you manually enter — separate from
-      anything TikTok ships in the file. Both reduce true cash spend, but only the manual entry currently flows into the P&amp;L.
-    </p>
   </div>
-</details>
-{% endif %}
-
-<section class="mt-6 rounded-xl border border-slate-200 bg-white p-6 text-sm leading-relaxed text-slate-600 print:hidden">
-  <h2 class="mb-3 text-base font-semibold text-slate-900">How ad credits affect the P&amp;L</h2>
-
-  <ul class="list-disc space-y-1.5 pl-5">
-    <li><strong>Gross Ad Spend</strong> is what TikTok charges (Shop Ads affiliate commission + GMV Max from the Cost export) — unchanged from before.</li>
-    <li><strong>Ad Credits</strong> are amounts you manually enter here when TikTok grants you promotional credits that should reduce your reported spend. Each credit is attributed to a specific <em>applied date</em> — that's the date the P&amp;L windows it into.</li>
-    <li><strong>Net Ad Spend = Gross − Credits.</strong> This is the figure that flows into the P&amp;L Net Profit calculation and into ROAS.</li>
-    <li>On the P&amp;L, you'll see an indented <em>Less: Ad Credits</em> row beneath the ad-spend lines whenever the period contains a credit's applied date. A custom date range only includes credits whose date falls inside [start, end).</li>
-    <li><strong>Saving any amount — including $0 — records a confirmed entry that persists across reloads.</strong> A confirmed $0 shows as "✓ Saved — $0, no credit" and is distinct from a never-touched month ("— not entered"). There is no separate "clear" action; once saved, the entry is sticky.</li>
-  </ul>
+  {% else %}
+  <p class="px-6 py-10 text-center text-sm text-slate-500">No ad spend recorded in this period. Try a wider date range above.</p>
+  {% endif %}
 </section>
+{% endif %}
 {% endblock %}

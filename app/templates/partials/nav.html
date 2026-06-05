@@ -15,8 +15,11 @@
         ("/reports/samples", "Sample Tracking"),
         ("/reports/sample-inventory", "Sample Inventory"),
       ] %}
+      {% set ad_spend_links = [
+        ("/reports/ad-spend", "Ad Spend Summary"),
+        ("/reports/ad-spend/reimbursements", "Ad Spend Reimbursements"),
+      ] %}
       {% set primary_links_right = [
-        ("/reports/ad-spend", "Ad Spend"),
         ("/reports/demand-planning", "Inventory"),
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
@@ -55,6 +58,22 @@
             By Creator
             <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">soon</span>
           </span>
+        </div>
+      </div>
+
+      <div class="group relative">
+        <button type="button"
+                class="relative inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 group-hover:bg-slate-100 group-focus-within:bg-slate-100">
+          Ad Spend
+          {{ ui.icon("chevron-down", "h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
+        </button>
+        <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
+          {% for href, label in ad_spend_links %}
+          <a href="{{ href }}"
+             class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+            {{ label }}
+          </a>
+          {% endfor %}
         </div>
       </div>
 
