@@ -41,12 +41,16 @@ from app.reports.sample_inventory import compute_sample_inventory_view
 from app.reports.sample_tracking import (
     SamplePeriodKind,
     compute_sample_view,
+    count_sample_orders_shipped,
+    count_samples_shipped,
+    samples_by_sku_shipped,
 )
 from app.reports.samples_by_creator import compute_samples_by_creator_view
 from app.reports.sku_profitability import compute_sku_profitability
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
+from app.services.data_freshness import compute_freshness
 from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["reports"])
@@ -119,7 +123,8 @@ def pnl_view(
     return templates.TemplateResponse(
         request,
         "reports/pnl.html",
-        {"view": view, "PeriodKind": PeriodKind, "trends": trends, "charts": charts, "error": error},
+        {"view": view, "PeriodKind": PeriodKind, "trends": trends, "charts": charts,
+         "error": error, "freshness": compute_freshness(db)},
     )
 
 
@@ -200,10 +205,35 @@ def samples_view(
         start_year=start_year, start_month=start_month,
         end_year=end_year, end_month=end_month,
     )
+    # Dashboard-style sample KPIs (same definitions): period units + distinct
+    # orders, plus the all-time units total (period-independent wide window).
+    sample_units_period = count_samples_shipped(db, view.start, view.end)
+    sample_orders_period = count_sample_orders_shipped(db, view.start, view.end)
+    sample_units_all_time = count_samples_shipped(db, datetime(1970, 1, 1), datetime(2100, 1, 1))
+    # Comprehensive sample-by-SKU report (samples + orders), JSON for the AG Grid.
+    sku_report = [
+        {
+            "sku_code": r.sku_code,
+            "name": (title_case(strip_size(r.name)) if r.name else None),
+            "tiktok_sku_id": r.tiktok_sku_id,
+            "is_bundle": r.is_bundle,
+            "is_unmapped": r.is_unmapped,
+            "samples_sent": r.samples_sent,
+            "sample_orders_shipped": r.sample_orders_shipped,
+        }
+        for r in samples_by_sku_shipped(db, view.start, view.end)
+    ]
     return templates.TemplateResponse(
         request,
         "reports/sample_tracking.html",
-        {"view": view, "SamplePeriodKind": SamplePeriodKind},
+        {
+            "view": view,
+            "SamplePeriodKind": SamplePeriodKind,
+            "sample_units_period": sample_units_period,
+            "sample_orders_period": sample_orders_period,
+            "sample_units_all_time": sample_units_all_time,
+            "sample_sku_rows": sku_report,
+        },
     )
 
 

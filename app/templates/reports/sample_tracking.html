@@ -2,6 +2,20 @@
 {% import "partials/ui.html" as ui %}
 {% block title %}{{ view.title }} · Smashbox{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
+<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
+<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
+<link rel="stylesheet" href="/static/css/admin-grid.css">
+<style>
+.agx .tag.bundle{ background:#fffbeb; color:#b45309; }
+.agx .tag.unmapped{ background:#fff1f2; color:#be123c; }
+.agx .grid-wrap.flush{ border:none; border-radius:0; box-shadow:none; }
+.agx .ag-theme-smashbox .ag-row-pinned{ font-weight:600; background:var(--sbx-sunk); }
+.agx .ag-theme-smashbox .ag-row-pinned .num{ color:var(--sbx-ink); }
+</style>
+{% endblock %}
+
 {% block content %}
 {% call ui.page_header(
   eyebrow="Smashbox TikTok Shop",
@@ -106,16 +120,25 @@
   </div>
 </form>
 
-<!-- Headline tiles -->
-<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-  {{ ui.kpi("Total Samples Shipped", view.total_units_shipped,
-            (view.sample_orders | length | string) ~ " sample order line" ~ ("" if view.sample_orders | length == 1 else "s")) }}
-  {{ ui.kpi("Total SKU Units Shipped", view.total_sku_units_shipped,
-            "Bundles expanded into their components") }}
-  {{ ui.kpi("Free", view.free_units_shipped,
-            "Order type = SAMPLE (TikTok $0 free samples)") }}
-  {{ ui.kpi("Paid (explicit)", view.explicit_paid_units_shipped,
-            "Order type = PAID_SAMPLE (only when TikTok flags it)") }}
+<!-- Headline tiles — same sample KPIs as the dashboard -->
+<section class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+  {# Samples Shipped (This Period) — dual figure: units + distinct orders #}
+  <div class="relative block overflow-hidden rounded-2xl bg-white p-6 ring-1 ring-slate-900/5 shadow-sm">
+    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">Samples Shipped (This Period)</div>
+    <div class="mt-2 flex items-end gap-5">
+      <div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ "{:,}".format(sample_units_period) }}</div>
+        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Units</div>
+      </div>
+      <div class="mb-1.5 h-8 w-px bg-slate-200"></div>
+      <div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ "{:,}".format(sample_orders_period) }}</div>
+        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Orders</div>
+      </div>
+    </div>
+    <div class="mt-1.5 text-xs text-slate-400">Free + paid sample units &amp; orders</div>
+  </div>
+  {{ ui.kpi("Total Samples Shipped (All-Time)", "{:,}".format(sample_units_all_time), "Every period") }}
 </section>
 
 <p class="mb-6 text-xs text-slate-500">
@@ -142,48 +165,26 @@
 </section>
 {% endif %}
 
-<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <header class="border-b border-slate-200 px-6 py-3">
-    <h2 class="text-base font-semibold text-slate-900">Samples vs sales by SKU</h2>
+<section class="agx mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Samples shipped by SKU</h2>
+      <p class="mt-0.5 text-xs text-slate-500">Sample units and distinct sample orders per SKU, with totals. Shipped/Completed only; bundles roll up to their mapped SKU.</p>
+    </div>
+    <span class="shrink-0 text-xs text-slate-500">{{ sample_sku_rows | length }} SKU{{ "" if sample_sku_rows | length == 1 else "s" }}</span>
   </header>
-  <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-        <tr>
-          <th class="px-4 py-2">SKU</th>
-          <th class="px-4 py-2">Product Name</th>
-          <th class="px-4 py-2">TikTok SKU ID</th>
-          <th class="px-4 py-2 text-right">Samples sent</th>
-          <th class="px-4 py-2 text-right">Units sold</th>
-          <th class="px-4 py-2 text-right">Sold / Sample</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100">
-        {% for r in view.by_sku %}
-        <tr>
-          <td class="px-4 py-2">
-            {% if r.sku_code %}
-              <span class="font-medium">{{ r.sku_code }}</span>
-              {% if r.is_bundle %}<span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700">Bundle</span>{% endif %}
-            {% else %}
-              <span class="text-rose-700">Missing SKU</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-2">
-            {% if r.name %}{{ r.name | strip_size | title_case }}{% else %}<span class="text-rose-700">Missing Product Name</span>{% endif %}
-          </td>
-          <td class="px-4 py-2 font-mono text-[11px] text-slate-500">
-            {% if r.tiktok_sku_id and r.tiktok_sku_id != "UNKNOWN" %}{{ r.tiktok_sku_id }}{% else %}<span class="text-rose-700">Missing TikTok SKU ID</span>{% endif %}
-          </td>
-          <td class="px-4 py-2 text-right">{{ r.samples_sent }}</td>
-          <td class="px-4 py-2 text-right">{{ r.units_sold }}</td>
-          <td class="px-4 py-2 text-right">{{ "%.2f" % r.ratio }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="px-4 py-6 text-center text-slate-400">No samples or sales in this period.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="toolbar" style="border:none; border-bottom:1px solid var(--sbx-hair); border-radius:0;">
+    <div class="tb-left">
+      <div class="search"><span class="ic">{{ ui.icon("search", "h-4 w-4") }}</span>
+        <input id="st-search" type="text" placeholder="Search SKU, product, TikTok SKU ID…" autocomplete="off"></div>
+      <button class="clear-btn" id="st-clear">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
+    </div>
+    <div class="tb-right">
+      <div class="count-chip"><span class="mono"><strong>{{ sample_sku_rows | length }}</strong></span> SKUs <span class="note">· <span id="st-shown" class="mono">—</span> shown</span></div>
+    </div>
+  </div>
+  <div class="grid-wrap flush">
+    <div id="sample-sku-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:520px"></div>
   </div>
 </section>
 
@@ -232,4 +233,43 @@
   <p class="px-5 py-3 text-sm text-slate-500">No sample orders in this period.</p>
   {% endif %}
 </details>
+
+<script>
+const ST_ROWS = {{ sample_sku_rows | tojson }};
+const intc = v => (v===null||v===undefined) ? "—" : Number(v).toLocaleString("en-US");
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function productRenderer(p){
+  if(p.node.rowPinned) return `<span style="font-weight:600">TOTAL</span>`;
+  const d=p.data;
+  const nm = d.is_unmapped ? "Unmapped" : (d.name || "—");
+  const pill = d.is_bundle ? ` <span class="tag bundle" style="height:18px;font-size:10px;padding:0 6px">Bundle</span>`
+            : (d.is_unmapped ? ` <span class="tag unmapped" style="height:18px;font-size:10px;padding:0 6px">Unmapped</span>` : "");
+  return `<div class="cell-product"><span class="nm">${esc(nm)}${pill}</span><span class="code">${esc(d.tiktok_sku_id||"—")}</span></div>`;
+}
+const totals = ST_ROWS.reduce((a,r)=>({samples_sent:a.samples_sent+r.samples_sent, sample_orders_shipped:a.sample_orders_shipped+r.sample_orders_shipped}), {samples_sent:0, sample_orders_shipped:0});
+let api;
+const gridOptions = {
+  columnDefs:[
+    { headerName:"Product", field:"name", flex:2.2, minWidth:240, cellRenderer:productRenderer,
+      getQuickFilterText:p=>`${p.data.name||'unmapped'} ${p.data.sku_code} ${p.data.tiktok_sku_id}`, sortable:true },
+    { headerName:"SKU", field:"sku_code", width:150, sortable:true,
+      cellRenderer:p=> p.node.rowPinned ? "" : `<span class="mono" style="font-size:12px;color:var(--sbx-ink-soft)">${esc(p.value||"—")}</span>` },
+    { headerName:"Samples Sent", field:"samples_sent", width:150, type:"rightAligned", headerTooltip:"Units (sum of quantity)", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Sample Orders", field:"sample_orders_shipped", width:150, type:"rightAligned", headerTooltip:"Distinct shipped sample orders", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+  ],
+  defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
+  rowData:ST_ROWS,
+  pinnedBottomRowData:[{ _total:true, samples_sent:totals.samples_sent, sample_orders_shipped:totals.sample_orders_shipped }],
+  pagination:true, paginationPageSize:25, paginationPageSizeSelector:[25,50,100], suppressCellFocus:true,
+  onGridReady:(e)=>{ api=e.api; shown(); }, onModelUpdated:shown,
+};
+function shown(){ if(api){ const el=document.getElementById("st-shown"); if(el) el.textContent=api.getDisplayedRowCount(); } }
+document.addEventListener("DOMContentLoaded", ()=>{
+  const el=document.getElementById("sample-sku-grid"); if(!el) return;
+  agGrid.createGrid(el, gridOptions);
+  const s=document.getElementById("st-search"), c=document.getElementById("st-clear");
+  s.addEventListener("input", e=>{ api.setGridOption("quickFilterText", e.target.value); c.classList.toggle("show", e.target.value!==""); });
+  c.addEventListener("click", ()=>{ s.value=""; api.setGridOption("quickFilterText",""); c.classList.remove("show"); });
+});
+</script>
 {% endblock %}
