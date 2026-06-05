@@ -31,6 +31,7 @@ from app.auth import require_admin
 from app.db import get_db
 from app.models.invoice import Invoice
 from app.services.invoice_pdf import render_invoice_pdf
+from app.services.reporting_tz import today_local
 from app.templating import templates
 
 router = APIRouter(tags=["invoices"])
@@ -202,7 +203,7 @@ def invoice_new_form(
         {
             "error": error,
             "number": number or _suggest_next_number(db),
-            "issue_date": issue_date or date.today().isoformat(),
+            "issue_date": issue_date or today_local().isoformat(),
             "description_preset": description_preset or "ad_spend",
             "description_headline": description_headline or "",
             "description_subtitle": description_subtitle or "",

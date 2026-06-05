@@ -23,7 +23,11 @@ from app.models.payout import Payout
 from app.models.settlement import Settlement
 from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.reports.monthly_pnl import compute_monthly_pnl
-from app.services.reporting_tz import placed_local_date, shop_boundary_to_source
+from app.services.reporting_tz import (
+    placed_local_date,
+    placed_window,
+    shop_boundary_to_source,
+)
 
 
 # ---- Status: what files are loaded, what dates are covered -----------------
@@ -333,6 +337,7 @@ class ReconciliationReport:
 def reconcile_month(db: Session, year: int, month: int) -> ReconciliationReport:
     start = datetime(year, month, 1)
     end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    p_start, p_end = placed_window(start, end)
 
     status = _file_status(db)
 
@@ -356,7 +361,7 @@ def reconcile_month(db: Session, year: int, month: int) -> ReconciliationReport:
             settle_subq.c.settle_gross,
         )
         .outerjoin(settle_subq, settle_subq.c.oid == Order.tiktok_order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type == OrderType.PAID)
         .order_by(Order.placed_at)
     ).all()
@@ -404,20 +409,20 @@ def reconcile_month(db: Session, year: int, month: int) -> ReconciliationReport:
             func.coalesce(func.sum(Order.seller_funded_outlandish), 0)
             + func.coalesce(func.sum(Order.seller_funded_smashbox), 0)
         )
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type == OrderType.PAID)
     ).scalar() or 0
 
     tiktok_sf = db.execute(
         select(func.coalesce(func.sum(Order.seller_funded_discount_total), 0))
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type == OrderType.PAID)
     ).scalar() or 0
 
     # ---- Policy violations count -------------------------------------------
     policy_violations = db.execute(
         select(func.coalesce(func.count(Order.id), 0))
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.discount_policy_violation.is_(True))
     ).scalar() or 0
 

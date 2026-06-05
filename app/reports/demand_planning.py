@@ -26,6 +26,7 @@ from app.models.inventory_snapshot import InventorySnapshot
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
 from app.services.demand.bundle_expansion import bundle_component_breakdown
+from app.services.reporting_tz import now_local
 from app.services.demand.replenishment import (
     STATUS_PRIORITY,
     ReplenishmentInputs,
@@ -263,7 +264,7 @@ def compute_demand_planning_view(
     effective_global_service_level = (service_level_override
                                        if service_level_override is not None
                                        else settings.demand_service_level_default)
-    now = as_of or datetime.now()
+    now = as_of or now_local()
     expected_receipts = expected_receipts or {}
 
     # Load the alias map once and thread it through both signals so a
@@ -842,7 +843,7 @@ def compute_sku_detail_view(
     safety = safety_stock_pct if safety_stock_pct is not None else settings.demand_safety_stock_pct
     cover = cover_days if cover_days is not None else settings.demand_cover_days
     overstocked = overstocked_days if overstocked_days is not None else settings.demand_overstocked_days
-    now = as_of or datetime.now()
+    now = as_of or now_local()
 
     # Load the alias map and resolve the requested SKU to its canonical
     # form — drilling into a legacy code should land on the canonical SKU's

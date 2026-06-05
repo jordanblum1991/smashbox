@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.bundle import Bundle
 from app.models.sku import Sku
+from app.services.reporting_tz import now_local
 from app.services.sample_service import get_sample_on_hand
 from app.services.sku_alias import load_alias_map
 
@@ -55,7 +56,7 @@ def compute_sample_inventory_view(
             rows=[],
             total_on_hand_units=0,
             sku_count=0,
-            as_of=datetime.now(),
+            as_of=now_local(),
         )
 
     canonical_skus = list(on_hand.keys())
@@ -123,5 +124,5 @@ def compute_sample_inventory_view(
         rows=rows,
         total_on_hand_units=sum(on_hand.values()),
         sku_count=len(on_hand),
-        as_of=datetime.now(),
+        as_of=now_local(),
     )

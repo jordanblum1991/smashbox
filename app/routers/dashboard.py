@@ -26,6 +26,7 @@ from app.reports.sample_tracking import (
 )
 from app.reports.sku_profitability import compute_top_skus
 from app.services.data_freshness import compute_freshness
+from app.services.reporting_tz import today_local
 from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["dashboard"])
@@ -161,7 +162,7 @@ def home(
             "roas_all_time": roas_all_time,
             "has_ads_all_time": has_ads_all_time,
             "last_failed": last_failed,
-            "today": date.today(),
+            "today": today_local(),
             "top_skus": top_skus,
             "samples_by_sku": samples_by_sku,
             "top_skus_json": [_top_sku_view(r) for r in top_skus],

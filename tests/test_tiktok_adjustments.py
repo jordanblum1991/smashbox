@@ -177,7 +177,7 @@ def test_total_operating_expenses_excludes_adjustments():
         db.add(b_orders); db.flush()
         o = Order(
             import_batch_id=b_orders.id,
-            tiktok_order_id="T1", placed_at=datetime(2026, 5, 1),
+            tiktok_order_id="T1", placed_at=datetime(2026, 5, 1, 12, 0),
             order_type=OrderType.PAID, status="Shipped", brand="smashbox",
             gross_sales=Decimal("100"), tiktok_fees=Decimal("10"),
         )

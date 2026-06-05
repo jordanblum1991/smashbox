@@ -19,9 +19,14 @@ Two directions:
     so a `placed_at >= start AND < end` window filter selects the orders Seller
     Center would bucket into that period. Index-friendly (no per-row SQL tz math).
 
-Only TikTok timestamps (`placed_at`, and `Adjustment.create_time`) get this
-treatment. User-entered dates (`AdCredit.applied_date`) and monthly ad-spend
-dates (`AdSpend.spend_date`) are calendar values and must NOT be shifted.
+Scope: only `Order.placed_at` (order Created Time) gets this treatment — that
+is the one stream empirically validated against the Seller Center daily Sales
+tile. User-entered dates (`AdCredit.applied_date`), monthly ad-spend dates
+(`AdSpend.spend_date`), the settlement adjustment feed (`Adjustment.create_time`),
+and the internal forecasting/velocity series are deliberately left on their raw
+timestamps: adjustments are a separate settlement-level stream with no validated
+offset, and velocity/demand-planning don't reconcile against Seller Center (it
+reports no such figure), so shifting them adds boundary fragility for no tie-out.
 
 CAVEAT — re-validate on winter data: the UTC-6 source model was validated only
 against PDT-season months (Mar-May). The winter PST behavior (-2h) is inferred
@@ -47,14 +52,35 @@ def placed_local_date(placed_at: datetime) -> date:
     return placed_local(placed_at).date()
 
 
-def shop_boundary_to_source(boundary: datetime) -> datetime:
+def shop_boundary_to_source(boundary: datetime | date) -> datetime:
     """Convert a shop-local calendar boundary (naive) to the equivalent naive
     timestamp in placed_at's source zone, for direct comparison against
-    `Order.placed_at` in a half-open [start, end) window filter."""
+    `Order.placed_at` in a half-open [start, end) window filter.
+
+    Accepts a plain `date` too (custom-period selectors pass dates) — it's
+    promoted to midnight before conversion."""
+    if not isinstance(boundary, datetime):
+        boundary = datetime(boundary.year, boundary.month, boundary.day)
     return boundary.replace(tzinfo=SHOP_TZ).astimezone(SOURCE_TZ).replace(tzinfo=None)
+
+
+def placed_window(start: datetime, end: datetime) -> tuple[datetime, datetime]:
+    """Convert a shop-local calendar window [start, end) into the source-zone
+    boundaries to filter `Order.placed_at` (and other TikTok timestamps like
+    `Adjustment.create_time`) against. Convenience wrapper around
+    `shop_boundary_to_source` for the common two-boundary case."""
+    return shop_boundary_to_source(start), shop_boundary_to_source(end)
 
 
 def today_local() -> date:
     """Today's date in the shop's timezone — for 'current period' defaults so the
     dashboard / reports roll over at shop-local (not server/UTC) midnight."""
     return datetime.now(SHOP_TZ).date()
+
+
+def now_local() -> datetime:
+    """The current shop-local wall-clock time, naive (tz stripped). For 'as of
+    now' forecasting anchors and current-period defaults that need a datetime,
+    so they roll at shop-local midnight rather than server/UTC midnight. Pairs
+    with `today_local()` (which returns just the date)."""
+    return datetime.now(SHOP_TZ).replace(tzinfo=None)

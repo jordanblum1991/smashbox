@@ -16,6 +16,7 @@ from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.sample_tracking import samples_by_sku_shipped
 from app.reports.sku_profitability import compute_sku_profitability
+from app.services.reporting_tz import today_local
 
 router = APIRouter(prefix="/export", tags=["exports"])
 
@@ -26,7 +27,7 @@ def export_monthly_pnl_xlsx(
     month: int | None = None,
     db: Session = Depends(get_db),
 ):
-    today = date.today()
+    today = today_local()
     y, m = year or today.year, month or today.month
     pnl = compute_monthly_pnl(db, y, m)
 
@@ -97,7 +98,7 @@ def export_sku_csv(
     month: int | None = None,
     db: Session = Depends(get_db),
 ):
-    today = date.today()
+    today = today_local()
     y, m = year or today.year, month or today.month
     start = datetime(y, m, 1)
     end = datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)

@@ -27,6 +27,7 @@ from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
 from app.models.settlement import Adjustment
 from app.models.sku import Sku
+from app.services.reporting_tz import placed_window
 
 
 @dataclass
@@ -309,7 +310,17 @@ def compute_window_pnl(
 
     `month_anchor` is the date stored on the result for display. Defaults to
     start.date(); the monthly-mode wrapper passes the first of the month.
+
+    Order.placed_at is filtered on the shop-local window converted to its source
+    zone (p_start/p_end), so order revenue buckets like TikTok Seller Center —
+    the -1h/-2h offset was empirically validated against the daily Sales tile.
+    Calendar/user dates (AdSpend.spend_date, AdCredit.applied_date) AND the
+    settlement adjustment stream (Adjustment.create_time) keep the raw
+    [start, end): the offset was never validated for adjustments, which are a
+    separate (settlement-level) feed and a minor P&L line — shifting them across
+    month boundaries on an unverified assumption would risk making the P&L worse.
     """
+    p_start, p_end = placed_window(start, end)
     row = db.execute(
         select(
             func.coalesce(func.sum(Order.gross_sales), 0).label("gross_sales"),
@@ -336,7 +347,7 @@ def compute_window_pnl(
             # has at least a referral fee). Use that as the settled flag.
             func.sum(case((Order.tiktok_fees > 0, 1), else_=0)).label("orders_settled"),
         )
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type == OrderType.PAID)
     ).one()
 
@@ -434,7 +445,7 @@ def compute_window_pnl(
     sample_order_shipping = Decimal(str(
         db.execute(
             select(func.coalesce(func.sum(Order.shipping_cost), 0))
-            .where(Order.placed_at >= start, Order.placed_at < end)
+            .where(Order.placed_at >= p_start, Order.placed_at < p_end)
             .where(Order.order_type.in_([OrderType.SAMPLE, OrderType.PAID_SAMPLE]))
         ).scalar() or 0
     ))
@@ -453,7 +464,7 @@ def compute_window_pnl(
         select(func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.order_type == OrderType.PAID)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
     ).scalar() or 0
 
     gross_sales = Decimal(str(row.gross_sales))
@@ -525,6 +536,7 @@ def compute_window_pnl(
 def _paid_cogs(db: Session, start: datetime, end: datetime) -> Decimal:
     """Sum qty * unit_cogs_snapshot for paid orders. Falls back to SKU master
     COGS when the snapshot is zero (legacy rows imported before COGS was set)."""
+    p_start, p_end = placed_window(start, end)
     # OrderLine.sku holds the TikTok SKU ID after resolution. Fallback joins
     # against Sku.tiktok_sku_id for SKUs that exist in the master but somehow
     # missed snapshotting. Bundles are not in this fallback — they always have
@@ -546,7 +558,7 @@ def _paid_cogs(db: Session, start: datetime, end: datetime) -> Decimal:
         .join(Order, Order.id == OrderLine.order_id)
         .join(Sku, Sku.tiktok_sku_id == OrderLine.sku, isouter=True)
         .where(Order.order_type == OrderType.PAID)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
     )
     return Decimal(str(db.execute(stmt).scalar() or 0))
 

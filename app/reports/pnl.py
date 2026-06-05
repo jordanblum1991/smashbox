@@ -25,6 +25,7 @@ from app.reports.monthly_pnl import (
     compute_window_pnl,
 )
 from app.reports.ytd_pnl import _sum  # private but ours
+from app.services.reporting_tz import today_local
 from app.templating import month_label
 
 
@@ -93,7 +94,7 @@ def compute_pnl_view(
     end_date: date | None = None,
 ) -> PnLView:
     """Resolve the selector into a PnLView."""
-    today = date.today()
+    today = today_local()
     y = year or today.year
     m = month or today.month
 

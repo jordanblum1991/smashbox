@@ -32,6 +32,7 @@ from app.config import settings
 from app.models.bundle import Bundle
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
+from app.services.reporting_tz import now_local, placed_window, today_local
 from app.reports.pnl import PeriodKind
 from app.templating import month_label
 
@@ -118,7 +119,7 @@ def resolve_period(
     *,
     today: datetime | None = None,
 ) -> tuple[datetime, datetime, str]:
-    now = today or datetime.now()
+    now = today or now_local()
     y = year or now.year
     m = month or now.month
 
@@ -162,6 +163,7 @@ def compute_policy_violations(
     start, end, suffix = resolve_period(
         period, year, month, start_year, start_month, end_year, end_month
     )
+    p_start, p_end = placed_window(start, end)
     cap_pct = settings.seller_funded_policy_cap_pct
 
     rows_raw = db.execute(
@@ -178,7 +180,7 @@ def compute_policy_violations(
             OrderLine.policy_violation_acknowledged_at,
         )
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.placed_at >= start, Order.placed_at < end)
+        .where(Order.placed_at >= p_start, Order.placed_at < p_end)
         .where(Order.order_type == OrderType.PAID)
         .where(OrderLine.discount_policy_violation.is_(True))
         .order_by(Order.placed_at.desc())
@@ -236,7 +238,7 @@ def compute_policy_violations(
             acknowledged_at=ack_at,
         ))
 
-    today = date.today()
+    today = today_local()
     return PolicyViolationView(
         period_kind=period,
         year=year or today.year,

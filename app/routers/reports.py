@@ -51,13 +51,14 @@ from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
 from app.services.data_freshness import compute_freshness
+from app.services.reporting_tz import today_local
 from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["reports"])
 
 
 def _ym(year: int | None, month: int | None) -> tuple[int, int]:
-    today = date.today()
+    today = today_local()
     return year or today.year, month or today.month
 
 
@@ -897,7 +898,7 @@ def ad_spend_reimbursements_view(request: Request, db: Session = Depends(get_db)
         {
             "summary": summary,
             "row_deltas": row_deltas,
-            "today": date.today(),
+            "today": today_local(),
             "error": request.query_params.get("error"),
         },
     )
