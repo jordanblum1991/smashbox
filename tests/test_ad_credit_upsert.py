@@ -62,7 +62,7 @@ def _call(amount, *, applied_date="2026-03-15", note=None):
 def test_save_positive_amount_persists():
     resp, row = _call("150.00", note="Q1 makegood")
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/reports/ad-spend"
+    assert resp.headers["location"] == "/reports/ad-spend/reimbursements"
     assert row is not None
     assert row.amount == Decimal("150.00")
     assert row.applied_date == date(2026, 3, 15)
@@ -118,7 +118,7 @@ def test_save_blank_amount_redirects_with_error_no_write():
     resp, row = _call("")
     assert resp.status_code == 303
     location = resp.headers["location"]
-    assert location.startswith("/reports/ad-spend?error=")
+    assert location.startswith("/reports/ad-spend/reimbursements?error=")
     decoded = unquote_plus(location)
     assert "amount is required" in decoded
     assert "enter 0 to confirm no credit" in decoded
