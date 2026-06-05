@@ -91,6 +91,27 @@
 {% endcall %}
 {% endif %}
 
+<!-- Last Imported — data freshness per file kind -->
+<section aria-label="Data freshness" class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 print:hidden">
+  <div class="mb-3 flex items-center justify-between">
+    <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Last Imported</h3>
+    <a href="/uploads" class="text-xs font-medium text-slate-600 hover:text-slate-900">Manage imports →</a>
+  </div>
+  <div class="flex flex-wrap gap-2 text-xs">
+    {% for f in freshness %}
+    <a href="/uploads" title="{% if f.last_imported_at %}{{ f.last_imported_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never imported{% endif %}"
+       class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-200 hover:bg-slate-100">
+      <span class="inline-block h-1.5 w-1.5 rounded-full
+        {% if f.staleness == 'fresh' %}bg-emerald-500
+        {% elif f.staleness == 'stale' %}bg-amber-500
+        {% else %}bg-slate-300{% endif %}"></span>
+      <span class="text-slate-600">{{ f.label }}</span>
+      <span class="{% if f.staleness == 'missing' %}text-slate-400{% else %}text-slate-700{% endif %} font-medium">{{ f.relative }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
 {# ===========================================================================
    KPI GRID — sales snapshot, then ad efficiency, then samples
    =========================================================================== #}
@@ -251,29 +272,6 @@
       {% endif %}
     </div>
   </details>
-</section>
-
-{# ===========================================================================
-   DATA FRESHNESS — moved to bottom as utility info
-   =========================================================================== #}
-<section aria-label="Data freshness" class="mt-8 rounded-2xl border border-slate-200 bg-white p-5 print:hidden">
-  <div class="mb-3 flex items-center justify-between">
-    <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Last Imported</h3>
-    <a href="/uploads" class="text-xs font-medium text-slate-600 hover:text-slate-900">Manage imports →</a>
-  </div>
-  <div class="flex flex-wrap gap-2 text-xs">
-    {% for f in freshness %}
-    <a href="/uploads" title="{% if f.last_imported_at %}{{ f.last_imported_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never imported{% endif %}"
-       class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-200 hover:bg-slate-100">
-      <span class="inline-block h-1.5 w-1.5 rounded-full
-        {% if f.staleness == 'fresh' %}bg-emerald-500
-        {% elif f.staleness == 'stale' %}bg-amber-500
-        {% else %}bg-slate-300{% endif %}"></span>
-      <span class="text-slate-600">{{ f.label }}</span>
-      <span class="{% if f.staleness == 'missing' %}text-slate-400{% else %}text-slate-700{% endif %} font-medium">{{ f.relative }}</span>
-    </a>
-    {% endfor %}
-  </div>
 </section>
 
 <script>

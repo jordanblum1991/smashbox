@@ -14,7 +14,6 @@
       {% set sample_links = [
         ("/reports/samples", "Sample Tracking"),
         ("/reports/sample-inventory", "Sample Inventory"),
-        ("/reports/samples-by-creator", "By Creator"),
       ] %}
       {% set primary_links_right = [
         ("/reports/ad-spend", "Ad Spend"),
@@ -50,6 +49,12 @@
             {{ label }}
           </a>
           {% endfor %}
+          {# By Creator — deactivated until creator sample data exists. #}
+          <span aria-disabled="true" title="No creator sample data yet"
+                class="flex cursor-not-allowed items-center justify-between px-3 py-1.5 text-sm text-slate-300">
+            By Creator
+            <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">soon</span>
+          </span>
         </div>
       </div>
 
