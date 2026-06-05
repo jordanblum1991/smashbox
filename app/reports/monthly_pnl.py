@@ -266,9 +266,10 @@ class MonthlyPnL:
 
         Tax excluded; refunds/cancellations NOT subtracted.
 
-        Empirically matches Seller Center to the cent for Feb-Apr 2026 and
-        within ~0.7% on May 2026 (a small classification edge with no easy
-        fix from our side).
+        Empirically matches Seller Center to the cent for Feb-May 2026,
+        provided payment_platform_discount and shipping_revenue are populated
+        (a post-migration re-import of the orders CSV fills both — they read
+        $0 on rows imported before those columns existed).
 
         NOTE: `payment_platform_discount` is populated by the importer on
         upload. Orders imported before the field existed show $0 until the

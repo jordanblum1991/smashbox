@@ -252,13 +252,14 @@ def test_gmv_treats_missing_payment_platform_discount_as_zero():
 # 7. Prod-snapshot reconciliation (skip if absent)
 # ---------------------------------------------------------------------------
 
-# Targets from TikTok Seller Center, confirmed 2026-06-01:
+# Targets from TikTok Seller Center, confirmed 2026-06-01 (May re-confirmed
+# 2026-06-05 — ties to the cent once payment_platform_discount + shipping_revenue
+# are populated by a post-migration orders re-import):
 PROD_TARGETS = {
     (2026, 2): Decimal("1157.98"),
     (2026, 3): Decimal("9549.91"),
     (2026, 4): Decimal("12775.13"),
-    # May has a ~$92 residual that the user has accepted as 0.67% drift.
-    # (2026, 5): Decimal("13754.86"),  # ← intentionally not asserted
+    (2026, 5): Decimal("13754.86"),
 }
 
 
@@ -266,8 +267,8 @@ PROD_TARGETS = {
     (y, m, t) for (y, m), t in PROD_TARGETS.items()
 ])
 def test_gmv_reconciles_to_seller_center_from_prod_snapshot(year, month, target):
-    """Feb/Mar/Apr 2026 should match Seller Center exactly when GMV is computed
-    from the latest prod snapshot. May intentionally not asserted (0.67% drift).
+    """Feb-May 2026 should match Seller Center to the cent when GMV is computed
+    from the latest prod snapshot.
 
     NOTE: this test only passes once the payment_platform_discount column is
     populated, which requires the orders CSV to have been re-imported after
