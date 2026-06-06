@@ -26,6 +26,11 @@ primary_region = "lax"  # Los Angeles
     soft_limit = 50
     hard_limit = 100
 
+  # NOTE: a /healthz liveness check is intentionally NOT wired up yet. Fly caps
+  # the check grace_period at 60s, but cold start is ~57s — too thin a margin, so
+  # a slow boot could boot-loop. The app exposes /healthz (DB-free, auth-exempt)
+  # ready to use; enable the check here once cold-start time is safely under 60s.
+
 # One shared-cpu-1x VM, 512MB RAM — plenty for an internal dashboard.
 [[vm]]
   size = "shared-cpu-1x"

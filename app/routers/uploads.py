@@ -4,6 +4,7 @@ import shutil
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.db import get_db
@@ -27,6 +28,47 @@ RESOLVE_AFTER = {
 }
 
 router = APIRouter(tags=["uploads"])
+
+
+def _run_import(db: Session, batch: ImportBatch, kind: ImportFileKind, stored_path) -> None:
+    """Synchronous import work: run the importer, then (for catalog kinds) the
+    SKU resolver, and commit. Runs in a worker thread via run_in_threadpool so a
+    long import never blocks the event loop. Safe across threads: the SQLite
+    engine sets check_same_thread=False and the caller awaits this (no concurrent
+    Session access)."""
+    importer_cls = IMPORTERS.get(kind)
+    if importer_cls is None:
+        batch.status = ImportBatchStatus.FAILED
+        batch.error_message = f"no importer registered for {kind.value}"
+        db.commit()
+        return
+
+    try:
+        result = importer_cls().run(stored_path, db, batch)
+        batch.rows_imported = result.rows_imported
+        batch.rows_skipped = result.rows_skipped
+        batch.error_message = "\n".join(result.errors[:50]) or None
+        batch.status = ImportBatchStatus.COMPLETED
+        batch.completed_at = _utc_now_naive()
+
+        if kind in RESOLVE_AFTER:
+            stats = resolve_all_order_lines(db)
+            tail = (
+                f"resolved {stats.lines_resolved_sku} SKUs + "
+                f"{stats.lines_resolved_bundle} bundles "
+                f"(unresolved: {stats.lines_unresolved} of {stats.lines_inspected})"
+            )
+            batch.error_message = (
+                f"{batch.error_message}\n{tail}" if batch.error_message else tail
+            )
+
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        batch.status = ImportBatchStatus.FAILED
+        batch.error_message = str(exc)
+        db.add(batch)
+        db.commit()
 
 
 @router.get("/uploads")
@@ -76,40 +118,10 @@ async def upload_file(
     db.add(batch)
     db.flush()  # populate batch.id for child rows
 
-    importer_cls = IMPORTERS.get(kind)
-    if importer_cls is None:
-        batch.status = ImportBatchStatus.FAILED
-        batch.error_message = f"no importer registered for {kind.value}"
-        db.commit()
-        return RedirectResponse("/uploads", status_code=303)
-
-    try:
-        result = importer_cls().run(stored_path, db, batch)
-        batch.rows_imported = result.rows_imported
-        batch.rows_skipped = result.rows_skipped
-        batch.error_message = "\n".join(result.errors[:50]) or None
-        batch.status = ImportBatchStatus.COMPLETED
-        batch.completed_at = _utc_now_naive()
-
-        if kind in RESOLVE_AFTER:
-            stats = resolve_all_order_lines(db)
-            tail = (
-                f"resolved {stats.lines_resolved_sku} SKUs + "
-                f"{stats.lines_resolved_bundle} bundles "
-                f"(unresolved: {stats.lines_unresolved} of {stats.lines_inspected})"
-            )
-            batch.error_message = (
-                f"{batch.error_message}\n{tail}" if batch.error_message else tail
-            )
-
-        db.commit()
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        batch.status = ImportBatchStatus.FAILED
-        batch.error_message = str(exc)
-        db.add(batch)
-        db.commit()
-
+    # Run the (synchronous, potentially minutes-long) import in a worker thread
+    # so it never blocks the single event loop. Blocking it here froze the whole
+    # app for the duration of an import — a real 16-min prod outage.
+    await run_in_threadpool(_run_import, db, batch, kind, stored_path)
     return RedirectResponse("/uploads", status_code=303)
 
 
