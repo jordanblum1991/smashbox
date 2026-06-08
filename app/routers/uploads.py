@@ -16,6 +16,7 @@ from app.models.import_batch import (
     _utc_now_naive,
 )
 from app.services.batch_deletion import delete_batch
+from app.services.sample_classification import reconcile_sample_classifications
 from app.services.sku_resolver import resolve_all_order_lines
 from app.templating import templates
 
@@ -25,6 +26,14 @@ RESOLVE_AFTER = {
     ImportFileKind.TIKTOK_ORDERS,
     ImportFileKind.SKU_MASTER,
     ImportFileKind.BUNDLE_MAPPING,
+}
+
+# After these kinds, reconcile sample classification from settlement so
+# free/paid-sample orders are excluded from GMV regardless of which file (orders
+# or settlement) was imported first. See app/services/sample_classification.py.
+RECONCILE_AFTER = {
+    ImportFileKind.TIKTOK_ORDERS,
+    ImportFileKind.TIKTOK_SETTLEMENTS,
 }
 
 router = APIRouter(tags=["uploads"])
@@ -61,6 +70,9 @@ def _run_import(db: Session, batch: ImportBatch, kind: ImportFileKind, stored_pa
             batch.error_message = (
                 f"{batch.error_message}\n{tail}" if batch.error_message else tail
             )
+
+        if kind in RECONCILE_AFTER:
+            reconcile_sample_classifications(db)
 
         db.commit()
     except Exception as exc:  # noqa: BLE001
