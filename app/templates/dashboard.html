@@ -139,6 +139,38 @@
       delta=trends.aov.delta, spark=trends.aov.spark) }}
 </section>
 
+{# Seller Center (TikTok) — source-of-truth KPIs straight from TikTok's Shop
+   Analytics export (GMV/Orders/Items/AOV) + computed SKU orders. #}
+<section aria-label="Seller Center metrics" class="stagger-in mb-3">
+  <div class="mb-2 flex items-baseline justify-between">
+    <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Seller Center · TikTok</h2>
+    {% if seller_center.has_data %}
+    <span class="text-[10px] font-medium uppercase tracking-wider {{ 'text-amber-600' if not seller_center.complete else 'text-slate-400' }}">
+      as of {{ seller_center.as_of.strftime("%b %d") }}{% if not seller_center.complete %} · period not fully covered{% endif %}
+    </span>
+    {% endif %}
+  </div>
+  {% if seller_center.has_data %}
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+    {{ ui.kpi(label="GMV", value=seller_center.gmv | money, hint="TikTok reported", surface="bg-emerald-50") }}
+    {{ ui.kpi(label="Orders", value="{:,}".format(seller_center.orders), hint="TikTok reported", surface="bg-emerald-50") }}
+    {{ ui.kpi(label="Items Sold", value="{:,}".format(seller_center.items_sold), hint="TikTok reported", surface="bg-emerald-50") }}
+    {{ ui.kpi(label="SKU Orders", value="{:,}".format(seller_center.sku_orders), hint="distinct SKUs per order", surface="bg-emerald-50") }}
+    {{ ui.kpi(label="AOV", value=seller_center.aov | money, hint="GMV ÷ Orders", surface="bg-emerald-50") }}
+  </div>
+  <p class="mt-2 text-[11px] leading-relaxed text-slate-400">
+    Matched to TikTok Seller Center. GMV / Orders / Items / AOV come from the Shop Analytics export; SKU orders is computed.
+    Customers is omitted — TikTok's period-unique count isn't derivable from the daily export.
+  </p>
+  {% else %}
+  <div class="rounded-2xl bg-slate-50 p-6 text-sm text-slate-500 ring-1 ring-slate-900/5">
+    No TikTok Shop Analytics data for this period. Upload the <em>Key metrics</em> export on the
+    <a href="/uploads" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">Imports page</a>
+    to populate Seller-Center-matched KPIs.
+  </div>
+  {% endif %}
+</section>
+
 {# Row 2 — ad efficiency + samples #}
 <section aria-label="Ad &amp; sample metrics" class="stagger-in mb-8 grid grid-cols-12 gap-3">
   {{ ui.kpi(label="Ad Spend", value=pnl.net_ad_spend | money, hint="Net of credits",

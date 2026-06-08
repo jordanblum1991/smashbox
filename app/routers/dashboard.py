@@ -19,6 +19,7 @@ from app.models.import_batch import ImportBatch, ImportBatchStatus
 from app.models.order import Order
 from app.reports.dashboard_trends import build_dashboard_trends
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
+from app.reports.seller_center_kpis import compute_seller_center_kpis
 from app.reports.sample_tracking import (
     count_sample_orders_shipped,
     count_samples_shipped,
@@ -112,6 +113,9 @@ def home(
 
     # Period-scoped extras — same window the P&L view uses.
     start, end = window_for(view)
+    # Seller Center (TikTok) KPI group — figures matched to Seller Center,
+    # sourced from the Shop Analytics daily export (+ computed SKU orders).
+    seller_center = compute_seller_center_kpis(db, start, end)
     top_skus = compute_top_skus(db, start, end, limit=10)
     samples_shipped = count_samples_shipped(db, start, end)
     sample_orders_shipped = count_sample_orders_shipped(db, start, end)
@@ -169,6 +173,7 @@ def home(
             "samples_json": [_sample_sku_view(r) for r in samples_by_sku],
             "freshness": freshness,
             "trends": trends,
+            "seller_center": seller_center,
             "error": error,
         },
     )
