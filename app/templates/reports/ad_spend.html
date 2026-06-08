@@ -7,13 +7,9 @@
   eyebrow="TikTok Ads",
   title="Ad Spend Summary",
   period=view.title_suffix,
-  subtitle="Total ad spend for the selected period — gross, credits applied, and net of credits.",
+  subtitle="Total gross ad spend and ROAS for the selected period.",
   accent_bar=true,
 ) %}
-  <a href="/reports/ad-spend/reimbursements"
-     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-    Reimbursements →
-  </a>
   <button onclick="window.print()" type="button"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
@@ -27,75 +23,17 @@
 </div>
 {% endif %}
 
-{% if not summary.months %}
-{% call ui.banner(tone="info", title="No ad spend imported yet") %}
-  Upload a TikTok Ads (GMV Max) cost export from the <a href="/uploads" class="underline underline-offset-2">Imports page</a>,
-  then enter any promo credits on the
-  <a href="/reports/ad-spend/reimbursements" class="underline underline-offset-2">Ad Spend Reimbursements</a> page.
-{% endcall %}
-{% else %}
-
-{# KPIs — scoped to the selected period. #}
-<section class="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
-  {% set tiles = [
-    ("Gross Ad Spend", gross, spark_gross),
-    ("Total Ad Credits Applied", credits, spark_credit),
-    ("Total Ad Spend (Net of Credits)", net, spark_net),
-  ] %}
-  {% for label, value, spark in tiles %}
+{% set has_spend = view.total.total_ad_spend > 0 %}
+<section class="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums
-      {% if label == 'Total Ad Credits Applied' and value > 0 %}text-emerald-700{% else %}text-slate-900{% endif %}">{{ value | money }}</div>
-    {% if spark %}<div class="mt-3">{{ ui.sparkline(spark, "none", label ~ " — monthly trend") }}</div>{% endif %}
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Total Gross Spend</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ view.total.total_ad_spend | money }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">GMV-Max + Shop Ads, before credits</div>
   </div>
-  {% endfor %}
-</section>
-
-{# Detailed monthly summary for the selected period (read-only — credit entry
-   lives on the Reimbursements page). #}
-<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
-    <div>
-      <h2 class="text-base font-semibold text-slate-900">Monthly detail</h2>
-      <p class="mt-0.5 text-xs text-slate-500">Gross ad spend, credits applied, and net per month within the selected period.</p>
-    </div>
-    <span class="shrink-0 text-xs text-slate-500">{{ scoped_months | length }} month{{ "" if scoped_months | length == 1 else "s" }}</span>
-  </header>
-  {% if scoped_months %}
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-        <tr>
-          <th class="px-4 py-2.5">Month</th>
-          <th class="px-4 py-2.5 text-right">Gross Ad Spend</th>
-          <th class="px-4 py-2.5 text-right">Ad Credits Applied</th>
-          <th class="px-4 py-2.5 text-right">Net Ad Spend</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100">
-        {% for r in scoped_months %}
-        <tr class="hover:bg-slate-50/60">
-          <td class="px-4 py-2.5 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
-          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.total | money }}</td>
-          <td class="px-4 py-2.5 text-right tabular-nums {% if r.manual_credit > 0 %}text-emerald-700{% else %}text-slate-400{% endif %}">{{ r.manual_credit | money }}</td>
-          <td class="px-4 py-2.5 text-right tabular-nums font-semibold text-slate-900">{{ r.net_total | money }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
-        <tr>
-          <td class="px-4 py-3">Total ({{ scoped_months | length }} month{{ "" if scoped_months | length == 1 else "s" }})</td>
-          <td class="px-4 py-3 text-right tabular-nums">{{ gross | money }}</td>
-          <td class="px-4 py-3 text-right tabular-nums {% if credits > 0 %}text-emerald-700{% endif %}">{{ credits | money }}</td>
-          <td class="px-4 py-3 text-right tabular-nums">{{ net | money }}</td>
-        </tr>
-      </tfoot>
-    </table>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">ROAS</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ ("%.2fx" % view.total.roas) if has_spend else "—" }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">Net Sales ÷ Gross Ad Spend</div>
   </div>
-  {% else %}
-  <p class="px-6 py-10 text-center text-sm text-slate-500">No ad spend recorded in this period. Try a wider date range above.</p>
-  {% endif %}
 </section>
-{% endif %}
 {% endblock %}

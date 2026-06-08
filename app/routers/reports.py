@@ -821,9 +821,10 @@ def ad_spend_view(
     end_date: str | None = None,
     db: Session = Depends(get_db),
 ):
-    """Ad Spend Summary — gross / credits / net scoped to a selected period
-    (same period selector as the dashboard / P&L), with a per-month detail.
-    Credit entry + management lives on /reports/ad-spend/reimbursements."""
+    """Ad Spend Summary — two KPIs for the selected period: Total Gross Spend
+    (GMV-Max + Shop Ads, before credits) and ROAS (Net Sales / gross spend).
+    Same period selector as the dashboard / P&L. No credit info here — credit
+    entry + management lives on /reports/ad-spend/reimbursements."""
     sd_obj: date | None = None
     ed_obj: date | None = None
     if period == PeriodKind.CUSTOM:
@@ -845,33 +846,14 @@ def ad_spend_view(
         end_year=end_year, end_month=end_month,
         start_date=sd_obj, end_date=ed_obj,
     )
-    start, end = window_for(view)
-
-    summary = compute_ad_spend_summary(db)
-    # Scope to ad-spend months whose calendar month overlaps the window.
-    scoped = []
-    for m in summary.months:
-        ms = datetime(m.year, m.month, 1)
-        me = datetime(m.year + 1, 1, 1) if m.month == 12 else datetime(m.year, m.month + 1, 1)
-        if ms < end and me > start:
-            scoped.append(m)
-
-    gross = sum((m.total for m in scoped), Decimal("0"))
-    credits = sum((m.manual_credit for m in scoped), Decimal("0"))
-
+    # The page shows two KPIs for the selected period — Total Gross Spend and
+    # ROAS — both read off the period P&L view. No credit info here (credit
+    # entry lives on /reports/ad-spend/reimbursements).
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
         {
             "view": view,
-            "summary": summary,                 # to detect "no ad spend at all"
-            "scoped_months": scoped,
-            "gross": gross,
-            "credits": credits,
-            "net": gross - credits,
-            "spark_gross": sparkline_points([m.total for m in scoped]),
-            "spark_credit": sparkline_points([m.manual_credit for m in scoped]),
-            "spark_net": sparkline_points([m.net_total for m in scoped]),
             "error": request.query_params.get("error"),
         },
     )
