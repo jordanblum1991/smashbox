@@ -210,6 +210,16 @@ class MonthlyPnL:
         return self.net_customer_sales + self.refunds
 
     @property
+    def aov_gmv(self) -> Decimal:
+        """Average Order Value per TikTok Seller Center's definition: GMV ÷
+        Orders. This is the dashboard AOV (matches Seller Center to the cent —
+        e.g. May 2026 = $31.19). Distinct from `aov_after_discounts`, which is
+        Net Customer Sales ÷ Orders (the accounting/operational view)."""
+        if self.orders_count == 0:
+            return Decimal("0")
+        return (self.gmv / Decimal(self.orders_count)).quantize(Decimal("0.01"))
+
+    @property
     def gross_margin(self) -> Decimal:
         if self.net_customer_sales == 0:
             return Decimal("0")

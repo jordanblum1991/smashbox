@@ -216,7 +216,7 @@ _METRICS = {
     "gross_profit": (lambda p: p.managed_gross_profit, "relative"),
     "orders": (lambda p: p.orders_count, "relative"),
     "units": (lambda p: p.units_sold, "relative"),
-    "aov": (lambda p: p.aov_after_discounts, "relative"),
+    "aov": (lambda p: p.aov_gmv, "relative"),   # Seller Center AOV = GMV / Orders
 }
 
 

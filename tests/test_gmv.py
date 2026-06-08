@@ -249,6 +249,32 @@ def test_gmv_treats_missing_payment_platform_discount_as_zero():
 
 
 # ---------------------------------------------------------------------------
+# 6b. AOV — Seller Center definition: GMV / Orders (NOT net sales / orders)
+# ---------------------------------------------------------------------------
+
+def test_aov_gmv_is_gmv_over_orders():
+    with SessionLocal() as db:
+        b = _batch(db)
+        _order(db, b.id, datetime(2026, 5, 10), tt_id="A", gross=Decimal("100.00"))
+        _order(db, b.id, datetime(2026, 5, 11), tt_id="B", gross=Decimal("50.00"))
+        db.commit()
+    with SessionLocal() as db:
+        v = compute_monthly_pnl(db, 2026, 5)
+    # GMV = 150 (no discounts/shipping), orders = 2 -> AOV = 75.00
+    assert v.gmv == Decimal("150.00")
+    assert v.orders_count == 2
+    assert v.aov_gmv == Decimal("75.00")
+
+
+def test_aov_gmv_zero_when_no_orders():
+    with SessionLocal() as db:
+        _batch(db)
+    with SessionLocal() as db:
+        v = compute_monthly_pnl(db, 2026, 5)
+    assert v.aov_gmv == Decimal("0")
+
+
+# ---------------------------------------------------------------------------
 # 7. Prod-snapshot reconciliation (skip if absent)
 # ---------------------------------------------------------------------------
 

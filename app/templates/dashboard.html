@@ -123,97 +123,25 @@
   {% else %}{% set roas_tone = 'neg' %}{% endif %}
 {% endif %}
 
-{# Sales — GMV · Orders · Units · AOV #}
-<section aria-label="Sales metrics" class="stagger-in mb-3 grid grid-cols-12 gap-3">
+{# Sales & ad spend — GMV · Orders · AOV · Units · Ad Spend #}
+<section aria-label="Sales &amp; ad metrics" class="stagger-in mb-8 grid grid-cols-2 md:grid-cols-5 gap-3">
   {{ ui.kpi(label="GMV", value=pnl.gmv | money, hint="Tie-out to TikTok Seller Center",
-      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
+      href="/reports/pnl" ~ pnl_qs, surface="bg-sky-50",
       delta=trends.gmv.delta, spark=trends.gmv.spark) }}
   {{ ui.kpi(label="Total Orders", value="{:,}".format(pnl.orders_count), hint="Paid orders only",
-      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
+      href="/reports/pnl" ~ pnl_qs, surface="bg-sky-50",
       delta=trends.orders.delta, spark=trends.orders.spark) }}
-  {{ ui.kpi(label="Total Units Sold", value="{:,}".format(pnl.units_sold), hint="Bundles count as 1 unit",
-      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
-      delta=trends.units.delta, spark=trends.units.spark) }}
-  {{ ui.kpi(label="Avg Order Value", value=pnl.aov_after_discounts | money, hint="Net Sales ÷ Orders",
-      href="/reports/pnl" ~ pnl_qs, col_span="col-span-6 md:col-span-3", surface="bg-sky-50",
+  {{ ui.kpi(label="Avg Order Value", value=pnl.aov_gmv | money, hint="GMV ÷ Orders",
+      href="/reports/pnl" ~ pnl_qs, surface="bg-sky-50",
       delta=trends.aov.delta, spark=trends.aov.spark) }}
-</section>
-
-{# Seller Center (TikTok) — source-of-truth KPIs straight from TikTok's Shop
-   Analytics export (GMV/Orders/Items/AOV) + computed SKU orders. #}
-<section aria-label="Seller Center metrics" class="stagger-in mb-3">
-  <div class="mb-2 flex items-baseline justify-between">
-    <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Seller Center · TikTok</h2>
-    {% if seller_center.has_data %}
-    <span class="text-[10px] font-medium uppercase tracking-wider {{ 'text-amber-600' if not seller_center.complete else 'text-slate-400' }}">
-      as of {{ seller_center.as_of.strftime("%b %d") }}{% if not seller_center.complete %} · period not fully covered{% endif %}
-    </span>
-    {% endif %}
-  </div>
-  {% if seller_center.has_data %}
-  <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-    {{ ui.kpi(label="GMV", value=seller_center.gmv | money, hint="TikTok reported", surface="bg-emerald-50") }}
-    {{ ui.kpi(label="Orders", value="{:,}".format(seller_center.orders), hint="TikTok reported", surface="bg-emerald-50") }}
-    {{ ui.kpi(label="Items Sold", value="{:,}".format(seller_center.items_sold), hint="TikTok reported", surface="bg-emerald-50") }}
-    {{ ui.kpi(label="SKU Orders", value="{:,}".format(seller_center.sku_orders), hint="distinct SKUs per order", surface="bg-emerald-50") }}
-    {{ ui.kpi(label="AOV", value=seller_center.aov | money, hint="GMV ÷ Orders", surface="bg-emerald-50") }}
-  </div>
-  <p class="mt-2 text-[11px] leading-relaxed text-slate-400">
-    Matched to TikTok Seller Center. GMV / Orders / Items / AOV come from the Shop Analytics export; SKU orders is computed.
-    Customers is omitted — TikTok's period-unique count isn't derivable from the daily export.
-  </p>
-  {% else %}
-  <div class="rounded-2xl bg-slate-50 p-6 text-sm text-slate-500 ring-1 ring-slate-900/5">
-    No TikTok Shop Analytics data for this period. Upload the <em>Key metrics</em> export on the
-    <a href="/uploads" class="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">Imports page</a>
-    to populate Seller-Center-matched KPIs.
-  </div>
-  {% endif %}
-</section>
-
-{# Row 2 — ad efficiency + samples #}
-<section aria-label="Ad &amp; sample metrics" class="stagger-in mb-8 grid grid-cols-12 gap-3">
+  {{ ui.kpi(label="Total Units Sold", value="{:,}".format(pnl.units_sold), hint="Bundles count as 1 unit",
+      href="/reports/pnl" ~ pnl_qs, surface="bg-sky-50",
+      delta=trends.units.delta, spark=trends.units.spark) }}
   {{ ui.kpi(label="Ad Spend", value=pnl.net_ad_spend | money, hint="Net of credits",
-      href="/reports/ad-spend", col_span="col-span-6 md:col-span-3", surface="bg-amber-50",
+      href="/reports/ad-spend", surface="bg-amber-50",
       delta=trends.ad_spend.delta, delta_polarity="neutral", spark=trends.ad_spend.spark) }}
-  {# ROAS — dual figure: this period (tone-colored by efficiency) + all-time #}
-  {% set roas_text = {'pos':'text-emerald-700','warn':'text-amber-700','neg':'text-rose-700','none':'text-slate-900'}[roas_tone] %}
-  <a href="/reports/ad-spend"
-     class="col-span-6 md:col-span-3 relative block overflow-hidden rounded-2xl bg-amber-50 p-6 ring-1 ring-slate-900/5 shadow-sm transition hover:shadow-md hover:ring-slate-900/10">
-    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">ROAS</div>
-    <div class="mt-2 flex items-end gap-5">
-      <div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums {{ roas_text }}">{{ ("%.2fx" % pnl.roas) if has_ads else "—" }}</div>
-        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">This period</div>
-      </div>
-      <div class="mb-1.5 h-8 w-px bg-slate-200"></div>
-      <div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ ("%.2fx" % roas_all_time) if has_ads_all_time else "—" }}</div>
-        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">All-time</div>
-      </div>
-    </div>
-    <div class="mt-1.5 text-xs text-slate-400">Sales per $1 ad spend (gross, before credits)</div>
-  </a>
-  {# Samples Shipped — dual figure: units + distinct orders, this period #}
-  <a href="/reports/samples{{ samples_qs }}"
-     class="col-span-6 md:col-span-3 relative block overflow-hidden rounded-2xl bg-indigo-50 p-6 ring-1 ring-slate-900/5 shadow-sm transition hover:shadow-md hover:ring-slate-900/10">
-    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">Samples Shipped (This Period)</div>
-    <div class="mt-2 flex items-end gap-5">
-      <div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ "{:,}".format(samples_shipped) }}</div>
-        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Units</div>
-      </div>
-      <div class="mb-1.5 h-8 w-px bg-slate-200"></div>
-      <div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ "{:,}".format(sample_orders_shipped) }}</div>
-        <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Orders</div>
-      </div>
-    </div>
-    <div class="mt-1.5 text-xs text-slate-400">Free + paid sample units &amp; orders</div>
-  </a>
-  {{ ui.kpi(label="Total Samples Shipped (All-Time)", value="{:,}".format(samples_shipped_all_time), hint="Every period",
-      href="/reports/samples", col_span="col-span-6 md:col-span-3", surface="bg-indigo-50") }}
 </section>
+
 
 {# ===========================================================================
    POLISHED MODULES — Top SKUs + Samples by SKU
