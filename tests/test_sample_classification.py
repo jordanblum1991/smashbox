@@ -109,6 +109,34 @@ def test_reconcile_leaves_non_sample_orders_alone():
         assert db.query(Order).filter_by(tiktok_order_id="NOSETTLE").one().order_type == OrderType.PAID
 
 
+def test_reconcile_demotes_heuristic_sample_when_settlement_says_not_sample():
+    """A $0 order classified SAMPLE by the gross heuristic, but whose settlement
+    carries no sample flag, is demoted to PAID — settlement is authoritative and
+    overrides the $0 heuristic (TikTok counts it as an order)."""
+    with SessionLocal() as db:
+        ob, sb = _batch(db), _batch(db, ImportFileKind.TIKTOK_SETTLEMENTS)
+        _order(db, ob.id, "O1", order_type=OrderType.SAMPLE, gross=Decimal("0.00"))
+        _settlement(db, sb.id, "O1", "")          # settlement present, NOT flagged a sample
+        db.commit()
+        changed = reconcile_sample_classifications(db)
+        db.commit()
+        assert changed == 1
+        assert db.query(Order).filter_by(tiktok_order_id="O1").one().order_type == OrderType.PAID
+
+
+def test_reconcile_does_not_demote_sample_without_settlement():
+    """A SAMPLE order with NO settlement keeps the $0 heuristic — there's no
+    authoritative settlement to override it (off-platform / unsettled samples)."""
+    with SessionLocal() as db:
+        ob = _batch(db)
+        _order(db, ob.id, "O1", order_type=OrderType.SAMPLE, gross=Decimal("0.00"))
+        db.commit()
+        changed = reconcile_sample_classifications(db)
+        db.commit()
+        assert changed == 0
+        assert db.query(Order).filter_by(tiktok_order_id="O1").one().order_type == OrderType.SAMPLE
+
+
 def test_reconcile_uses_latest_settlement():
     """When an order has multiple settlements, the latest (by paid date) wins."""
     with SessionLocal() as db:
