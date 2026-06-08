@@ -42,7 +42,7 @@ from sqlalchemy.orm import Session
 
 from app.importers.base import BaseImporter, ImportResult
 from app.models.import_batch import ImportBatch
-from app.models.order import Order, OrderType
+from app.models.order import Order
 from app.models.settlement import Adjustment, Settlement
 
 ORDERS_HEADER_ROW = 5
@@ -332,9 +332,9 @@ def _backfill_order(db: Session, order_id: str) -> bool:
       and could zero out a real refund. Sum-across-settlements is the right
       semantics for aggregate Order columns.
 
-    Sample-type promotion uses the latest settlement (by paid_date) because
-    "free sample" / "paid sample" is a classification, not an aggregate — the
-    most recent flag wins.
+    Sample-type classification is handled separately (and order-import-
+    independently) by reconcile_sample_classifications(); this function only
+    sums the aggregate fee/refund columns.
     """
     order = db.execute(
         select(Order).where(Order.tiktok_order_id == order_id)
@@ -368,17 +368,11 @@ def _backfill_order(db: Session, order_id: str) -> bool:
     order.shop_ads_cost = _sum("shop_ads_cost")
     order.shipping_cost = _sum("shipping_cost")
 
-    # Sample flag uses the latest settlement — classification, not aggregate.
-    latest = max(
-        settlements,
-        key=lambda s: s.paid_date or s.settled_date or datetime.min,
-    )
-    sot = (latest.sample_order_type or "").strip().lower()
-    if "free sample" in sot:
-        order.order_type = OrderType.SAMPLE
-    elif "paid sample" in sot or "oversample" in sot:
-        order.order_type = OrderType.PAID_SAMPLE
-
+    # Sample classification (free/paid sample) is NOT done here anymore — it's
+    # reconciled centrally by reconcile_sample_classifications() after every
+    # orders/settlement import, so it's correct regardless of which file loaded
+    # first. (Inline promotion here missed orders that arrived after their
+    # settlement.) See app/services/sample_classification.py.
     return True
 
 
