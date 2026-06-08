@@ -13,8 +13,8 @@ Showing the three buckets separately matters because ad credits aren't a real
 cash outflow — surfacing them lets us reconcile total reported spend against
 out-of-pocket spend.
 """
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
+from app.models.order import Order
 
 
 @dataclass
@@ -155,3 +156,60 @@ def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
         period_start=_d(bounds[0]),
         period_end=_d(bounds[1]),
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-month KPI summary — gross spend + ROAS, the Ad Spend page's default view.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AdSpendMonthKpi:
+    year: int
+    month: int
+    gross_spend: Decimal   # total_ad_spend = GMV-Max + Shop Ads (before credits)
+    roas: Decimal          # Net Customer Sales / gross_spend
+
+
+@dataclass
+class AdSpendMonthly:
+    rows: list[AdSpendMonthKpi] = field(default_factory=list)
+    total_gross: Decimal = Decimal("0")
+    total_roas: Decimal = Decimal("0")   # Σ net sales / Σ gross spend
+
+
+def compute_ad_spend_monthly(db: Session) -> AdSpendMonthly:
+    """One row per calendar month that had ad spend, with gross spend
+    (total_ad_spend) and ROAS, plus rolled-up totals. Months with $0 ad spend
+    are omitted (ROAS is undefined there). Each month reuses the P&L engine so
+    gross spend and ROAS match the rest of the app exactly."""
+    from app.reports.monthly_pnl import compute_monthly_pnl
+
+    o_lo, o_hi = db.execute(
+        select(func.min(Order.placed_at), func.max(Order.placed_at))
+    ).one()
+    a_lo, a_hi = db.execute(
+        select(func.min(AdSpend.spend_date), func.max(AdSpend.spend_date))
+    ).one()
+    los = [d for d in (o_lo, a_lo) if d is not None]
+    his = [d for d in (o_hi, a_hi) if d is not None]
+    if not los:
+        return AdSpendMonthly()
+    lo, hi = min(los), max(his)
+
+    rows: list[AdSpendMonthKpi] = []
+    sum_gross = sum_net = Decimal("0")
+    y, m = lo.year, lo.month
+    while (y, m) <= (hi.year, hi.month):
+        pnl = compute_monthly_pnl(db, y, m)
+        if pnl.total_ad_spend > 0:
+            rows.append(AdSpendMonthKpi(
+                year=y, month=m,
+                gross_spend=pnl.total_ad_spend,
+                roas=pnl.roas,
+            ))
+            sum_gross += pnl.total_ad_spend
+            sum_net += pnl.net_customer_sales
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+    total_roas = (sum_net / sum_gross) if sum_gross else Decimal("0")
+    return AdSpendMonthly(rows=rows, total_gross=sum_gross, total_roas=total_roas)
