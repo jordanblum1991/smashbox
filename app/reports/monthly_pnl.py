@@ -178,10 +178,12 @@ class MonthlyPnL:
 
     @property
     def managed_roas(self) -> Decimal:
-        """Sales per $1 net ad spend, using the managed net customer sales."""
-        if self.net_ad_spend <= 0:
+        """Managed Net Customer Sales per $1 of GROSS ad spend. Like `roas`, this
+        does NOT net out ad credits — ROAS measures advertising efficiency on
+        gross spend; credits are a separate reimbursement."""
+        if self.total_ad_spend <= 0:
             return Decimal("0")
-        return self.managed_net_customer_sales / self.net_ad_spend
+        return self.managed_net_customer_sales / self.total_ad_spend
 
     @property
     def managed_sales_pre_refund(self) -> Decimal:
@@ -243,12 +245,14 @@ class MonthlyPnL:
 
     @property
     def roas(self) -> Decimal:
-        """Return on Ad Spend: $ of Net Customer Sales generated per $1 of
-        NET ad spend (after applying ad credits). 0 when no net spend
-        (avoids divide-by-zero)."""
-        if self.net_ad_spend <= 0:
+        """Return on Ad Spend: $ of Net Customer Sales per $1 of GROSS ad spend
+        (Shop Ads + GMV-Max, BEFORE ad credits). Ad credits reduce the cash cost
+        of advertising — that flows into Net Profit and the (net) Ad Spend KPI —
+        but they must NOT inflate ROAS, which measures raw advertising
+        efficiency. 0 when there is no ad spend (avoids divide-by-zero)."""
+        if self.total_ad_spend <= 0:
             return Decimal("0")
-        return self.net_customer_sales / self.net_ad_spend
+        return self.net_customer_sales / self.total_ad_spend
 
     @property
     def gmv(self) -> Decimal:
