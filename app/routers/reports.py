@@ -18,7 +18,7 @@ from app.models.ad_credit import AdCredit
 from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
 from app.models.sku import Sku
-from app.reports.ad_spend import compute_ad_spend_summary
+from app.reports.ad_spend import compute_ad_spend_monthly, compute_ad_spend_summary
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
 from app.reports.dashboard_trends import (
     bar_chart,
@@ -846,14 +846,21 @@ def ad_spend_view(
         end_year=end_year, end_month=end_month,
         start_date=sd_obj, end_date=ed_obj,
     )
-    # The page shows two KPIs for the selected period — Total Gross Spend and
-    # ROAS — both read off the period P&L view. No credit info here (credit
+    # Default (no period chosen) → a per-month overview (gross spend + ROAS).
+    # Once the user picks a specific period via the selector, collapse to the
+    # two aggregate KPIs for that period. No credit info either way (credit
     # entry lives on /reports/ad-spend/reimbursements).
+    _PERIOD_PARAMS = ("period", "year", "month", "start_year", "start_month",
+                      "end_year", "end_month", "start_date", "end_date")
+    specified = any(p in request.query_params for p in _PERIOD_PARAMS)
+    monthly = None if specified else compute_ad_spend_monthly(db)
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
         {
             "view": view,
+            "specified": specified,
+            "monthly": monthly,
             "error": request.query_params.get("error"),
         },
     )

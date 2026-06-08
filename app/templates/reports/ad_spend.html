@@ -7,7 +7,7 @@
   eyebrow="TikTok Ads",
   title="Ad Spend Summary",
   period=view.title_suffix,
-  subtitle="Total gross ad spend and ROAS for the selected period.",
+  subtitle="Gross ad spend and ROAS — by month, or for a selected period.",
   accent_bar=true,
 ) %}
   <button onclick="window.print()" type="button"
@@ -23,6 +23,8 @@
 </div>
 {% endif %}
 
+{% if specified %}
+{# A specific period is chosen → two aggregate KPIs for that period. #}
 {% set has_spend = view.total.total_ad_spend > 0 %}
 <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -36,4 +38,48 @@
     <div class="mt-1.5 text-xs text-slate-400">Net Sales ÷ Gross Ad Spend</div>
   </div>
 </section>
+{% elif monthly.rows %}
+{# Default → per-month overview. #}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Monthly ad spend</h2>
+      <p class="mt-0.5 text-xs text-slate-500">Gross spend and ROAS per month. Pick a period above to focus on one window.</p>
+    </div>
+    <span class="shrink-0 text-xs text-slate-500">{{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }}</span>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">Month</th>
+          <th class="px-4 py-2.5 text-right">Total Gross Spend</th>
+          <th class="px-4 py-2.5 text-right">ROAS</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in monthly.rows %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }}-{{ r.year }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.gross_spend | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ "%.2fx" % r.roas }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
+        <tr>
+          <td class="px-4 py-3">Total ({{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }})</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ monthly.total_gross | money }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ "%.2fx" % monthly.total_roas }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% else %}
+{% call ui.banner(tone="info", title="No ad spend imported yet") %}
+  Upload a TikTok Ads (GMV Max) cost export from the
+  <a href="/uploads" class="underline underline-offset-2">Imports page</a>.
+{% endcall %}
+{% endif %}
 {% endblock %}
