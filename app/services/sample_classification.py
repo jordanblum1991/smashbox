@@ -36,10 +36,12 @@ def classify_from_sample_order_type(sot: str | None) -> OrderType | None:
 
 
 def reconcile_sample_classifications(db: Session) -> int:
-    """Apply each order's latest-settlement sample classification to
-    `Order.order_type`. Promotes PAID → SAMPLE / PAID_SAMPLE when the settlement
-    says so; never demotes (a settlement with no sample flag leaves the order
-    untouched). Idempotent. Returns the number of orders whose type changed.
+    """Apply each order's latest-settlement classification to `Order.order_type`,
+    treating settlement as authoritative: a sample flag → SAMPLE / PAID_SAMPLE;
+    no sample flag → PAID (overriding the orders-file $0 heuristic, since TikTok
+    counts a settled $0 order as a real order). Only orders that HAVE a settlement
+    are reconciled; settlement-less $0 samples keep the heuristic. Idempotent.
+    Returns the number of orders whose type changed.
 
     Caller commits.
     """
@@ -57,9 +59,11 @@ def reconcile_sample_classifications(db: Session) -> int:
 
     changed = 0
     for oid, (_, sot) in best.items():
-        want = classify_from_sample_order_type(sot)
-        if want is None:
-            continue
+        # Settlement is authoritative: a sample flag -> SAMPLE/PAID_SAMPLE; the
+        # absence of one -> PAID, overriding the orders-file $0 heuristic. (Only
+        # orders WITH a settlement are reconciled here; settlement-less samples
+        # keep the $0 heuristic and never appear in `best`.)
+        want = classify_from_sample_order_type(sot) or OrderType.PAID
         order = db.execute(
             select(Order).where(Order.tiktok_order_id == oid)
         ).scalar_one_or_none()
