@@ -47,7 +47,7 @@
 {% set coverage_pct = pnl.settlement_coverage_pct %}
 {% set coverage_full = (pnl.orders_count == 0) or (pnl.orders_settled >= pnl.orders_count) %}
 {% set coverage_severe = has_orders and coverage_pct < 50 %}
-{% set has_ads = pnl.net_ad_spend > 0 %}
+{% set has_ads = pnl.total_ad_spend > 0 %}
 {% set roas_strong = has_ads and pnl.roas >= 3 %}
 {% set roas_ok = has_ads and pnl.roas >= 1 and pnl.roas < 3 %}
 
@@ -160,7 +160,7 @@
         <div class="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">All-time</div>
       </div>
     </div>
-    <div class="mt-1.5 text-xs text-slate-400">Sales per $1 net ad spend</div>
+    <div class="mt-1.5 text-xs text-slate-400">Sales per $1 ad spend (gross, before credits)</div>
   </a>
   {# Samples Shipped — dual figure: units + distinct orders, this period #}
   <a href="/reports/samples{{ samples_qs }}"

@@ -122,8 +122,8 @@ def home(
     freshness = compute_freshness(db)
 
     # All-time ROAS — canonical: a full-range P&L view read with the same
-    # `roas` definition (Net Customer Sales ÷ net ad spend) as the period figure,
-    # shown beside it in the same KPI box. The window is bounded to the actual
+    # `roas` definition (Net Customer Sales ÷ GROSS ad spend, before credits) as
+    # the period figure, shown beside it in the same KPI box. The window is bounded to the actual
     # order-date range: compute_window_pnl ORs one clause per month touched, so
     # an open-ended span would blow SQLite's expression-depth limit.
     bounds = db.execute(
@@ -135,7 +135,7 @@ def home(
             start_date=bounds[0].date(), end_date=bounds[1].date() + timedelta(days=1),
         )
         roas_all_time = all_time_view.total.roas
-        has_ads_all_time = all_time_view.total.net_ad_spend > 0
+        has_ads_all_time = all_time_view.total.total_ad_spend > 0
     else:
         roas_all_time = Decimal("0")
         has_ads_all_time = False
