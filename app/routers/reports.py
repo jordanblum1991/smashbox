@@ -19,6 +19,7 @@ from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
 from app.models.sku import Sku
 from app.reports.ad_spend import compute_ad_spend_monthly, compute_ad_spend_summary
+from app.reports.gmv_max_campaign_kpis import compute_gmv_max_campaign_kpis
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
 from app.reports.dashboard_trends import (
     bar_chart,
@@ -855,6 +856,14 @@ def ad_spend_view(
                       "end_year", "end_month", "start_date", "end_date")
     specified = any(p in request.query_params for p in _PERIOD_PARAMS)
     monthly = None if specified else compute_ad_spend_monthly(db)
+    # Campaign-attributed KPIs (SKU Orders / Cost per Order / Gross Revenue / ROI)
+    # from manually-entered GMV Max metrics + imported GMV-Max spend. Scoped to
+    # the selected window, or all-time on the default (no-period) view.
+    if specified:
+        c_start, c_end = window_for(view)
+        campaign = compute_gmv_max_campaign_kpis(db, c_start, c_end)
+    else:
+        campaign = compute_gmv_max_campaign_kpis(db)
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
@@ -862,6 +871,7 @@ def ad_spend_view(
             "view": view,
             "specified": specified,
             "monthly": monthly,
+            "campaign": campaign,
             "error": request.query_params.get("error"),
         },
     )
