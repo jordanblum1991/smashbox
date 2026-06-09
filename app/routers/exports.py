@@ -3,7 +3,7 @@
 Returns the same data as the HTML report pages, in a downloadable format.
 The Excel writer uses xlsxwriter so we can apply number formats and headers.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 
 import xlsxwriter
@@ -112,7 +112,7 @@ def export_ad_spend_xlsx(
             sd = ed = None
         if sd and ed and sd <= ed:
             start = datetime(sd.year, sd.month, sd.day)
-            end = datetime(ed.year, ed.month, ed.day)
+            end = datetime(ed.year, ed.month, ed.day) + timedelta(days=1)   # inclusive end
 
     monthly = compute_ad_spend_monthly(db, start, end)
     ct = monthly.campaign_total

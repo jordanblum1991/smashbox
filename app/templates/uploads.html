@@ -47,6 +47,7 @@
         {% set kind_labels = {
           "tiktok_ads": "TikTok Ads (GMV Max)",
           "tiktok_analytics": "TikTok Shop Analytics (Key metrics)",
+          "tiktok_gmv_max": "TikTok GMV Max (Campaign overview)",
           "inventory_snapshot": "Inventory Snapshot (on-hand)",
         } %}
         <select id="upload-kind" name="kind" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
@@ -87,6 +88,10 @@
       "tiktok_analytics": {
         "url": "https://seller-us.tiktok.com/compass/data-overview?shop_region=US",
         "note": "Analytics → Shop Analytics → Choose date period.",
+      },
+      "tiktok_gmv_max": {
+        "url": "https://ads.tiktok.com/",
+        "note": "GMV Max campaign → Campaign overview → export the By-Day view for your date range. Populates the Ad Spend page's SKU Orders / Cost per Order / Gross Revenue / ROI.",
       },
     } %}
     <div class="mt-4 space-y-2">
@@ -224,6 +229,7 @@
   "tiktok_payouts":     ("TikTok Payouts",      "Payouts & income export"),
   "tiktok_ads":         ("TikTok Ads (GMV Max)","Ads Manager cost export"),
   "tiktok_analytics":   ("TikTok Shop Analytics","Shop Analytics Key metrics export"),
+  "tiktok_gmv_max":     ("TikTok GMV Max",      "Campaign overview By-Day export"),
   "sku_master":         ("SKU Master",          "Internal product catalog"),
   "bundle_mapping":     ("Bundle Mapping",      "Internal bundle components"),
   "samples":            ("Samples",             "Off-platform sample log"),
