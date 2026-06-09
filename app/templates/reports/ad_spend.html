@@ -23,58 +23,54 @@
 </div>
 {% endif %}
 
-{# Campaign-attributed KPIs (GMV Max). Gross Revenue + SKU Orders are entered on
-   the admin "GMV Max Campaign KPIs" page; Ad Cost comes from imported GMV-Max
-   spend; Cost-per-Order and ROI are derived. Scoped to the selected period, or
-   all-time on the default view. These are TikTok-attributed, NOT whole-shop. #}
-<section class="mb-6">
-  <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">SKU Orders</div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ campaign.sku_orders if campaign.has_data else "—" }}</div>
-      <div class="mt-1.5 text-xs text-slate-400">GMV Max attributed</div>
-    </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Cost per Order</div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ (campaign.cost_per_order | money) if (campaign.has_data and campaign.sku_orders > 0) else "—" }}</div>
-      <div class="mt-1.5 text-xs text-slate-400">Ad Cost ÷ SKU Orders</div>
-    </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Gross Revenue</div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ (campaign.gross_revenue | money) if campaign.has_data else "—" }}</div>
-      <div class="mt-1.5 text-xs text-slate-400">User-paid + Shop subsidies</div>
-    </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">ROI</div>
-      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ ("%.2f" % campaign.roi) if (campaign.has_data and campaign.ad_cost > 0) else "—" }}</div>
-      <div class="mt-1.5 text-xs text-slate-400">Gross Revenue ÷ Ad Cost</div>
-    </div>
+{# KPI metrics table — campaign-attributed (SKU Orders / Gross Revenue / ROI /
+   Cost per Order), plus Total Gross Spend + ROAS when a period is selected.
+   Campaign figures are TikTok-attributed (entered on Admin → GMV Max Campaign
+   KPIs); spend is GMV-Max only (excl. Shop Ads), matching TikTok's Ad Cost. #}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Key metrics</h2>
+    <p class="mt-0.5 text-xs text-slate-500">{{ view.title_suffix if specified else "All time" }} · GMV Max attributed</p>
+  </header>
+  <table class="w-full text-sm">
+    <tbody class="divide-y divide-slate-100">
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-6 py-2.5 text-slate-600">SKU Orders</td>
+        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ campaign.sku_orders if campaign.has_data else "—" }}</td>
+      </tr>
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-6 py-2.5 text-slate-600">Cost per Order</td>
+        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ (campaign.cost_per_order | money) if (campaign.has_data and campaign.sku_orders > 0) else "—" }}</td>
+      </tr>
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-6 py-2.5 text-slate-600">Gross Revenue</td>
+        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ (campaign.gross_revenue | money) if campaign.has_data else "—" }}</td>
+      </tr>
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-6 py-2.5 text-slate-600">ROI</td>
+        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ ("%.2f" % campaign.roi) if (campaign.has_data and campaign.ad_cost > 0) else "—" }}</td>
+      </tr>
+      {% if specified %}
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-6 py-2.5 text-slate-600">Total Gross Spend</td>
+        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ view.total.gmv_max_ad_spend | money }}</td>
+      </tr>
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-6 py-2.5 text-slate-600">ROAS</td>
+        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ ("%.2fx" % view.total.gmv_max_roas) if (view.total.gmv_max_ad_spend > 0) else "—" }}</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+  <div class="border-t border-slate-100 px-6 py-2 text-[11px] text-slate-400">
+    Cost per Order = Ad Cost ÷ SKU Orders · ROI = Gross Revenue ÷ Ad Cost{% if specified %} · ROAS = Net Sales ÷ GMV-Max spend{% endif %}
+    {% if not campaign.has_data %}<br>No GMV Max campaign metrics entered{{ " for this period" if specified else "" }} — add them on <a href="/admin/gmv-max-campaign-metrics" class="underline underline-offset-2">GMV Max Campaign KPIs</a>.{% endif %}
   </div>
-  {% if not campaign.has_data %}
-  <p class="mt-2 text-xs text-slate-500">
-    No GMV Max campaign metrics entered{{ " for this period" if specified else "" }}.
-    Add them on <a href="/admin/gmv-max-campaign-metrics" class="underline underline-offset-2">GMV Max Campaign KPIs</a>.
-  </p>
-  {% endif %}
 </section>
 
-{% if specified %}
-{# A specific period is chosen → two aggregate KPIs for that period. GMV-Max
-   spend only (excludes settlement Shop Ads) so it matches TikTok's Ad Cost. #}
-{% set has_spend = view.total.gmv_max_ad_spend > 0 %}
-<section class="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
-  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Total Gross Spend</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ view.total.gmv_max_ad_spend | money }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">GMV-Max ad cost, before credits</div>
-  </div>
-  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">ROAS</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ ("%.2fx" % view.total.gmv_max_roas) if has_spend else "—" }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">Net Sales ÷ GMV-Max spend</div>
-  </div>
-</section>
-{% elif monthly.rows %}
+{# Default (no period) → per-month overview below the table. #}
+{% if not specified %}
+{% if monthly.rows %}
 {# Default → per-month overview. #}
 <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
@@ -112,10 +108,11 @@
     </table>
   </div>
 </section>
-{% else %}
+{% elif not campaign.has_data %}
 {% call ui.banner(tone="info", title="No ad spend imported yet") %}
   Upload a TikTok Ads (GMV Max) cost export from the
   <a href="/uploads" class="underline underline-offset-2">Imports page</a>.
 {% endcall %}
+{% endif %}
 {% endif %}
 {% endblock %}
