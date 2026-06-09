@@ -88,6 +88,27 @@ def test_all_time_view_collapses_to_totals(client):
     assert "2.02" in r.text
 
 
+def test_date_range_scopes_table(client):
+    with SessionLocal() as db:
+        _seed_month(db, "APR", datetime(2026, 4, 15, 12, 0), gross=400, spend=40)
+        _seed_month(db, "MAY", datetime(2026, 5, 15, 12, 0), gross=500, spend=50)
+        db.commit()
+    r = client.get("/reports/ad-spend?scope=range&start_date=2026-05-01&end_date=2026-05-31")
+    assert r.status_code == 200
+    assert "May-2026" in r.text          # in window
+    assert "Apr-2026" not in r.text      # excluded by the range
+    assert "Range total" in r.text
+
+
+def test_date_range_invalid_shows_error(client):
+    with SessionLocal() as db:
+        _seed_month(db, "MAY", datetime(2026, 5, 15, 12, 0), gross=500, spend=50)
+        db.commit()
+    r = client.get("/reports/ad-spend?scope=range&start_date=2026-05-10&end_date=2026-05-01")
+    assert r.status_code == 200
+    assert "Start date must be on or before end date" in r.text
+
+
 def test_no_data_shows_empty_state(client):
     r = client.get("/reports/ad-spend")
     assert r.status_code == 200

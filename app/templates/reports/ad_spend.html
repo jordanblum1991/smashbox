@@ -19,13 +19,29 @@
 </div>
 {% endif %}
 
-{# View toggle: per-month breakdown vs the combined all-time total. #}
-<div class="mb-6 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm print:hidden">
+{# Scope: per-month breakdown, combined all-time total, or a date range. #}
+<div class="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm print:hidden">
   <a href="/reports/ad-spend"
-     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if not all_time else 'text-slate-600 hover:bg-slate-100' }}">By month</a>
+     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if scope == 'month' else 'text-slate-600 hover:bg-slate-100' }}">By month</a>
   <a href="/reports/ad-spend?scope=all-time"
-     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if all_time else 'text-slate-600 hover:bg-slate-100' }}">All-Time</a>
+     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if scope == 'all-time' else 'text-slate-600 hover:bg-slate-100' }}">All-Time</a>
+  <a href="/reports/ad-spend?scope=range"
+     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if scope == 'range' else 'text-slate-600 hover:bg-slate-100' }}">Date range</a>
 </div>
+
+{% if scope == 'range' %}
+<form method="get" action="/reports/ad-spend" class="mb-6 flex flex-wrap items-center gap-2 text-sm print:hidden">
+  <input type="hidden" name="scope" value="range">
+  <span class="text-xs text-slate-500">From</span>
+  <input type="date" name="start_date" value="{{ start_date or '' }}"
+         class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+  <span class="text-xs text-slate-500">to</span>
+  <input type="date" name="end_date" value="{{ end_date or '' }}"
+         class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+  <button type="submit" class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Apply</button>
+  {% if range_error %}<span class="text-xs font-medium text-rose-600">{{ range_error }}</span>{% endif %}
+</form>
+{% endif %}
 
 {% if monthly.rows %}
 {% set ct = monthly.campaign_total %}
@@ -99,7 +115,7 @@
       </tbody>
       <tfoot class="bg-slate-900 text-sm font-semibold text-white">
         <tr>
-          <td class="px-4 py-3 whitespace-nowrap">All-Time ({{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }})</td>
+          <td class="px-4 py-3 whitespace-nowrap">{{ "Range total" if scope == "range" else "All-Time" }} ({{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }})</td>
           <td class="px-4 py-3 text-right tabular-nums">{{ ct.sku_orders if (ct and ct.has_data) else "—" }}</td>
           <td class="px-4 py-3 text-right tabular-nums">{{ (ct.cost_per_order | money) if (ct and ct.has_data and ct.sku_orders > 0) else "—" }}</td>
           <td class="px-4 py-3 text-right tabular-nums">{{ (ct.gross_revenue | money) if (ct and ct.has_data) else "—" }}</td>
@@ -112,6 +128,10 @@
   </div>
 </section>
 {% endif %}
+{% elif scope == 'range' and not range_error %}
+{% call ui.banner(tone="info", title="No ad spend in this date range") %}
+  Nothing in the selected window — try a different range, or switch to By month / All-Time above.
+{% endcall %}
 {% else %}
 {% call ui.banner(tone="info", title="No ad spend imported yet") %}
   Upload a TikTok Ads (GMV Max) cost export from the
