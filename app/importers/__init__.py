@@ -5,6 +5,7 @@ the upload route can dispatch by kind.
 """
 from app.importers.base import BaseImporter, ImportResult
 from app.importers.bundle_mapping import BundleMappingImporter
+from app.importers.gmv_max_campaign import GmvMaxCampaignImporter
 from app.importers.inventory_snapshot import InventorySnapshotImporter
 from app.importers.samples import SamplesImporter
 from app.importers.sku_master import SkuMasterImporter
@@ -22,6 +23,7 @@ IMPORTERS: dict[ImportFileKind, type[BaseImporter]] = {
     ImportFileKind.TIKTOK_PAYOUTS: TikTokPayoutsImporter,
     ImportFileKind.TIKTOK_ADS: TikTokAdsImporter,
     ImportFileKind.TIKTOK_ANALYTICS: TikTokAnalyticsImporter,
+    ImportFileKind.TIKTOK_GMV_MAX: GmvMaxCampaignImporter,
     ImportFileKind.SKU_MASTER: SkuMasterImporter,
     ImportFileKind.BUNDLE_MAPPING: BundleMappingImporter,
     ImportFileKind.SAMPLES: SamplesImporter,

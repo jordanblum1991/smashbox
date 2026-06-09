@@ -12,7 +12,6 @@ from app.models import register_models  # noqa: F401  (side-effect: registers ta
 from app.models.user import User, UserRole
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
-from app.routers import gmv_max_campaign_metrics as gmv_max_campaign_metrics_router
 from app.routers import gmv_max_reimbursements as gmv_max_reimbursements_router
 from app.routers import invoices as invoices_router
 from app.routers import dashboard, exports, reports, uploads
@@ -108,7 +107,7 @@ def _bootstrap_shop_and_backfill() -> None:
     SHOP_SCOPED_TABLES = (
         "orders", "settlements", "adjustments", "payouts",
         "ad_spend", "ad_credits", "gmv_max_reimbursements",
-        "gmv_max_campaign_metrics",
+        "gmv_max_daily_metrics",
         "samples", "tiktok_daily_metrics",
         "import_batches", "skus", "bundles",
     )
@@ -265,7 +264,6 @@ async def healthz() -> PlainTextResponse:
 app.include_router(auth_router.router)
 app.include_router(admin_router.router)
 app.include_router(gmv_max_reimbursements_router.router)
-app.include_router(gmv_max_campaign_metrics_router.router)
 app.include_router(invoices_router.router)
 app.include_router(dashboard.router)
 app.include_router(uploads.router)

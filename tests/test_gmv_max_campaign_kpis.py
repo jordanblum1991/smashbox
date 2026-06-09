@@ -1,22 +1,19 @@
-"""GMV Max campaign KPI report — derives SKU Orders, Cost per Order, Gross
-Revenue, ROI from the manually-entered `GmvMaxCampaignMetric` rows plus the
-imported GMV-Max `AdSpend`. These are campaign-attributed (TikTok-reported)
-figures; the test pins them to the real Seller Center May-2026 numbers.
+"""GMV Max campaign KPI aggregation from daily metrics (GmvMaxDailyMetric).
 
-  Cost per Order = Ad Cost ÷ SKU Orders     (denominator is SKU orders, verified)
-  ROI            = Gross Revenue ÷ Ad Cost   (Seller Center's displayed multiple)
+  Cost per Order = Ad Cost ÷ SKU Orders
+  ROI            = Gross Revenue ÷ Ad Cost
+Windows are [start, end) with an EXCLUSIVE end, day-accurate.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
 
 from app.db import Base, SessionLocal, engine
-from app.models.ad_spend import AdSpend
-from app.models.gmv_max_campaign_metric import GmvMaxCampaignMetric
-from app.models.import_batch import ImportBatch, ImportFileKind
+from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
+from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.reports.gmv_max_campaign_kpis import compute_gmv_max_campaign_kpis
 
 
@@ -27,121 +24,75 @@ def fresh_db():
     yield
 
 
-def _metric(db, year, month, gross_revenue, sku_orders):
-    db.add(GmvMaxCampaignMetric(
-        year=year, month=month,
-        gross_revenue=Decimal(str(gross_revenue)), sku_orders=sku_orders,
-    ))
-    db.flush()
-
-
-def _spend(db, batch_id, dt, amount, campaign_id="c1"):
-    db.add(AdSpend(
-        import_batch_id=batch_id, spend_date=dt,
-        campaign_id=campaign_id, amount=Decimal(str(amount)),
-    ))
-    db.flush()
-
-
 def _batch(db):
-    b = ImportBatch(
-        kind=ImportFileKind.TIKTOK_ADS,
-        original_filename="x.xlsx", stored_path="/tmp/x.xlsx",
-    )
+    b = ImportBatch(kind=ImportFileKind.TIKTOK_GMV_MAX, status=ImportBatchStatus.COMPLETED,
+                    original_filename="c.xlsx", stored_path="c.xlsx")
     db.add(b); db.flush()
     return b.id
 
 
-def test_single_month_matches_seller_center_may():
+def _day(db, bid, d: date, cost, sku, gr):
+    db.add(GmvMaxDailyMetric(import_batch_id=bid, metric_date=d,
+                             cost=Decimal(str(cost)), sku_orders=sku, gross_revenue=Decimal(str(gr))))
+    db.flush()
+
+
+def test_window_aggregates_days():
     with SessionLocal() as db:
         bid = _batch(db)
-        _metric(db, 2026, 5, "15769.65", 413)
-        _spend(db, bid, datetime(2026, 5, 10), "7824.02")
+        _day(db, bid, date(2026, 5, 1), "100.00", 5, "300.00")
+        _day(db, bid, date(2026, 5, 2), "50.00", 2, "120.00")
         db.commit()
         k = compute_gmv_max_campaign_kpis(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
         assert k.has_data is True
-        assert k.gross_revenue == Decimal("15769.65")
-        assert k.sku_orders == 413
-        assert k.ad_cost == Decimal("7824.02")
-        assert k.cost_per_order == Decimal("18.94")   # 7824.02 / 413
-        assert k.roi == Decimal("2.02")               # 15769.65 / 7824.02
+        assert k.gross_revenue == Decimal("420.00")
+        assert k.sku_orders == 7
+        assert k.ad_cost == Decimal("150.00")
+        assert k.cost_per_order == Decimal("21.43")   # 150 / 7
+        assert k.roi == Decimal("2.80")               # 420 / 150
 
 
-def test_all_time_sums_months():
+def test_all_time_when_no_window():
     with SessionLocal() as db:
         bid = _batch(db)
-        _metric(db, 2026, 4, "15168.53", 423)
-        _metric(db, 2026, 5, "15769.65", 413)
-        _spend(db, bid, datetime(2026, 4, 10), "13596.28")
-        _spend(db, bid, datetime(2026, 5, 10), "7824.02")
+        _day(db, bid, date(2026, 4, 10), "40.00", 4, "160.00")
+        _day(db, bid, date(2026, 5, 10), "60.00", 6, "240.00")
         db.commit()
-        k = compute_gmv_max_campaign_kpis(db)  # all-time
-        assert k.gross_revenue == Decimal("30938.18")
-        assert k.sku_orders == 836
-        assert k.ad_cost == Decimal("21420.30")
-        # Σ ad ÷ Σ sku, Σ gr ÷ Σ ad
-        assert k.cost_per_order == Decimal("25.62")   # 21420.30 / 836
-        assert k.roi == Decimal("1.44")               # 30938.18 / 21420.30
+        k = compute_gmv_max_campaign_kpis(db)
+        assert k.ad_cost == Decimal("100.00")
+        assert k.sku_orders == 10
+        assert k.gross_revenue == Decimal("400.00")
 
 
-def test_no_data_zeros_no_divide():
+def test_day_accurate_range_excludes_outside():
+    with SessionLocal() as db:
+        bid = _batch(db)
+        _day(db, bid, date(2026, 5, 1), "10.00", 1, "30.00")
+        _day(db, bid, date(2026, 5, 10), "20.00", 2, "60.00")
+        _day(db, bid, date(2026, 5, 20), "40.00", 4, "120.00")
+        db.commit()
+        # [May 1, May 11) → May 1 and May 10 only (exclusive end).
+        k = compute_gmv_max_campaign_kpis(db, datetime(2026, 5, 1), datetime(2026, 5, 11))
+        assert k.ad_cost == Decimal("30.00")
+        assert k.sku_orders == 3
+        assert k.gross_revenue == Decimal("90.00")
+
+
+def test_zero_activity_has_data_false():
+    with SessionLocal() as db:
+        bid = _batch(db)
+        _day(db, bid, date(2026, 1, 1), "0.00", 0, "0.00")
+        db.commit()
+        k = compute_gmv_max_campaign_kpis(db)
+        assert k.has_data is False
+        assert k.cost_per_order == Decimal("0")
+        assert k.roi == Decimal("0")
+
+
+def test_empty_no_divide():
     with SessionLocal() as db:
         k = compute_gmv_max_campaign_kpis(db)
         assert k.has_data is False
-        assert k.gross_revenue == Decimal("0")
-        assert k.sku_orders == 0
-        assert k.ad_cost == Decimal("0")
-        assert k.cost_per_order == Decimal("0")
-        assert k.roi == Decimal("0")
-
-
-def test_zero_sku_orders_no_divide():
-    with SessionLocal() as db:
-        bid = _batch(db)
-        _metric(db, 2026, 5, "100.00", 0)
-        _spend(db, bid, datetime(2026, 5, 10), "50.00")
-        db.commit()
-        k = compute_gmv_max_campaign_kpis(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
-        assert k.cost_per_order == Decimal("0")
-        assert k.roi == Decimal("2.00")
-
-
-def test_zero_ad_cost_no_divide():
-    with SessionLocal() as db:
-        _metric(db, 2026, 5, "100.00", 10)
-        db.commit()
-        k = compute_gmv_max_campaign_kpis(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
-        assert k.has_data is True
         assert k.ad_cost == Decimal("0")
         assert k.roi == Decimal("0")
         assert k.cost_per_order == Decimal("0")
-
-
-def test_ad_cost_excludes_months_without_metric():
-    # June has spend but no entered metric → it must NOT count toward Ad Cost
-    # (else all-time Cost/Order and ROI mix June's spend with no June revenue).
-    with SessionLocal() as db:
-        bid = _batch(db)
-        _metric(db, 2026, 5, "15769.65", 413)
-        _spend(db, bid, datetime(2026, 5, 10), "7824.02")
-        _spend(db, bid, datetime(2026, 6, 10), "1454.11")   # spend, no May-vs metric
-        db.commit()
-        k = compute_gmv_max_campaign_kpis(db)  # all-time
-        assert k.ad_cost == Decimal("7824.02")   # June's 1454.11 excluded
-        assert k.cost_per_order == Decimal("18.94")
-        assert k.roi == Decimal("2.02")
-
-
-def test_window_excludes_other_months():
-    with SessionLocal() as db:
-        bid = _batch(db)
-        _metric(db, 2026, 4, "15168.53", 423)
-        _metric(db, 2026, 6, "900.00", 30)
-        _spend(db, bid, datetime(2026, 4, 10), "13596.28")
-        _spend(db, bid, datetime(2026, 6, 10), "1454.11")
-        db.commit()
-        # Window = May only → no metrics, no spend.
-        k = compute_gmv_max_campaign_kpis(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
-        assert k.has_data is False
-        assert k.gross_revenue == Decimal("0")
-        assert k.ad_cost == Decimal("0")

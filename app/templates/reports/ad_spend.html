@@ -85,7 +85,7 @@
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">Monthly GMV Max KPIs</h2>
-      <p class="mt-0.5 text-xs text-slate-500">SKU Orders / Gross Revenue / ROI are blank for months not yet entered on Admin → GMV Max Campaign KPIs.</p>
+      <p class="mt-0.5 text-xs text-slate-500">From the imported GMV Max campaign report — mirrors TikTok to the cent.</p>
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }}</span>
   </header>
@@ -135,8 +135,8 @@
   Nothing in the selected window — try a different range, or switch to By month / All-Time above.
 {% endcall %}
 {% else %}
-{% call ui.banner(tone="info", title="No ad spend imported yet") %}
-  Upload a TikTok Ads (GMV Max) cost export from the
+{% call ui.banner(tone="info", title="No GMV Max campaign data yet") %}
+  Upload the TikTok <strong>GMV Max Campaign overview</strong> (By-Day) export from the
   <a href="/uploads" class="underline underline-offset-2">Imports page</a>.
 {% endcall %}
 {% endif %}

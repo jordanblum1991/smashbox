@@ -841,7 +841,9 @@ def ad_spend_view(
             range_error = "Start date must be on or before end date."
         if range_error is None:
             start = datetime(sd.year, sd.month, sd.day)
-            end = datetime(ed.year, ed.month, ed.day)
+            # End is inclusive of the chosen day; the window is [start, end) so
+            # bump by one day to cover all of end_date.
+            end = datetime(ed.year, ed.month, ed.day) + timedelta(days=1)
 
     monthly = compute_ad_spend_monthly(db, start, end)
     return templates.TemplateResponse(

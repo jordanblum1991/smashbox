@@ -1,31 +1,24 @@
-"""GMV Max campaign KPIs — SKU Orders, Cost per Order, Gross Revenue, ROI.
+"""GMV Max campaign KPIs — SKU Orders, Cost per Order, Gross Revenue, ROI, and
+Ad Cost — aggregated from the imported daily campaign report (`GmvMaxDailyMetric`).
 
-These are TikTok's CAMPAIGN-ATTRIBUTED figures (Seller Center's GMV Max report),
-which we cannot derive from whole-shop orders — see
-`app/models/gmv_max_campaign_metric.py`. Gross Revenue and SKU Orders are typed
-in by finance (`GmvMaxCampaignMetric`); Ad Cost comes from the imported GMV-Max
-`AdSpend` (which matched Seller Center's Ad Cost column to the cent). The two
-ratios are derived, defined to match what Seller Center displays:
+These are TikTok's CAMPAIGN-ATTRIBUTED figures, so the page mirrors TikTok's GMV
+Max report to the cent. Because the source is daily, any [start, end) window
+(month, all-time, or an arbitrary date range) aggregates exactly. Definitions
+match what Seller Center displays:
 
-    Cost per Order = Ad Cost ÷ SKU Orders      (denominator is SKU orders)
-    ROI            = Gross Revenue ÷ Ad Cost    (a revenue-to-cost multiple)
-
-A month's metric is included when its month-start falls in the [start, end)
-window (campaign metrics are month-grained, so partial-month windows can't be
-split). Passing no window aggregates all entered months (the page's default,
-no-period view). Ad Cost is summed over AdSpend in the same window.
+    Cost per Order = Ad Cost ÷ SKU Orders
+    ROI            = Gross Revenue ÷ Ad Cost
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.ad_spend import AdSpend
-from app.models.gmv_max_campaign_metric import GmvMaxCampaignMetric
+from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
 
 _CENT = Decimal("0.01")
 
@@ -37,7 +30,7 @@ class GmvMaxCampaignKpis:
     ad_cost: Decimal
     cost_per_order: Decimal
     roi: Decimal
-    has_data: bool          # any entered metric row in the window
+    has_data: bool          # any nonzero campaign activity in the window
 
 
 def compute_gmv_max_campaign_kpis(
@@ -45,54 +38,23 @@ def compute_gmv_max_campaign_kpis(
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> GmvMaxCampaignKpis:
-    """Aggregate campaign KPIs for the [start, end) window, or all-time when no
-    window is given. SKU Orders / Gross Revenue come from entered metrics; Ad
-    Cost from GMV-Max AdSpend. Both ratios guard against divide-by-zero."""
-    # Metrics are month-grained and the table is tiny (one row per month), so we
-    # filter the month window in Python — portable across SQLite and Postgres,
-    # no dialect-specific date arithmetic. A month is in-window iff its
-    # first-of-month falls in [start.date(), end.date()).
-    s_d: date | None = start.date() if start is not None else None
-    e_d: date | None = end.date() if end is not None else None
-    rows = db.execute(
-        select(
-            GmvMaxCampaignMetric.year,
-            GmvMaxCampaignMetric.month,
-            GmvMaxCampaignMetric.gross_revenue,
-            GmvMaxCampaignMetric.sku_orders,
+    """Aggregate the daily campaign metrics over [start, end) (exclusive end),
+    or all-time when no window is given. Both ratios guard divide-by-zero."""
+    stmt = select(
+        func.coalesce(func.sum(GmvMaxDailyMetric.gross_revenue), 0),
+        func.coalesce(func.sum(GmvMaxDailyMetric.sku_orders), 0),
+        func.coalesce(func.sum(GmvMaxDailyMetric.cost), 0),
+    )
+    if start is not None and end is not None:
+        stmt = stmt.where(
+            GmvMaxDailyMetric.metric_date >= start.date(),
+            GmvMaxDailyMetric.metric_date < end.date(),
         )
-    ).all()
-    metric_months: set[tuple[int, int]] = set()
-    gross_revenue = Decimal("0")
-    sku_orders = 0
-    for y, m, grv, sko in rows:
-        if s_d is not None and not (s_d <= date(y, m, 1) < e_d):
-            continue
-        metric_months.add((int(y), int(m)))
-        gross_revenue += Decimal(str(grv))
-        sku_orders += int(sko)
-    gross_revenue = gross_revenue.quantize(_CENT)
+    gr_raw, sku_raw, cost_raw = db.execute(stmt).one()
 
-    # Ad Cost is summed over ONLY the months that have entered metrics, so the
-    # ratios pair like-for-like: a month with GMV-Max spend but no entered
-    # revenue/orders (not yet keyed in) must NOT distort Cost-per-Order or ROI.
-    ad_cost = Decimal("0")
-    if metric_months:
-        spend_rows = db.execute(
-            select(
-                func.extract("year", AdSpend.spend_date),
-                func.extract("month", AdSpend.spend_date),
-                func.coalesce(func.sum(AdSpend.amount), 0),
-            ).group_by(
-                func.extract("year", AdSpend.spend_date),
-                func.extract("month", AdSpend.spend_date),
-            )
-        ).all()
-        for sy, sm, amt in spend_rows:
-            if (int(sy), int(sm)) in metric_months:
-                ad_cost += Decimal(str(amt))
-    ad_cost = ad_cost.quantize(_CENT)
-
+    gross_revenue = Decimal(str(gr_raw)).quantize(_CENT)
+    sku_orders = int(sku_raw or 0)
+    ad_cost = Decimal(str(cost_raw)).quantize(_CENT)
     cost_per_order = (ad_cost / sku_orders).quantize(_CENT) if sku_orders else Decimal("0")
     roi = (gross_revenue / ad_cost).quantize(_CENT) if ad_cost else Decimal("0")
 
@@ -102,5 +64,5 @@ def compute_gmv_max_campaign_kpis(
         ad_cost=ad_cost,
         cost_per_order=cost_per_order,
         roi=roi,
-        has_data=bool(metric_months),
+        has_data=(sku_orders > 0 or ad_cost > 0 or gross_revenue > 0),
     )

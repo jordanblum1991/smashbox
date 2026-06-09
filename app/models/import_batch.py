@@ -23,6 +23,7 @@ class ImportFileKind(str, enum.Enum):
     TIKTOK_PAYOUTS = "tiktok_payouts"
     TIKTOK_ADS = "tiktok_ads"
     TIKTOK_ANALYTICS = "tiktok_analytics"
+    TIKTOK_GMV_MAX = "tiktok_gmv_max"
     SKU_MASTER = "sku_master"
     BUNDLE_MAPPING = "bundle_mapping"
     SAMPLES = "samples"
