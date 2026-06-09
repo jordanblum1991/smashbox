@@ -65,7 +65,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr class="text-base font-semibold text-slate-900">
+        <tr class="bg-slate-100 text-base font-semibold text-slate-900">
           <td class="px-6 py-4 tabular-nums">{{ ct.sku_orders if (ct and ct.has_data) else "—" }}</td>
           <td class="px-6 py-4 tabular-nums">{{ (ct.cost_per_order | money) if (ct and ct.has_data and ct.sku_orders > 0) else "—" }}</td>
           <td class="px-6 py-4 tabular-nums">{{ (ct.gross_revenue | money) if (ct and ct.has_data) else "—" }}</td>
@@ -113,7 +113,7 @@
         </tr>
         {% endfor %}
       </tbody>
-      <tfoot class="bg-slate-900 text-sm font-semibold text-white">
+      <tfoot class="border-t-2 border-slate-300 bg-slate-100 text-sm font-semibold text-slate-900">
         <tr>
           <td class="px-4 py-3 whitespace-nowrap">{{ "Range total" if scope == "range" else "All-Time" }} ({{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }})</td>
           <td class="px-4 py-3 text-right tabular-nums">{{ ct.sku_orders if (ct and ct.has_data) else "—" }}</td>
