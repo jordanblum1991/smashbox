@@ -2,6 +2,13 @@
 
 **Purpose:** Concise implementation plan to take the internal P&L dashboard to a Postgres-backed, multi-brand, self-hosted app where each staff user sees only the brands they're assigned.
 
+## Where to start
+**Build the foundation first; start the long-lead-time API access request in parallel.**
+- **Engineering — do first (P0):** stand up Postgres → initialize Alembic → migrate and validate the SQLite data. It's the foundation everything else writes to, and Alembic must be in place *before* any schema change (multi-tenancy and the API integration both add tables). Lowest risk, no external dependencies.
+- **Admin / IT — in parallel, start now:** (a) provision the server + VPN; (b) **submit the TikTok developer-app + Shop API access request** — approval carries weeks of external lead time, so start the clock now even though the integration is built later.
+- **Then:** multi-tenant scoping (P1) → TikTok API ingestion once access is granted and the DB foundation is in place.
+- **Do *not* start by building the API connections:** the API only replaces the ingestion mechanism (rows land in the same shape), so it unblocks nothing and would be built against SQLite then re-validated after the Postgres move.
+
 ## Current state
 - FastAPI app on a single Fly.io VM (LAX); **SQLite** on a 1 GB encrypted volume.
 - Auth already in place: per-user email + bcrypt, signed-cookie sessions; roles (`admin`/`member`) + a `super_admin` flag.
