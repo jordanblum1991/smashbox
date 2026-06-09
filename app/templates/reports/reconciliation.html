@@ -132,6 +132,71 @@
 </section>
 {% endif %}
 
+<!-- GMV tie-out: our computed GMV vs TikTok's stated (Shop Analytics) GMV -->
+{% if gmv_recon %}
+<section class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="mb-3 flex items-baseline justify-between">
+    <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">GMV tie-out · {{ report.year }}</h2>
+    <span class="text-xs text-slate-400">Our computed GMV vs TikTok stated</span>
+  </div>
+  {% set g_comp = gmv_recon | sum(attribute='computed_gmv') %}
+  {% set g_stated_rows = gmv_recon | selectattr('stated_gmv', 'ne', none) | list %}
+  {% set g_stated = (g_stated_rows | sum(attribute='stated_gmv')) if g_stated_rows else 0 %}
+  {% set g_var_rows = gmv_recon | selectattr('variance', 'ne', none) | list %}
+  {% set g_var = (g_var_rows | sum(attribute='variance')) if g_var_rows else 0 %}
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-2 py-2">Month</th>
+          <th class="px-2 py-2 text-right">Our GMV
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">computed from orders</div>
+          </th>
+          <th class="px-2 py-2 text-right">TikTok Stated GMV
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">Shop Analytics export</div>
+          </th>
+          <th class="px-2 py-2 text-right">Variance
+            <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400">ours − stated</div>
+          </th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in gmv_recon %}
+        {% set v = r.variance %}
+        {% set off = (v is not none) and (v | abs > 0.005) %}
+        <tr class="{% if off %}bg-amber-50/40{% else %}hover:bg-slate-50/60{% endif %}">
+          <td class="px-2 py-1.5 font-medium text-slate-900 whitespace-nowrap">{{ r.month | month_short }} {{ r.year }}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums text-slate-900">{{ r.computed_gmv | money }}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums {% if r.stated_gmv is none %}text-slate-300{% else %}text-slate-900{% endif %}">
+            {% if r.stated_gmv is none %}—{% else %}{{ r.stated_gmv | money }}{% endif %}
+          </td>
+          <td class="px-2 py-1.5 text-right tabular-nums {% if v is none %}text-slate-300{% elif off %}text-amber-700 font-semibold{% else %}text-emerald-700{% endif %}">
+            {% if v is none %}—{% elif v == 0 %}$0.00{% elif v > 0 %}+{{ v | money }}{% else %}({{ (-v) | money | replace('-', '') }}){% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
+        <tr>
+          <td class="px-2 py-3">Year total ({{ report.year }})</td>
+          <td class="px-2 py-3 text-right tabular-nums">{{ g_comp | money }}</td>
+          <td class="px-2 py-3 text-right tabular-nums">{{ g_stated | money }}</td>
+          <td class="px-2 py-3 text-right tabular-nums {% if g_var | abs > 0.005 %}text-amber-700{% else %}text-emerald-700{% endif %}">
+            {% if g_var == 0 %}$0.00{% elif g_var > 0 %}+{{ g_var | money }}{% else %}({{ (-g_var) | money | replace('-', '') }}){% endif %}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <p class="mt-3 text-xs leading-relaxed text-slate-500">
+    Our computed GMV (from the orders file) vs TikTok's stated GMV (Shop Analytics export), per month.
+    They should tie to the cent wherever the analytics export covers the month; <strong>—</strong> means no
+    Shop Analytics data was uploaded for that month. The Variance column sums only months that have both,
+    so a non-zero total flags a month worth investigating.
+  </p>
+</section>
+{% endif %}
+
 <!-- Daily sales reconciliation for the selected month -->
 {% if daily_recon %}
 <details class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm group" open>
