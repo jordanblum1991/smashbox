@@ -1,6 +1,6 @@
 """Per-month ad-spend summary: one row per month with ad spend, showing gross
-spend (GMV-Max + Shop Ads) and ROAS (Net Sales / gross spend). Months with no
-ad spend are excluded; totals roll up gross and overall ROAS.
+spend (GMV-Max only, excl. Shop Ads) and ROAS (Net Sales / GMV-Max spend).
+Months with no GMV-Max ad spend are excluded; totals roll up gross and ROAS.
 """
 from __future__ import annotations
 
@@ -41,6 +41,26 @@ def _adspend(db, bid, spend_date, amount):
     db.add(AdSpend(import_batch_id=bid, spend_date=spend_date, campaign_id="C1",
                    amount=Decimal(str(amount))))
     db.flush()
+
+
+def test_gross_spend_is_gmv_max_only_excludes_shop_ads():
+    # Order carries settlement Shop Ads; a GMV-Max AdSpend row also exists. The
+    # Ad Spend page shows GMV-Max ONLY (matches Seller Center's Ad Cost), so
+    # Shop Ads must NOT be added into gross_spend or the ROAS denominator here.
+    with SessionLocal() as db:
+        b = _batch(db)
+        db.add(Order(import_batch_id=b.id, tiktok_order_id="M",
+                     placed_at=datetime(2026, 5, 15, 12, 0), order_type=OrderType.PAID,
+                     status="Shipped", brand="smashbox",
+                     gross_sales=Decimal("1000"), shop_ads_cost=Decimal("50")))
+        _adspend(db, b.id, datetime(2026, 5, 15), 200)
+        db.commit()
+        result = compute_ad_spend_monthly(db)
+    may = next(r for r in result.rows if r.month == 5)
+    assert may.gross_spend == Decimal("200")        # GMV-Max only — NOT 250
+    assert may.roas == Decimal("5")                 # 1000 / 200 (gmv-max), not 1000/250
+    assert result.total_gross == Decimal("200")
+    assert result.total_roas == Decimal("5")
 
 
 def test_monthly_rows_exclude_months_without_ad_spend():

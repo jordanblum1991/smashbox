@@ -265,6 +265,17 @@ class MonthlyPnL:
         return self.net_customer_sales / self.total_ad_spend
 
     @property
+    def gmv_max_roas(self) -> Decimal:
+        """ROAS on GMV-Max spend ONLY (Net Customer Sales ÷ gmv_max_ad_spend),
+        excluding settlement Shop Ads. The Ad Spend page uses this so its spend
+        + ROAS match TikTok's GMV Max Ad Cost; the regular `roas` (over total ad
+        spend incl. Shop Ads) is unchanged for the P&L / dashboard. 0 when there
+        is no GMV-Max spend."""
+        if self.gmv_max_ad_spend <= 0:
+            return Decimal("0")
+        return self.net_customer_sales / self.gmv_max_ad_spend
+
+    @property
     def gmv(self) -> Decimal:
         """TikTok Seller Center-aligned GMV for the period.
 
