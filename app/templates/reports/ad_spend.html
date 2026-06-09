@@ -23,6 +23,41 @@
 </div>
 {% endif %}
 
+{# Campaign-attributed KPIs (GMV Max). Gross Revenue + SKU Orders are entered on
+   the admin "GMV Max Campaign KPIs" page; Ad Cost comes from imported GMV-Max
+   spend; Cost-per-Order and ROI are derived. Scoped to the selected period, or
+   all-time on the default view. These are TikTok-attributed, NOT whole-shop. #}
+<section class="mb-6">
+  <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">SKU Orders</div>
+      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ campaign.sku_orders if campaign.has_data else "—" }}</div>
+      <div class="mt-1.5 text-xs text-slate-400">GMV Max attributed</div>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Cost per Order</div>
+      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ (campaign.cost_per_order | money) if (campaign.has_data and campaign.sku_orders > 0) else "—" }}</div>
+      <div class="mt-1.5 text-xs text-slate-400">Ad Cost ÷ SKU Orders</div>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Gross Revenue</div>
+      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ (campaign.gross_revenue | money) if campaign.has_data else "—" }}</div>
+      <div class="mt-1.5 text-xs text-slate-400">User-paid + Shop subsidies</div>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">ROI</div>
+      <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ ("%.2f" % campaign.roi) if (campaign.has_data and campaign.ad_cost > 0) else "—" }}</div>
+      <div class="mt-1.5 text-xs text-slate-400">Gross Revenue ÷ Ad Cost</div>
+    </div>
+  </div>
+  {% if not campaign.has_data %}
+  <p class="mt-2 text-xs text-slate-500">
+    No GMV Max campaign metrics entered{{ " for this period" if specified else "" }}.
+    Add them on <a href="/admin/gmv-max-campaign-metrics" class="underline underline-offset-2">GMV Max Campaign KPIs</a>.
+  </p>
+  {% endif %}
+</section>
+
 {% if specified %}
 {# A specific period is chosen → two aggregate KPIs for that period. #}
 {% set has_spend = view.total.total_ad_spend > 0 %}
