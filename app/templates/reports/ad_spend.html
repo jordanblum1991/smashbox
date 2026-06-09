@@ -1,21 +1,17 @@
 {% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
-{% block title %}Ad Spend Summary · Smashbox{% endblock %}
+{% block title %}Ad Spend & Campaign KPIs · Smashbox{% endblock %}
 
 {% block content %}
 {% call ui.page_header(
   eyebrow="TikTok Ads",
-  title="Ad Spend Summary",
-  period=view.title_suffix,
-  subtitle="GMV-Max ad spend and ROAS — by month, or for a selected period.",
+  title="Ad Spend & Campaign KPIs",
+  subtitle="Monthly GMV Max performance — SKU orders, cost per order, gross revenue, ROI, ad spend, and ROAS. Toggle All-Time for the combined total.",
   accent_bar=true,
 ) %}
   <button onclick="window.print()" type="button"
-          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Print</button>
 {% endcall %}
-
-{% set selector_action = "/reports/ad-spend" %}
-{% include "partials/period_selector.html" %}
 
 {% if error %}
 <div class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
@@ -23,14 +19,22 @@
 </div>
 {% endif %}
 
-{# KPI metrics table — campaign-attributed (SKU Orders / Gross Revenue / ROI /
-   Cost per Order), plus Total Gross Spend + ROAS when a period is selected.
-   Campaign figures are TikTok-attributed (entered on Admin → GMV Max Campaign
-   KPIs); spend is GMV-Max only (excl. Shop Ads), matching TikTok's Ad Cost. #}
-<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+{# View toggle: per-month breakdown vs the combined all-time total. #}
+<div class="mb-6 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm print:hidden">
+  <a href="/reports/ad-spend"
+     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if not all_time else 'text-slate-600 hover:bg-slate-100' }}">By month</a>
+  <a href="/reports/ad-spend?scope=all-time"
+     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if all_time else 'text-slate-600 hover:bg-slate-100' }}">All-Time</a>
+</div>
+
+{% if monthly.rows %}
+{% set ct = monthly.campaign_total %}
+{% if all_time %}
+{# All-Time → combined figures across every month with entered metrics. #}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="border-b border-slate-200 px-6 py-3">
-    <h2 class="text-base font-semibold text-slate-900">Key metrics</h2>
-    <p class="mt-0.5 text-xs text-slate-500">{{ view.title_suffix if specified else "All time" }} · GMV Max attributed</p>
+    <h2 class="text-base font-semibold text-slate-900">All-Time</h2>
+    <p class="mt-0.5 text-xs text-slate-500">Combined GMV Max performance across every month with entered metrics.</p>
   </header>
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
@@ -40,41 +44,30 @@
           <th class="px-6 py-2.5">Cost per Order</th>
           <th class="px-6 py-2.5">Gross Revenue</th>
           <th class="px-6 py-2.5">ROI</th>
-          {% if specified %}
           <th class="px-6 py-2.5">Total Gross Spend</th>
           <th class="px-6 py-2.5">ROAS</th>
-          {% endif %}
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ campaign.sku_orders if campaign.has_data else "—" }}</td>
-          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ (campaign.cost_per_order | money) if (campaign.has_data and campaign.sku_orders > 0) else "—" }}</td>
-          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ (campaign.gross_revenue | money) if campaign.has_data else "—" }}</td>
-          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ ("%.2f" % campaign.roi) if (campaign.has_data and campaign.ad_cost > 0) else "—" }}</td>
-          {% if specified %}
-          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ view.total.gmv_max_ad_spend | money }}</td>
-          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ ("%.2fx" % view.total.gmv_max_roas) if (view.total.gmv_max_ad_spend > 0) else "—" }}</td>
-          {% endif %}
+        <tr class="text-base font-semibold text-slate-900">
+          <td class="px-6 py-4 tabular-nums">{{ ct.sku_orders if (ct and ct.has_data) else "—" }}</td>
+          <td class="px-6 py-4 tabular-nums">{{ (ct.cost_per_order | money) if (ct and ct.has_data and ct.sku_orders > 0) else "—" }}</td>
+          <td class="px-6 py-4 tabular-nums">{{ (ct.gross_revenue | money) if (ct and ct.has_data) else "—" }}</td>
+          <td class="px-6 py-4 tabular-nums">{{ ("%.2f" % ct.roi) if (ct and ct.has_data and ct.ad_cost > 0) else "—" }}</td>
+          <td class="px-6 py-4 tabular-nums">{{ (ct.ad_cost | money) if ct else "—" }}</td>
+          <td class="px-6 py-4 tabular-nums">{{ ("%.2fx" % monthly.total_roas) if monthly.total_gross > 0 else "—" }}</td>
         </tr>
       </tbody>
     </table>
   </div>
-  <div class="border-t border-slate-100 px-6 py-2 text-[11px] text-slate-400">
-    Cost per Order = Ad Cost ÷ SKU Orders · ROI = Gross Revenue ÷ Ad Cost{% if specified %} · ROAS = Net Sales ÷ GMV-Max spend{% endif %}
-    {% if not campaign.has_data %}<br>No GMV Max campaign metrics entered{{ " for this period" if specified else "" }} — add them on <a href="/admin/gmv-max-campaign-metrics" class="underline underline-offset-2">GMV Max Campaign KPIs</a>.{% endif %}
-  </div>
 </section>
-
-{# Default (no period) → per-month overview below the table. #}
-{% if not specified %}
-{% if monthly.rows %}
-{# Default → per-month overview. #}
+{% else %}
+{# By month → one row per month + a highlighted all-time totals row. #}
 <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
-      <h2 class="text-base font-semibold text-slate-900">Monthly ad spend</h2>
-      <p class="mt-0.5 text-xs text-slate-500">GMV Max KPIs per month. SKU Orders / Gross Revenue / ROI are blank for months not yet entered on Admin → GMV Max Campaign KPIs.</p>
+      <h2 class="text-base font-semibold text-slate-900">Monthly GMV Max KPIs</h2>
+      <p class="mt-0.5 text-xs text-slate-500">SKU Orders / Gross Revenue / ROI are blank for months not yet entered on Admin → GMV Max Campaign KPIs.</p>
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }}</span>
   </header>
@@ -104,10 +97,9 @@
         </tr>
         {% endfor %}
       </tbody>
-      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
-        {% set ct = monthly.campaign_total %}
+      <tfoot class="bg-slate-900 text-sm font-semibold text-white">
         <tr>
-          <td class="px-4 py-3">Total ({{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }})</td>
+          <td class="px-4 py-3 whitespace-nowrap">All-Time ({{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }})</td>
           <td class="px-4 py-3 text-right tabular-nums">{{ ct.sku_orders if (ct and ct.has_data) else "—" }}</td>
           <td class="px-4 py-3 text-right tabular-nums">{{ (ct.cost_per_order | money) if (ct and ct.has_data and ct.sku_orders > 0) else "—" }}</td>
           <td class="px-4 py-3 text-right tabular-nums">{{ (ct.gross_revenue | money) if (ct and ct.has_data) else "—" }}</td>
@@ -119,11 +111,11 @@
     </table>
   </div>
 </section>
-{% elif not campaign.has_data %}
+{% endif %}
+{% else %}
 {% call ui.banner(tone="info", title="No ad spend imported yet") %}
   Upload a TikTok Ads (GMV Max) cost export from the
   <a href="/uploads" class="underline underline-offset-2">Imports page</a>.
 {% endcall %}
-{% endif %}
 {% endif %}
 {% endblock %}

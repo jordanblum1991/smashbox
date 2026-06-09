@@ -19,7 +19,6 @@ from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
 from app.models.sku import Sku
 from app.reports.ad_spend import compute_ad_spend_monthly, compute_ad_spend_summary
-from app.reports.gmv_max_campaign_kpis import compute_gmv_max_campaign_kpis
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
 from app.reports.dashboard_trends import (
     bar_chart,
@@ -812,66 +811,23 @@ def _ad_spend_error_redirect(reason: str) -> RedirectResponse:
 @router.get("/reports/ad-spend")
 def ad_spend_view(
     request: Request,
-    period: PeriodKind = PeriodKind.MONTH,
-    year: int | None = None,
-    month: int | None = None,
-    start_year: int | None = None,
-    start_month: int | None = None,
-    end_year: int | None = None,
-    end_month: int | None = None,
-    start_date: str | None = None,    # ISO YYYY-MM-DD; CUSTOM mode only
-    end_date: str | None = None,
+    scope: str = "month",
     db: Session = Depends(get_db),
 ):
-    """Ad Spend Summary — two KPIs for the selected period: Total Gross Spend
-    (GMV-Max + Shop Ads, before credits) and ROAS (Net Sales / gross spend).
-    Same period selector as the dashboard / P&L. No credit info here — credit
-    entry + management lives on /reports/ad-spend/reimbursements."""
-    sd_obj: date | None = None
-    ed_obj: date | None = None
-    if period == PeriodKind.CUSTOM:
-        try:
-            sd_obj = date.fromisoformat(start_date) if start_date else None
-            ed_obj = date.fromisoformat(end_date) if end_date else None
-        except ValueError:
-            return _ad_spend_error_redirect("Invalid date format — use YYYY-MM-DD.")
-        if sd_obj is None or ed_obj is None:
-            return _ad_spend_error_redirect("Custom date range requires both start and end dates.")
-        if sd_obj > ed_obj:
-            return _ad_spend_error_redirect("Start date must be on or before end date.")
+    """Ad Spend & Campaign KPIs.
 
-    # Reuse the P&L period machinery so the shared selector + window match the
-    # rest of the app exactly.
-    view = compute_pnl_view(
-        db, period, year, month,
-        start_year=start_year, start_month=start_month,
-        end_year=end_year, end_month=end_month,
-        start_date=sd_obj, end_date=ed_obj,
-    )
-    # Default (no period chosen) → a per-month overview (gross spend + ROAS).
-    # Once the user picks a specific period via the selector, collapse to the
-    # two aggregate KPIs for that period. No credit info either way (credit
-    # entry lives on /reports/ad-spend/reimbursements).
-    _PERIOD_PARAMS = ("period", "year", "month", "start_year", "start_month",
-                      "end_year", "end_month", "start_date", "end_date")
-    specified = any(p in request.query_params for p in _PERIOD_PARAMS)
-    monthly = None if specified else compute_ad_spend_monthly(db)
-    # Campaign-attributed KPIs (SKU Orders / Cost per Order / Gross Revenue / ROI)
-    # from manually-entered GMV Max metrics + imported GMV-Max spend. Scoped to
-    # the selected window, or all-time on the default (no-period) view.
-    if specified:
-        c_start, c_end = window_for(view)
-        campaign = compute_gmv_max_campaign_kpis(db, c_start, c_end)
-    else:
-        campaign = compute_gmv_max_campaign_kpis(db)
+    `scope=month` (default) → the per-month KPI table (SKU Orders, Cost per
+    Order, Gross Revenue, ROI, Total Gross Spend, ROAS) with a highlighted
+    all-time totals row. `scope=all-time` → the combined all-time figures as a
+    single row. Campaign figures come from the entered GMV Max metrics; spend is
+    GMV-Max only (matches TikTok's Ad Cost; Shop Ads stays in the P&L)."""
+    monthly = compute_ad_spend_monthly(db)
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
         {
-            "view": view,
-            "specified": specified,
             "monthly": monthly,
-            "campaign": campaign,
+            "all_time": scope == "all-time",
             "error": request.query_params.get("error"),
         },
     )
