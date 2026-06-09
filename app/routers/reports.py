@@ -34,6 +34,7 @@ from app.reports.policy_violations import (
 )
 from app.reports.reconciliation import (
     daily_sales_reconciliation,
+    gmv_tie_out,
     reconcile_month,
     yearly_sales_reconciliation,
 )
@@ -904,6 +905,7 @@ def reconciliation_view(
     report = reconcile_month(db, y, m)
     monthly_recon = yearly_sales_reconciliation(db, y)
     daily_recon = daily_sales_reconciliation(db, y, m)
+    gmv_recon = gmv_tie_out(db, y)
     return templates.TemplateResponse(
         request,
         "reports/reconciliation.html",
@@ -911,5 +913,6 @@ def reconciliation_view(
             "report": report,
             "monthly_recon": monthly_recon,
             "daily_recon": daily_recon,
+            "gmv_recon": gmv_recon,
         },
     )

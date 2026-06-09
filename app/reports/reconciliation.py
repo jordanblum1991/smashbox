@@ -310,6 +310,46 @@ def yearly_sales_reconciliation(
 
 
 @dataclass
+class GmvTieOutRow:
+    """One month of the GMV tie-out: our computed GMV (from orders) vs TikTok's
+    stated GMV (the daily Shop Analytics export). `stated_gmv` is None for months
+    with no analytics loaded — `variance` is then None (nothing to tie to)."""
+    year: int
+    month: int
+    computed_gmv: Decimal
+    stated_gmv: Decimal | None = None
+
+    @property
+    def variance(self) -> Decimal | None:
+        if self.stated_gmv is None:
+            return None
+        return self.computed_gmv - self.stated_gmv
+
+
+def gmv_tie_out(db: Session, year: int) -> list[GmvTieOutRow]:
+    """Per-month GMV tie-out for `year`: our computed GMV vs TikTok's stated
+    GMV (summed from TikTokDailyMetric). Months with neither are omitted. The
+    two should agree to the cent wherever the analytics export covers the
+    month; a non-zero variance flags a month worth investigating."""
+    stated: dict[int, Decimal] = {}
+    for d, g in db.execute(
+        select(TikTokDailyMetric.metric_date, TikTokDailyMetric.gmv)
+        .where(TikTokDailyMetric.metric_date >= date(year, 1, 1))
+        .where(TikTokDailyMetric.metric_date < date(year + 1, 1, 1))
+    ).all():
+        stated[d.month] = stated.get(d.month, Decimal("0")) + Decimal(str(g or 0))
+
+    rows: list[GmvTieOutRow] = []
+    for m in range(1, 13):
+        computed = compute_monthly_pnl(db, year, m).gmv
+        st = stated.get(m)
+        if computed == 0 and st is None:
+            continue
+        rows.append(GmvTieOutRow(year=year, month=m, computed_gmv=computed, stated_gmv=st))
+    return rows
+
+
+@dataclass
 class ReconciliationReport:
     year: int
     month: int
