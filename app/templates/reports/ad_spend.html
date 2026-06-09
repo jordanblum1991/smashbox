@@ -32,36 +32,34 @@
     <h2 class="text-base font-semibold text-slate-900">Key metrics</h2>
     <p class="mt-0.5 text-xs text-slate-500">{{ view.title_suffix if specified else "All time" }} · GMV Max attributed</p>
   </header>
-  <table class="w-full text-sm">
-    <tbody class="divide-y divide-slate-100">
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-6 py-2.5 text-slate-600">SKU Orders</td>
-        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ campaign.sku_orders if campaign.has_data else "—" }}</td>
-      </tr>
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-6 py-2.5 text-slate-600">Cost per Order</td>
-        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ (campaign.cost_per_order | money) if (campaign.has_data and campaign.sku_orders > 0) else "—" }}</td>
-      </tr>
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-6 py-2.5 text-slate-600">Gross Revenue</td>
-        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ (campaign.gross_revenue | money) if campaign.has_data else "—" }}</td>
-      </tr>
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-6 py-2.5 text-slate-600">ROI</td>
-        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ ("%.2f" % campaign.roi) if (campaign.has_data and campaign.ad_cost > 0) else "—" }}</td>
-      </tr>
-      {% if specified %}
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-6 py-2.5 text-slate-600">Total Gross Spend</td>
-        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ view.total.gmv_max_ad_spend | money }}</td>
-      </tr>
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-6 py-2.5 text-slate-600">ROAS</td>
-        <td class="px-6 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ ("%.2fx" % view.total.gmv_max_roas) if (view.total.gmv_max_ad_spend > 0) else "—" }}</td>
-      </tr>
-      {% endif %}
-    </tbody>
-  </table>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-6 py-2.5">SKU Orders</th>
+          <th class="px-6 py-2.5">Cost per Order</th>
+          <th class="px-6 py-2.5">Gross Revenue</th>
+          <th class="px-6 py-2.5">ROI</th>
+          {% if specified %}
+          <th class="px-6 py-2.5">Total Gross Spend</th>
+          <th class="px-6 py-2.5">ROAS</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ campaign.sku_orders if campaign.has_data else "—" }}</td>
+          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ (campaign.cost_per_order | money) if (campaign.has_data and campaign.sku_orders > 0) else "—" }}</td>
+          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ (campaign.gross_revenue | money) if campaign.has_data else "—" }}</td>
+          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ ("%.2f" % campaign.roi) if (campaign.has_data and campaign.ad_cost > 0) else "—" }}</td>
+          {% if specified %}
+          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ view.total.gmv_max_ad_spend | money }}</td>
+          <td class="px-6 py-3 tabular-nums font-medium text-slate-900">{{ ("%.2fx" % view.total.gmv_max_roas) if (view.total.gmv_max_ad_spend > 0) else "—" }}</td>
+          {% endif %}
+        </tr>
+      </tbody>
+    </table>
+  </div>
   <div class="border-t border-slate-100 px-6 py-2 text-[11px] text-slate-400">
     Cost per Order = Ad Cost ÷ SKU Orders · ROI = Gross Revenue ÷ Ad Cost{% if specified %} · ROAS = Net Sales ÷ GMV-Max spend{% endif %}
     {% if not campaign.has_data %}<br>No GMV Max campaign metrics entered{{ " for this period" if specified else "" }} — add them on <a href="/admin/gmv-max-campaign-metrics" class="underline underline-offset-2">GMV Max Campaign KPIs</a>.{% endif %}
