@@ -22,7 +22,9 @@ from sqlalchemy.orm import Session
 
 from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
+from app.models.gmv_max_campaign_metric import GmvMaxCampaignMetric
 from app.models.order import Order
+from app.reports.gmv_max_campaign_kpis import GmvMaxCampaignKpis, compute_gmv_max_campaign_kpis
 
 
 @dataclass
@@ -168,6 +170,11 @@ class AdSpendMonthKpi:
     month: int
     gross_spend: Decimal   # GMV-Max ad spend only (before credits); excl. Shop Ads
     roas: Decimal          # Net Customer Sales / gross_spend (GMV-Max)
+    # Campaign-attributed KPIs for the month (None when no metric entered).
+    sku_orders: int | None = None
+    cost_per_order: Decimal | None = None
+    gross_revenue: Decimal | None = None
+    roi: Decimal | None = None
 
 
 @dataclass
@@ -175,6 +182,8 @@ class AdSpendMonthly:
     rows: list[AdSpendMonthKpi] = field(default_factory=list)
     total_gross: Decimal = Decimal("0")
     total_roas: Decimal = Decimal("0")   # Σ net sales / Σ gross spend
+    # All-time campaign totals for the footer (None when none entered).
+    campaign_total: GmvMaxCampaignKpis | None = None
 
 
 def compute_ad_spend_monthly(db: Session) -> AdSpendMonthly:
@@ -196,6 +205,15 @@ def compute_ad_spend_monthly(db: Session) -> AdSpendMonthly:
         return AdSpendMonthly()
     lo, hi = min(los), max(his)
 
+    # Months that have an entered campaign metric — included even if (somehow)
+    # they have no GMV-Max spend row yet, so their SKU Orders / Gross Revenue
+    # still surface.
+    metric_months = {
+        (int(my), int(mm)) for my, mm in db.execute(
+            select(GmvMaxCampaignMetric.year, GmvMaxCampaignMetric.month)
+        ).all()
+    }
+
     rows: list[AdSpendMonthKpi] = []
     sum_gross = sum_net = Decimal("0")
     y, m = lo.year, lo.month
@@ -203,15 +221,27 @@ def compute_ad_spend_monthly(db: Session) -> AdSpendMonthly:
         pnl = compute_monthly_pnl(db, y, m)
         # GMV-Max spend ONLY (excludes settlement Shop Ads) so this page matches
         # TikTok's GMV Max Ad Cost. Shop Ads still flows through the P&L.
-        if pnl.gmv_max_ad_spend > 0:
+        if pnl.gmv_max_ad_spend > 0 or (y, m) in metric_months:
+            m_end = (datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1))
+            camp = compute_gmv_max_campaign_kpis(db, datetime(y, m, 1), m_end)
             rows.append(AdSpendMonthKpi(
                 year=y, month=m,
                 gross_spend=pnl.gmv_max_ad_spend,
                 roas=pnl.gmv_max_roas,
+                sku_orders=camp.sku_orders if camp.has_data else None,
+                cost_per_order=camp.cost_per_order if (camp.has_data and camp.sku_orders > 0) else None,
+                gross_revenue=camp.gross_revenue if camp.has_data else None,
+                roi=camp.roi if (camp.has_data and camp.ad_cost > 0) else None,
             ))
             sum_gross += pnl.gmv_max_ad_spend
             sum_net += pnl.net_customer_sales
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
     total_roas = (sum_net / sum_gross) if sum_gross else Decimal("0")
-    return AdSpendMonthly(rows=rows, total_gross=sum_gross, total_roas=total_roas)
+    # All-time campaign totals for the footer — reuses the same report the top
+    # table uses, so the footer ties out to it exactly.
+    campaign_total = compute_gmv_max_campaign_kpis(db)
+    return AdSpendMonthly(
+        rows=rows, total_gross=sum_gross, total_roas=total_roas,
+        campaign_total=campaign_total,
+    )

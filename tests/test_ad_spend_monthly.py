@@ -12,6 +12,7 @@ import pytest
 from app.db import Base, SessionLocal, engine
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.ad_spend import AdSpend
+from app.models.gmv_max_campaign_metric import GmvMaxCampaignMetric
 from app.models.order import Order, OrderType
 from app.reports.ad_spend import compute_ad_spend_monthly
 
@@ -87,6 +88,33 @@ def test_monthly_rows_exclude_months_without_ad_spend():
     assert apr.roas == Decimal("5")
     assert may.gross_spend == Decimal("200")
     assert may.roas == Decimal("5")
+
+
+def test_monthly_rows_include_campaign_kpis():
+    with SessionLocal() as db:
+        b = _batch(db)
+        # May: GMV-Max spend + an entered campaign metric -> KPI columns filled.
+        _order(db, b.id, "M", datetime(2026, 5, 15, 12, 0), 15769.65)
+        _adspend(db, b.id, datetime(2026, 5, 15), "7824.02")
+        db.add(GmvMaxCampaignMetric(year=2026, month=5,
+                                    gross_revenue=Decimal("15769.65"), sku_orders=413))
+        # Apr: spend but NO campaign metric -> KPI columns stay None.
+        _order(db, b.id, "A", datetime(2026, 4, 15, 12, 0), 500)
+        _adspend(db, b.id, datetime(2026, 4, 15), 100)
+        db.commit()
+        result = compute_ad_spend_monthly(db)
+
+    may = next(r for r in result.rows if r.month == 5)
+    apr = next(r for r in result.rows if r.month == 4)
+    assert may.sku_orders == 413
+    assert may.gross_revenue == Decimal("15769.65")
+    assert may.cost_per_order == Decimal("18.94")     # 7824.02 / 413
+    assert may.roi == Decimal("2.02")                 # 15769.65 / 7824.02
+    assert apr.sku_orders is None and apr.cost_per_order is None
+    assert apr.gross_revenue is None and apr.roi is None
+    # Footer totals reuse the all-time campaign report.
+    assert result.campaign_total is not None
+    assert result.campaign_total.sku_orders == 413
 
 
 def test_monthly_totals():
