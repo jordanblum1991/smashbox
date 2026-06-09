@@ -62,21 +62,36 @@ def compute_gmv_max_campaign_kpis(
             GmvMaxCampaignMetric.sku_orders,
         )
     ).all()
+    metric_months: set[tuple[int, int]] = set()
     gross_revenue = Decimal("0")
     sku_orders = 0
-    n_rows = 0
     for y, m, grv, sko in rows:
         if s_d is not None and not (s_d <= date(y, m, 1) < e_d):
             continue
+        metric_months.add((int(y), int(m)))
         gross_revenue += Decimal(str(grv))
         sku_orders += int(sko)
-        n_rows += 1
     gross_revenue = gross_revenue.quantize(_CENT)
 
-    spend_stmt = select(func.coalesce(func.sum(AdSpend.amount), 0))
-    if start is not None and end is not None:
-        spend_stmt = spend_stmt.where(AdSpend.spend_date >= start, AdSpend.spend_date < end)
-    ad_cost = Decimal(str(db.execute(spend_stmt).scalar() or 0)).quantize(_CENT)
+    # Ad Cost is summed over ONLY the months that have entered metrics, so the
+    # ratios pair like-for-like: a month with GMV-Max spend but no entered
+    # revenue/orders (not yet keyed in) must NOT distort Cost-per-Order or ROI.
+    ad_cost = Decimal("0")
+    if metric_months:
+        spend_rows = db.execute(
+            select(
+                func.extract("year", AdSpend.spend_date),
+                func.extract("month", AdSpend.spend_date),
+                func.coalesce(func.sum(AdSpend.amount), 0),
+            ).group_by(
+                func.extract("year", AdSpend.spend_date),
+                func.extract("month", AdSpend.spend_date),
+            )
+        ).all()
+        for sy, sm, amt in spend_rows:
+            if (int(sy), int(sm)) in metric_months:
+                ad_cost += Decimal(str(amt))
+    ad_cost = ad_cost.quantize(_CENT)
 
     cost_per_order = (ad_cost / sku_orders).quantize(_CENT) if sku_orders else Decimal("0")
     roi = (gross_revenue / ad_cost).quantize(_CENT) if ad_cost else Decimal("0")
@@ -87,5 +102,5 @@ def compute_gmv_max_campaign_kpis(
         ad_cost=ad_cost,
         cost_per_order=cost_per_order,
         roi=roi,
-        has_data=n_rows > 0,
+        has_data=bool(metric_months),
     )

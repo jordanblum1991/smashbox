@@ -117,6 +117,21 @@ def test_zero_ad_cost_no_divide():
         assert k.cost_per_order == Decimal("0")
 
 
+def test_ad_cost_excludes_months_without_metric():
+    # June has spend but no entered metric → it must NOT count toward Ad Cost
+    # (else all-time Cost/Order and ROI mix June's spend with no June revenue).
+    with SessionLocal() as db:
+        bid = _batch(db)
+        _metric(db, 2026, 5, "15769.65", 413)
+        _spend(db, bid, datetime(2026, 5, 10), "7824.02")
+        _spend(db, bid, datetime(2026, 6, 10), "1454.11")   # spend, no May-vs metric
+        db.commit()
+        k = compute_gmv_max_campaign_kpis(db)  # all-time
+        assert k.ad_cost == Decimal("7824.02")   # June's 1454.11 excluded
+        assert k.cost_per_order == Decimal("18.94")
+        assert k.roi == Decimal("2.02")
+
+
 def test_window_excludes_other_months():
     with SessionLocal() as db:
         bid = _batch(db)
