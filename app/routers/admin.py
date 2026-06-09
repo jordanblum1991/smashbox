@@ -713,3 +713,73 @@ def update_sku_details(
     sku.service_level = service_level_dec
     db.commit()
     return {"ok": True, "sku": _sku_view(sku)}
+
+
+@router.post("/skus/bulk-edit", dependencies=[Depends(require_admin)])
+def bulk_edit_skus(
+    sku_ids: str = Form(...),
+    apply_lead_time_days: bool = Form(default=False),
+    lead_time_days: str = Form(default=""),
+    apply_moq: bool = Form(default=False),
+    moq: str = Form(default=""),
+    apply_case_pack: bool = Form(default=False),
+    case_pack: str = Form(default=""),
+    apply_safety_stock_pct: bool = Form(default=False),
+    safety_stock_pct: str = Form(default=""),
+    apply_service_level: bool = Form(default=False),
+    service_level: str = Form(default=""),
+    apply_is_reorderable: bool = Form(default=False),
+    is_reorderable: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Bulk-edit planning fields + Reorderable across many SKUs from the Manage
+    SKUs grid. Per-field `apply_*` flags: only checked fields change; a checked
+    field left blank CLEARS it (the nullable planning fields). Validation reuses
+    create_sku's strict parsers and runs for ALL applied fields BEFORE any write,
+    so one fat-fingered value rejects the whole batch — no partial commit.
+    Identity / MSRP / Unit COGS are intentionally out of scope. Returns the
+    refreshed row JSON for the fetch-based grid update."""
+    ids: list[int] = []
+    for part in (sku_ids or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid SKU id: {part!r}.")
+    ids = list(dict.fromkeys(ids))  # dedupe, preserve order
+    if not ids:
+        raise HTTPException(status_code=400, detail="No SKUs selected.")
+
+    # Validate every applied field first — reject the batch before any write.
+    updates: dict = {}
+    try:
+        if apply_lead_time_days:
+            updates["lead_time_days"] = _int_strict_optional(lead_time_days, "Lead time (days)", min_value=0)
+        if apply_moq:
+            updates["moq"] = _int_strict_optional(moq, "MOQ", min_value=0)
+        if apply_case_pack:
+            updates["case_pack"] = _int_strict_optional(case_pack, "Case pack", min_value=0)
+        if apply_safety_stock_pct:
+            updates["safety_stock_pct"] = _decimal_strict_optional(
+                safety_stock_pct, "Safety stock %", min_value=Decimal("0"), max_value=Decimal("100"))
+        if apply_service_level:
+            updates["service_level"] = _parse_service_level(service_level)
+        if apply_is_reorderable:
+            updates["is_reorderable"] = str(is_reorderable).strip().lower() in ("true", "1", "yes", "on")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields selected to change.")
+
+    skus = db.query(Sku).filter(Sku.id.in_(ids)).all()
+    if len(skus) != len(ids):
+        raise HTTPException(status_code=404, detail="One or more selected SKUs were not found.")
+
+    for s in skus:
+        for field, value in updates.items():
+            setattr(s, field, value)
+    db.commit()
+    return {"ok": True, "updated_count": len(skus), "skus": [_sku_view(s) for s in skus]}

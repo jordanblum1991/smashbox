@@ -84,6 +84,7 @@
       <button class="clear-btn" id="clear-filters">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
     </div>
     <div class="tb-right">
+      <button type="button" id="bulk-btn" class="bulk-btn" disabled>Bulk edit (<span id="bulk-n">0</span>)</button>
       <div class="count-chip"><span class="mono"><strong id="count-active">{{ active_count }}</strong></span> active <span class="note">· <span id="count-shown" class="mono">—</span> shown</span></div>
     </div>
   </div>
@@ -91,6 +92,70 @@
   {# ---- Grid ---- #}
   <div class="grid-wrap">
     <div id="grid" class="ag-theme-quartz ag-theme-smashbox" style="height:632px; width:100%;"></div>
+  </div>
+
+  {# ---- Bulk-edit overlay (planning inputs + Reorderable applied to selected rows) ---- #}
+  <style>
+    .bulk-btn{ font-size:13px; padding:6px 12px; border:1px solid var(--sbx-hair, #e2e8f0); border-radius:8px; background:#fff; color:#0f172a; cursor:pointer; font-weight:500; }
+    .bulk-btn:hover:not(:disabled){ background:#f8fafc; }
+    .bulk-btn:disabled{ opacity:.45; cursor:not-allowed; }
+    .bulk-overlay{ position:fixed; inset:0; background:rgba(15,23,42,.42); display:flex; align-items:center; justify-content:center; z-index:60; }
+    .bulk-overlay[hidden]{ display:none; }
+    .bulk-card{ background:#fff; border-radius:14px; width:min(460px,92vw); padding:22px 22px 18px; box-shadow:0 18px 50px rgba(2,6,23,.28); }
+    .bulk-head{ display:flex; align-items:center; justify-content:space-between; }
+    .bulk-head h3{ font-size:15px; font-weight:600; color:#0f172a; }
+    .bulk-x{ border:none; background:none; font-size:22px; line-height:1; cursor:pointer; color:#94a3b8; padding:0 2px; }
+    .bulk-x:hover{ color:#475569; }
+    .bulk-note{ margin:8px 0 16px; font-size:12px; color:#64748b; line-height:1.55; }
+    .bulk-grid{ display:grid; grid-template-columns:1fr 158px; gap:10px 14px; align-items:center; }
+    .bulk-grid .bf{ font-size:13px; color:#0f172a; display:flex; align-items:center; gap:8px; cursor:pointer; }
+    .bulk-grid .bf input{ accent-color:#0f172a; }
+    .bulk-grid .binput{ height:34px; border:1px solid var(--sbx-hair, #e2e8f0); border-radius:8px; padding:0 9px; font-size:13px; width:100%; box-sizing:border-box; background:#fff; }
+    .bulk-grid .binput:disabled{ background:#f8fafc; color:#94a3b8; }
+    .bulk-actions{ margin-top:20px; display:flex; align-items:center; gap:10px; justify-content:flex-end; }
+    .bulk-msg{ margin-right:auto; font-size:12px; color:#64748b; }
+    .bulk-msg.err{ color:#be123c; }
+    .bbtn{ padding:8px 15px; border:1px solid var(--sbx-hair, #e2e8f0); border-radius:8px; background:#fff; color:#0f172a; font-size:13px; font-weight:500; cursor:pointer; }
+    .bbtn:hover{ background:#f8fafc; }
+    .bbtn.primary{ background:#0f172a; color:#fff; border-color:#0f172a; }
+    .bbtn.primary:hover{ background:#1e293b; }
+    .bbtn:disabled{ opacity:.55; cursor:not-allowed; }
+  </style>
+  <div id="bulk-overlay" class="bulk-overlay" hidden>
+    <div class="bulk-card" role="dialog" aria-modal="true" aria-label="Bulk edit SKUs">
+      <div class="bulk-head">
+        <h3>Bulk edit <span id="bulk-count">0</span> SKU<span id="bulk-s"></span></h3>
+        <button type="button" id="bulk-x" class="bulk-x" aria-label="Close">&times;</button>
+      </div>
+      <p class="bulk-note">Check a field to set it on every selected SKU. Unchecked fields are left as-is; a checked field left blank clears it.</p>
+      <div class="bulk-grid">
+        <label class="bf"><input type="checkbox" class="bapply" data-f="lead_time_days"> Lead time (days)</label>
+        <input type="text" id="b-lead_time_days" inputmode="numeric" class="binput" placeholder="blank = clear" disabled>
+        <label class="bf"><input type="checkbox" class="bapply" data-f="moq"> MOQ</label>
+        <input type="text" id="b-moq" inputmode="numeric" class="binput" placeholder="blank = clear" disabled>
+        <label class="bf"><input type="checkbox" class="bapply" data-f="case_pack"> Case pack</label>
+        <input type="text" id="b-case_pack" inputmode="numeric" class="binput" placeholder="blank = clear" disabled>
+        <label class="bf"><input type="checkbox" class="bapply" data-f="safety_stock_pct"> Safety stock %</label>
+        <input type="text" id="b-safety_stock_pct" inputmode="decimal" class="binput" placeholder="blank = clear" disabled>
+        <label class="bf"><input type="checkbox" class="bapply" data-f="service_level"> Service level</label>
+        <select id="b-service_level" class="binput" disabled>
+          <option value="">— (clear)</option>
+          <option value="0.90">0.90</option>
+          <option value="0.95">0.95</option>
+          <option value="0.975">0.975</option>
+        </select>
+        <label class="bf"><input type="checkbox" class="bapply" data-f="is_reorderable"> Reorderable</label>
+        <select id="b-is_reorderable" class="binput" disabled>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+      <div class="bulk-actions">
+        <span id="bulk-msg" class="bulk-msg"></span>
+        <button type="button" id="bulk-cancel" class="bbtn">Cancel</button>
+        <button type="button" id="bulk-apply" class="bbtn primary">Apply to selected</button>
+      </div>
+    </div>
   </div>
 
   {# ---- Add SKU form (restyled; auto-opens on validation error). Same field
@@ -284,6 +349,9 @@ let curNode = null, curData = null, origState = null;
 const ext = { category:"", brand:"", type:"", reorder:"", comp:"", status:"active" };
 
 const columnDefs = [
+  { headerName:"", field:"_sel", width:46, pinned:"left", checkboxSelection:true,
+    headerCheckboxSelection:true, headerCheckboxSelectionFilteredOnly:true,
+    sortable:false, resizable:false, suppressMovable:true },
   { headerName:"Product", field:"name", flex:2.2, minWidth:230, cellRenderer:productRenderer,
     getQuickFilterText:p=>`${p.data.name} ${p.data.sku} ${p.data.tiktok_sku_id} ${p.data.tiktok_alt_sku}`, sortable:true },
   { headerName:"Category", field:"category", width:140, cellRenderer:tagRenderer(""), sortable:true },
@@ -327,7 +395,14 @@ const gridOptions = {
   },
   onGridReady:(e)=>{ gridApi=e.api; populateFilters(); updateShown(); },
   onModelUpdated:updateShown,
-  onRowClicked:(e)=>{ openDrawer(e.data, e.node); },
+  rowSelection:"multiple",
+  suppressRowClickSelection:true,
+  onSelectionChanged:onSelectionChanged,
+  onRowClicked:(e)=>{
+    // clicking the selection checkbox toggles selection — don't also open the drawer
+    if(e.event && e.event.target && e.event.target.closest && e.event.target.closest(".ag-selection-checkbox")) return;
+    openDrawer(e.data, e.node);
+  },
 };
 
 document.addEventListener("DOMContentLoaded", ()=>{
@@ -362,6 +437,16 @@ document.addEventListener("DOMContentLoaded", ()=>{
   ["dr-safety","dr-service"].forEach(id=> document.getElementById(id).addEventListener("change", onDrawerInput));
   document.getElementById("dr-save").addEventListener("click", saveDrawer);
   document.getElementById("dr-reset").addEventListener("click", ()=>{ if(origState){ fillFromState(origState); onDrawerInput(); setSaveMsg(""); } });
+
+  // ---- bulk edit ----
+  $("bulk-btn").addEventListener("click", openBulk);
+  $("bulk-x").addEventListener("click", closeBulk);
+  $("bulk-cancel").addEventListener("click", closeBulk);
+  $("bulk-apply").addEventListener("click", applyBulk);
+  $("bulk-overlay").addEventListener("click", (e)=>{ if(e.target===$("bulk-overlay")) closeBulk(); });
+  document.querySelectorAll(".bapply").forEach(cb=>{
+    cb.addEventListener("change", ()=>{ $("b-"+cb.dataset.f).disabled = !cb.checked; });
+  });
 });
 
 /* ---- editable-detail helpers (Unit COGS + planning) ---- */
@@ -459,6 +544,55 @@ async function saveDrawer(){
     setSaveMsg("Saved.", "ok");
   }catch(err){
     setSaveMsg("Network error — not saved.", "err"); $("dr-save").disabled=false;
+  }
+}
+
+/* ---- bulk edit ---- */
+function onSelectionChanged(){
+  const n = gridApi ? gridApi.getSelectedNodes().length : 0;
+  $("bulk-n").textContent = n;
+  $("bulk-btn").disabled = n===0;
+}
+function openBulk(){
+  if(!gridApi) return;
+  const n = gridApi.getSelectedNodes().length;
+  if(!n) return;
+  $("bulk-count").textContent = n;
+  $("bulk-s").textContent = n===1 ? "" : "s";
+  setBulkMsg("");
+  // reset the form: uncheck every field, clear/disable its input
+  document.querySelectorAll(".bapply").forEach(cb=>{ cb.checked=false; const inp=$("b-"+cb.dataset.f); inp.disabled=true; if(inp.tagName==="SELECT") inp.selectedIndex=0; else inp.value=""; });
+  $("bulk-apply").disabled=false;
+  $("bulk-overlay").hidden = false;
+}
+function closeBulk(){ $("bulk-overlay").hidden = true; }
+function setBulkMsg(text, cls){ const el=$("bulk-msg"); el.textContent=text||""; el.className="bulk-msg"+(cls?(" "+cls):""); }
+async function applyBulk(){
+  if(!gridApi) return;
+  const nodes = gridApi.getSelectedNodes();
+  if(!nodes.length){ closeBulk(); return; }
+  const body = new URLSearchParams({ sku_ids: nodes.map(nd=>nd.data.id).join(",") });
+  let any=false;
+  document.querySelectorAll(".bapply").forEach(cb=>{
+    if(cb.checked){ any=true; body.set("apply_"+cb.dataset.f, "true"); body.set(cb.dataset.f, $("b-"+cb.dataset.f).value); }
+  });
+  if(!any){ setBulkMsg("Check at least one field to apply.", "err"); return; }
+  const btn=$("bulk-apply"); btn.disabled=true; setBulkMsg("Applying…");
+  try{
+    const res=await fetch("/admin/skus/bulk-edit", {
+      method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body,
+    });
+    if(!res.ok){
+      let detail="Bulk edit failed."; try{ detail=(await res.json()).detail||detail; }catch(_){}
+      setBulkMsg(detail, "err"); btn.disabled=false; return;
+    }
+    const j=await res.json();
+    const byId={}; (j.skus||[]).forEach(s=>{ byId[s.id]=s; });
+    nodes.forEach(nd=>{ const row=byId[nd.data.id]; if(row) nd.setData(row); });  // refresh margin/completeness/reorder
+    gridApi.deselectAll();
+    closeBulk();
+  }catch(err){
+    setBulkMsg("Network error — not applied.", "err"); btn.disabled=false;
   }
 }
 
