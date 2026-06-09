@@ -812,21 +812,47 @@ def _ad_spend_error_redirect(reason: str) -> RedirectResponse:
 def ad_spend_view(
     request: Request,
     scope: str = "month",
+    start_date: str | None = None,   # ISO YYYY-MM-DD; scope=range only
+    end_date: str | None = None,
     db: Session = Depends(get_db),
 ):
-    """Ad Spend & Campaign KPIs.
+    """Ad Spend & Campaign KPIs, with three scopes:
 
-    `scope=month` (default) → the per-month KPI table (SKU Orders, Cost per
-    Order, Gross Revenue, ROI, Total Gross Spend, ROAS) with a highlighted
-    all-time totals row. `scope=all-time` → the combined all-time figures as a
-    single row. Campaign figures come from the entered GMV Max metrics; spend is
-    GMV-Max only (matches TikTok's Ad Cost; Shop Ads stays in the P&L)."""
-    monthly = compute_ad_spend_monthly(db)
+    - `month` (default) → per-month KPI table (all months) + highlighted totals.
+    - `all-time` → the combined figures as a single row.
+    - `range` → per-month table scoped to [start_date, end_date] (inclusive),
+      with the totals row summarising the range. A month is included if it
+      overlaps the window.
+
+    Campaign figures come from the entered GMV Max metrics; spend is GMV-Max only
+    (matches TikTok's Ad Cost; Shop Ads stays in the P&L)."""
+    start = end = None
+    range_error: str | None = None
+    if scope == "range":
+        try:
+            sd = date.fromisoformat(start_date) if start_date else None
+            ed = date.fromisoformat(end_date) if end_date else None
+        except ValueError:
+            sd = ed = None
+            range_error = "Invalid date — use YYYY-MM-DD."
+        if range_error is None and (sd is None or ed is None):
+            range_error = "Pick both a start and end date."
+        elif range_error is None and sd > ed:
+            range_error = "Start date must be on or before end date."
+        if range_error is None:
+            start = datetime(sd.year, sd.month, sd.day)
+            end = datetime(ed.year, ed.month, ed.day)
+
+    monthly = compute_ad_spend_monthly(db, start, end)
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
         {
             "monthly": monthly,
+            "scope": scope,
+            "start_date": start_date,
+            "end_date": end_date,
+            "range_error": range_error,
             "all_time": scope == "all-time",
             "error": request.query_params.get("error"),
         },

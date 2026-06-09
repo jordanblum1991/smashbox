@@ -130,6 +130,19 @@ def test_monthly_totals():
     assert result.total_roas == Decimal("5")               # (500+1000) / (100+200)
 
 
+def test_window_scopes_to_overlapping_months():
+    with SessionLocal() as db:
+        b = _batch(db)
+        _order(db, b.id, "MAR", datetime(2026, 3, 15, 12, 0), 300); _adspend(db, b.id, datetime(2026, 3, 15), 30)
+        _order(db, b.id, "APR", datetime(2026, 4, 15, 12, 0), 400); _adspend(db, b.id, datetime(2026, 4, 15), 40)
+        _order(db, b.id, "MAY", datetime(2026, 5, 15, 12, 0), 500); _adspend(db, b.id, datetime(2026, 5, 15), 50)
+        db.commit()
+        # Window covering only April (inclusive end date).
+        result = compute_ad_spend_monthly(db, datetime(2026, 4, 1), datetime(2026, 4, 30))
+    assert [(r.year, r.month) for r in result.rows] == [(2026, 4)]
+    assert result.total_gross == Decimal("40")          # April spend only
+
+
 def test_monthly_empty_when_no_ad_spend():
     with SessionLocal() as db:
         b = _batch(db)
