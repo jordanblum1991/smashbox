@@ -128,7 +128,7 @@ class SampleView:
 
     @property
     def title(self) -> str:
-        return f"Sample Tracking: {self.title_suffix}"
+        return f"Sample Report: {self.title_suffix}"
 
 
 # ---- Period -> window resolver --------------------------------------------
