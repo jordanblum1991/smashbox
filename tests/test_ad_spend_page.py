@@ -1,8 +1,9 @@
-"""Ad Spend Summary page.
+"""Ad Spend & Campaign KPIs page.
 
-Default (no period chosen) → a per-month overview (Month | Total Gross Spend |
-ROAS). Picking a specific period → two aggregate KPIs for that period. Neither
-view shows ad-credit info or an in-page Reimbursements link.
+A By-month / All-Time toggle. "By month" shows one row per month (SKU Orders,
+Cost per Order, Gross Revenue, ROI, Total Gross Spend, ROAS) with a highlighted
+all-time totals row. "All-Time" collapses to the combined figures. Spend is
+GMV-Max only; no ad-credit info or Reimbursements link on this page.
 """
 from __future__ import annotations
 
@@ -45,58 +46,55 @@ def _seed_month(db, oid, placed, gross, spend):
 
 
 def _seed_campaign(db, year, month, gross_revenue, sku_orders):
-    db.add(GmvMaxCampaignMetric(
-        year=year, month=month,
-        gross_revenue=Decimal(str(gross_revenue)), sku_orders=sku_orders,
-    ))
+    db.add(GmvMaxCampaignMetric(year=year, month=month,
+                                gross_revenue=Decimal(str(gross_revenue)), sku_orders=sku_orders))
     db.flush()
 
 
-def test_campaign_kpis_render_for_period(client):
-    with SessionLocal() as db:
-        _seed_month(db, "M", datetime(2026, 5, 15, 12, 0), gross=1000, spend="7824.02")
-        _seed_campaign(db, 2026, 5, "15769.65", 413)
-        db.commit()
-    r = client.get("/reports/ad-spend?period=month&year=2026&month=5")
-    assert r.status_code == 200
-    assert "SKU Orders" in r.text
-    assert "Cost per Order" in r.text
-    assert "ROI" in r.text
-    assert "413" in r.text          # SKU orders
-    assert "$18.94" in r.text       # cost per order = 7824.02 / 413
-    assert "2.02" in r.text         # ROI = 15769.65 / 7824.02
-
-
-def test_campaign_hint_when_no_metrics(client):
+def test_by_month_view_renders_table(client):
     with SessionLocal() as db:
         _seed_month(db, "M", datetime(2026, 5, 15, 12, 0), gross=1000, spend=200)
         db.commit()
     r = client.get("/reports/ad-spend")
     assert r.status_code == 200
-    assert "No GMV Max campaign metrics" in r.text
+    assert "Monthly GMV Max KPIs" in r.text       # the per-month table
+    assert "$200.00" in r.text                     # GMV-Max spend column
+    assert "5.00x" in r.text                       # ROAS 1000 / 200
+    assert "All-Time" in r.text                    # toggle + highlighted totals row
 
 
-def test_default_view_shows_monthly_table(client):
+def test_by_month_shows_campaign_columns(client):
     with SessionLocal() as db:
-        _seed_month(db, "M", datetime(2026, 5, 15, 12, 0), gross=1000, spend=200)
+        _seed_month(db, "M", datetime(2026, 5, 15, 12, 0), gross=15769.65, spend="7824.02")
+        _seed_campaign(db, 2026, 5, "15769.65", 413)
         db.commit()
-    r = client.get("/reports/ad-spend")          # bare — no period specified
+    r = client.get("/reports/ad-spend")
     assert r.status_code == 200
-    assert "Monthly ad spend" in r.text          # the per-month overview
-    assert "ROAS" in r.text
-    assert "$200.00" in r.text                    # the month's gross spend
-    assert "5.00x" in r.text                      # 1000 / 200
+    assert "413" in r.text          # SKU orders
+    assert "$18.94" in r.text       # cost per order = 7824.02 / 413
+    assert "2.02" in r.text         # ROI = 15769.65 / 7824.02
 
 
-def test_specific_period_shows_two_kpis(client):
-    r = client.get("/reports/ad-spend?period=month&year=2026&month=5")
+def test_all_time_view_collapses_to_totals(client):
+    with SessionLocal() as db:
+        _seed_month(db, "M", datetime(2026, 5, 15, 12, 0), gross=15769.65, spend="7824.02")
+        _seed_campaign(db, 2026, 5, "15769.65", 413)
+        db.commit()
+    r = client.get("/reports/ad-spend?scope=all-time")
     assert r.status_code == 200
-    assert "Total Gross Spend" in r.text
-    assert "ROAS" in r.text
-    assert "Monthly ad spend" not in r.text       # collapsed to the period KPIs
+    assert "All-Time" in r.text
+    assert "Monthly GMV Max KPIs" not in r.text    # per-month table hidden
+    assert "413" in r.text
+    assert "2.02" in r.text
 
 
-@pytest.mark.parametrize("url", ["/reports/ad-spend", "/reports/ad-spend?period=month&year=2026&month=5"])
+def test_no_data_shows_empty_state(client):
+    r = client.get("/reports/ad-spend")
+    assert r.status_code == 200
+    assert "No ad spend imported yet" in r.text
+
+
+@pytest.mark.parametrize("url", ["/reports/ad-spend", "/reports/ad-spend?scope=all-time"])
 def test_no_credit_info_or_reimbursements_link(client, url):
     with SessionLocal() as db:
         _seed_month(db, "M", datetime(2026, 5, 15, 12, 0), gross=1000, spend=200)
