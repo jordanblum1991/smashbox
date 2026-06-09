@@ -7,7 +7,7 @@
   eyebrow="TikTok Ads",
   title="Ad Spend Summary",
   period=view.title_suffix,
-  subtitle="Gross ad spend and ROAS — by month, or for a selected period.",
+  subtitle="GMV-Max ad spend and ROAS — by month, or for a selected period.",
   accent_bar=true,
 ) %}
   <button onclick="window.print()" type="button"
@@ -59,18 +59,19 @@
 </section>
 
 {% if specified %}
-{# A specific period is chosen → two aggregate KPIs for that period. #}
-{% set has_spend = view.total.total_ad_spend > 0 %}
+{# A specific period is chosen → two aggregate KPIs for that period. GMV-Max
+   spend only (excludes settlement Shop Ads) so it matches TikTok's Ad Cost. #}
+{% set has_spend = view.total.gmv_max_ad_spend > 0 %}
 <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Total Gross Spend</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ view.total.total_ad_spend | money }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">GMV-Max + Shop Ads, before credits</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ view.total.gmv_max_ad_spend | money }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">GMV-Max ad cost, before credits</div>
   </div>
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">ROAS</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ ("%.2fx" % view.total.roas) if has_spend else "—" }}</div>
-    <div class="mt-1.5 text-xs text-slate-400">Net Sales ÷ Gross Ad Spend</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ ("%.2fx" % view.total.gmv_max_roas) if has_spend else "—" }}</div>
+    <div class="mt-1.5 text-xs text-slate-400">Net Sales ÷ GMV-Max spend</div>
   </div>
 </section>
 {% elif monthly.rows %}
@@ -79,7 +80,7 @@
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">Monthly ad spend</h2>
-      <p class="mt-0.5 text-xs text-slate-500">Gross spend and ROAS per month. Pick a period above to focus on one window.</p>
+      <p class="mt-0.5 text-xs text-slate-500">GMV-Max ad spend and ROAS per month. Pick a period above to focus on one window.</p>
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ monthly.rows | length }} month{{ "" if monthly.rows | length == 1 else "s" }}</span>
   </header>

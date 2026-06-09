@@ -166,8 +166,8 @@ def compute_ad_spend_summary(db: Session) -> AdSpendSummary:
 class AdSpendMonthKpi:
     year: int
     month: int
-    gross_spend: Decimal   # total_ad_spend = GMV-Max + Shop Ads (before credits)
-    roas: Decimal          # Net Customer Sales / gross_spend
+    gross_spend: Decimal   # GMV-Max ad spend only (before credits); excl. Shop Ads
+    roas: Decimal          # Net Customer Sales / gross_spend (GMV-Max)
 
 
 @dataclass
@@ -201,13 +201,15 @@ def compute_ad_spend_monthly(db: Session) -> AdSpendMonthly:
     y, m = lo.year, lo.month
     while (y, m) <= (hi.year, hi.month):
         pnl = compute_monthly_pnl(db, y, m)
-        if pnl.total_ad_spend > 0:
+        # GMV-Max spend ONLY (excludes settlement Shop Ads) so this page matches
+        # TikTok's GMV Max Ad Cost. Shop Ads still flows through the P&L.
+        if pnl.gmv_max_ad_spend > 0:
             rows.append(AdSpendMonthKpi(
                 year=y, month=m,
-                gross_spend=pnl.total_ad_spend,
-                roas=pnl.roas,
+                gross_spend=pnl.gmv_max_ad_spend,
+                roas=pnl.gmv_max_roas,
             ))
-            sum_gross += pnl.total_ad_spend
+            sum_gross += pnl.gmv_max_ad_spend
             sum_net += pnl.net_customer_sales
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
