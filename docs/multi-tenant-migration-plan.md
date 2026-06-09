@@ -28,7 +28,7 @@
 
 **3. Auth & access control**
 - **Two roles for now:** *super-admin* (all brands + management) and *staff* (assigned brands, full reports). Deny-by-default authorization on every route (tenant + role checked server-side). A *brand-partner* (own brand, read-only) role is a later add — leave the role model open for it.
-- **SSO with our corporate IdP** (Google Workspace or Microsoft 365, via OIDC) so there are no separate dashboard passwords and offboarding in the IdP revokes access. **MFA for admins.**
+- **SSO with Google Workspace (OIDC)** so there are no separate dashboard passwords and offboarding in Google revokes access. **MFA for admins** (enforced via Google Workspace 2-Step Verification).
 - Harden sessions (Secure/HttpOnly/SameSite cookies, rotation, idle timeout); keep email/password as a fallback only.
 
 **4. External hosting & security (self-hosted)**
@@ -53,11 +53,9 @@
 - Touches the **importers layer only**: the API pull lands rows in the same shape, so reports, COGS resolution, the discount split, and reconciliation are unaffected. CSV upload stays as a manual fallback.
 - **IT-relevant implications:** a scheduled job/worker (cron or background service), secure storage of TikTok API credentials/tokens (incl. refresh + rotation), and outbound network access from the server to TikTok's API. Loosely coupled to this migration — overlaps only at the data layer.
 
-## Decisions needed
-1. **SSO provider:** Google Workspace or Microsoft 365? (Picks the staff SSO integration; MFA required for admins.)
-
-*Decided:*
-- *Each brand is its own tenant (one shop per brand, isolated by `shop_id`).*
-- *All users are internal staff for now; external brand-partner access is a deliberate later phase.*
-- *Self-hosted on our own server, internet-reachable for staff (see workstreams 1, 4, 5).*
-- *No data-residency or formal compliance/audit requirements.*
+## Decisions (all resolved)
+- Each brand is its own tenant (one shop per brand, isolated by `shop_id`).
+- All users are internal staff for now; external brand-partner access is a deliberate later phase.
+- Self-hosted on our own server, internet-reachable for staff — recommended behind VPN/IP-allowlist (see workstreams 1, 4, 5).
+- **SSO via Google Workspace (OIDC); MFA for admins.**
+- No data-residency or formal compliance/audit requirements.
