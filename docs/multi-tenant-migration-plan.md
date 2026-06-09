@@ -7,6 +7,7 @@
 - Auth already in place: per-user email + bcrypt, signed-cookie sessions; roles (`admin`/`member`) + a `super_admin` flag.
 - Multi-tenancy **schema groundwork done**: every tenant-scoped table carries a `shop_id` FK to a `shops` table (one shop today). Queries are **not yet filtered by shop**. Data model already carries `brand` on orders/SKUs.
 - DB connection is env-driven (`DATABASE_URL`); Alembic dir is reserved but **not initialized**.
+- **Data ingestion is manual CSV upload today** (orders, settlements, payouts, ad spend exported from TikTok Seller Center).
 
 ## Target state
 - **Self-hosted on our own server, Postgres-backed.** Multiple brands isolated at the data layer (one tenant per brand). **Internet-reachable HTTPS access for internal staff** (usable from outside the office), each user scoped to the brands they're assigned.
@@ -46,6 +47,11 @@
 - **P1 — Multi-tenancy:** query/importer scoping + super-admin shop & user management.
 - **P2 — External readiness:** auth hardening (SSO/MFA, lockout), custom domain, audit logs.
 - **P3 — Scale & ops:** scale-out, monitoring, staging/CI maturity.
+
+## Related roadmap item — TikTok API ingestion (separate effort)
+- Planned move from **manual CSV uploads → a scheduled TikTok API sync** (orders, settlements, payouts, ad spend) for fresher, automated data.
+- Touches the **importers layer only**: the API pull lands rows in the same shape, so reports, COGS resolution, the discount split, and reconciliation are unaffected. CSV upload stays as a manual fallback.
+- **IT-relevant implications:** a scheduled job/worker (cron or background service), secure storage of TikTok API credentials/tokens (incl. refresh + rotation), and outbound network access from the server to TikTok's API. Loosely coupled to this migration — overlaps only at the data layer.
 
 ## Decisions needed
 1. **SSO provider:** Google Workspace or Microsoft 365? (Picks the staff SSO integration; MFA required for admins.)
