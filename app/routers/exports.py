@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.reports.ad_spend import compute_ad_spend_monthly
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.sample_tracking import samples_by_sku_shipped
@@ -89,6 +90,103 @@ def export_monthly_pnl_xlsx(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="smashbox_pnl_{y}-{m:02d}.xlsx"'},
+    )
+
+
+@router.get("/ad-spend.xlsx")
+def export_ad_spend_xlsx(
+    scope: str = "month",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Download the Ad Spend & Campaign KPIs table (per-month rows + a totals
+    row), honoring the page's scope (month / all-time / range). Spend is GMV-Max
+    only, matching the page."""
+    start = end = None
+    if scope == "range":
+        try:
+            sd = date.fromisoformat(start_date) if start_date else None
+            ed = date.fromisoformat(end_date) if end_date else None
+        except ValueError:
+            sd = ed = None
+        if sd and ed and sd <= ed:
+            start = datetime(sd.year, sd.month, sd.day)
+            end = datetime(ed.year, ed.month, ed.day)
+
+    monthly = compute_ad_spend_monthly(db, start, end)
+    ct = monthly.campaign_total
+
+    import calendar
+    buf = BytesIO()
+    wb = xlsxwriter.Workbook(buf, {"in_memory": True})
+    ws = wb.add_worksheet("Ad Spend")
+    bold = wb.add_format({"bold": True})
+    hdr = wb.add_format({"bold": True, "bottom": 1})
+    money = wb.add_format({"num_format": "$#,##0.00"})
+    num2 = wb.add_format({"num_format": "0.00"})
+    roas_fmt = wb.add_format({"num_format": '0.00"x"'})
+    t = wb.add_format({"bold": True, "top": 2})
+    t_money = wb.add_format({"bold": True, "top": 2, "num_format": "$#,##0.00"})
+    t_num2 = wb.add_format({"bold": True, "top": 2, "num_format": "0.00"})
+    t_roas = wb.add_format({"bold": True, "top": 2, "num_format": '0.00"x"'})
+
+    ws.write("A1", "Smashbox — Ad Spend & Campaign KPIs", bold)
+    headers = ["Month", "SKU Orders", "Cost per Order", "Gross Revenue",
+               "ROI", "Total Gross Spend", "ROAS"]
+    for c, h in enumerate(headers):
+        ws.write(2, c, h, hdr)
+
+    r = 3
+    for row in monthly.rows:
+        ws.write(r, 0, f"{calendar.month_abbr[row.month]}-{row.year}")
+        if row.sku_orders is not None:
+            ws.write_number(r, 1, row.sku_orders)
+        else:
+            ws.write(r, 1, "—")
+        if row.cost_per_order is not None:
+            ws.write_number(r, 2, float(row.cost_per_order), money)
+        else:
+            ws.write(r, 2, "—")
+        if row.gross_revenue is not None:
+            ws.write_number(r, 3, float(row.gross_revenue), money)
+        else:
+            ws.write(r, 3, "—")
+        if row.roi is not None:
+            ws.write_number(r, 4, float(row.roi), num2)
+        else:
+            ws.write(r, 4, "—")
+        ws.write_number(r, 5, float(row.gross_spend), money)
+        ws.write_number(r, 6, float(row.roas), roas_fmt)
+        r += 1
+
+    # Totals row — campaign aggregate + GMV-Max spend total + blended ROAS.
+    ws.write(r, 0, "Total", t)
+    if ct and ct.has_data:
+        ws.write_number(r, 1, ct.sku_orders, t)
+        ws.write_number(r, 2, float(ct.cost_per_order), t_money) if ct.sku_orders > 0 else ws.write(r, 2, "—", t)
+        ws.write_number(r, 3, float(ct.gross_revenue), t_money)
+        ws.write_number(r, 4, float(ct.roi), t_num2) if ct.ad_cost > 0 else ws.write(r, 4, "—", t)
+    else:
+        for c in (1, 2, 3, 4):
+            ws.write(r, c, "—", t)
+    ws.write_number(r, 5, float(monthly.total_gross), t_money)
+    ws.write_number(r, 6, float(monthly.total_roas), t_roas) if monthly.total_gross > 0 else ws.write(r, 6, "—", t)
+
+    ws.set_column(0, 0, 12)
+    ws.set_column(1, 6, 16)
+    wb.close()
+    buf.seek(0)
+
+    fname = "smashbox_ad_spend"
+    if scope == "all-time":
+        fname += "_all-time"
+    elif scope == "range" and start and end:
+        fname += f"_{start_date}_to_{end_date}"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}.xlsx"'},
     )
 
 
