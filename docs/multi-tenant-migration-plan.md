@@ -1,6 +1,6 @@
-# Smashbox Dashboard → Multi-User, Multi-Brand, Externally Accessible
+# Multi-User, Multi-Brand, Self-Hosted Dashboard
 
-**Purpose:** Concise implementation plan to take the internal P&L dashboard to a Postgres-backed, multi-brand, externally accessible app where each user sees only their data.
+**Purpose:** Concise implementation plan to take the internal P&L dashboard to a Postgres-backed, multi-brand, self-hosted app where each staff user sees only the brands they're assigned.
 
 ## Current state
 - FastAPI app on a single Fly.io VM (LAX); **SQLite** on a 1 GB encrypted volume.
