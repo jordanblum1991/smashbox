@@ -13,12 +13,55 @@
 - **Self-hosted on our own server, Postgres-backed.** Multiple brands isolated at the data layer (one tenant per brand). **Internet-reachable HTTPS access for internal staff** (usable from outside the office), each user scoped to the brands they're assigned.
 - **Scoped down for now: all users are internal staff.** External brand-partner access is a deliberate future phase, not in this build — the schema/roles leave room for it.
 
+## Architecture — single-server, containerized
+
+Simplest design that fits the load (a handful of internal users, a few GB of data): one Linux server, everything in Docker Compose, reachable only over the corporate VPN. No Kubernetes / microservices / Redis / read replicas — not warranted yet.
+
+```
+  Staff (remote)
+       │  HTTPS, over corporate VPN only
+       ▼
+┌───────────────────────────────────────────────┐
+│  One Linux server (our data center / VM)        │
+│  Docker Compose:                                │
+│                                                 │
+│   Caddy  ──►  FastAPI app  ──►  Postgres 16     │
+│  (reverse     (Uvicorn/        (localhost-only, │
+│   proxy,       Gunicorn,        persistent      │
+│   auto-TLS)    N workers)       volume)         │
+│                    │                            │
+│              Scheduler/worker ──► TikTok API    │
+│              (future API sync)    (outbound)    │
+└───────────────────────────────────────────────┘
+       │
+   Nightly encrypted backup ──► off-box (object storage / 2nd host)
+
+  Auth: Google Workspace OIDC (redirect login)
+```
+
+- **One Linux VM**, orchestrated by **Docker Compose** — reproducible, portable, no cluster to operate.
+- **Caddy** reverse proxy: HTTPS termination + automatic Let's Encrypt certs.
+- **FastAPI** (existing app) under Gunicorn+Uvicorn workers, containerized.
+- **Postgres 16** container with a persistent volume, **bound to localhost** — never internet-exposed.
+- **Scheduler/worker** for the future TikTok API sync: an APScheduler process or system cron running a `sync` command — no Celery/Redis at this scale.
+- **Network:** firewall permits only the VPN subnet on 443; outbound allowed to Google (auth) and TikTok (future sync).
+- **CI/CD:** GitHub Actions builds the image, runs tests + `alembic upgrade head` against a throwaway Postgres, deploys to the server, runs migrations + health check.
+- **Graduation path (only when load demands it):** move Postgres to a dedicated/managed instance, then run 2–3 app replicas behind the same proxy. Everything's already a container, so this is config, not a rewrite.
+
 ## Workstreams
 
 **1. Database → Postgres**
 - Stand up **Postgres on our own server** (dedicated instance or container) — TLS, automated backups, point-in-time recovery, restricted to the app host.
 - Initialize **Alembic**; generate a baseline migration from the ORM; switch deploy/CI to `alembic upgrade head` (replaces auto-create-on-boot).
 - Migrate existing SQLite data; validate row counts **and financial totals** against current prod.
+
+*Database details:*
+- **Isolation model:** a *single shared Postgres database*; brands separated by `shop_id` row scoping — **not** a database or schema per brand. Simplest to operate; revisit only if a brand ever needs hard physical separation.
+- **Size:** small dataset (months of TikTok orders/settlements — well under a few GB), so modest server specs; no replication/HA or sharding needed initially.
+- **Config:** Postgres 16, UTF-8, **store timestamps in UTC** (per-brand timezone is a display concern only).
+- **Backups:** nightly logical dump + WAL archiving for point-in-time recovery; encrypted, retained off-box, with a periodic restore test.
+- **Access:** DB bound to localhost/private network only; app uses a least-privilege role; credentials in the secret store.
+- **Pooling:** SQLAlchemy's built-in connection pool is sufficient at this scale (add PgBouncer only if connection counts grow).
 
 **2. Tenant isolation (core app work)**
 - **Decided: each brand is its own tenant** — one `shops` row per brand; `shop_id` is the hard isolation boundary. The existing `brand` column on orders/SKUs stays as a within-tenant label, not the security key.
