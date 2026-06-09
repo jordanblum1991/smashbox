@@ -84,6 +84,14 @@
       <button class="clear-btn" id="clear-filters">{{ ui.icon("x", "h-3.5 w-3.5") }} Clear</button>
     </div>
     <div class="tb-right">
+      <div class="cols-menu" id="cols-menu">
+        <button type="button" id="cols-btn" class="bulk-btn" aria-haspopup="true" aria-expanded="false">Columns {{ ui.icon("chevron-down", "h-3 w-3") }}</button>
+        <div id="cols-panel" class="cols-panel" hidden>
+          <div class="cols-panel-hd">Show columns</div>
+          <div id="cols-list"></div>
+          <button type="button" id="cols-reset" class="cols-reset">Show all</button>
+        </div>
+      </div>
       <button type="button" id="bulk-btn" class="bulk-btn" disabled>Bulk edit (<span id="bulk-n">0</span>)</button>
       <div class="count-chip"><span class="mono"><strong id="count-active">{{ active_count }}</strong></span> active <span class="note">· <span id="count-shown" class="mono">—</span> shown</span></div>
     </div>
@@ -120,6 +128,16 @@
     .bbtn.primary{ background:#0f172a; color:#fff; border-color:#0f172a; }
     .bbtn.primary:hover{ background:#1e293b; }
     .bbtn:disabled{ opacity:.55; cursor:not-allowed; }
+    .cols-menu{ position:relative; display:inline-block; }
+    .cols-menu .bulk-btn{ display:inline-flex; align-items:center; gap:5px; }
+    .cols-panel{ position:absolute; right:0; top:calc(100% + 6px); z-index:55; width:212px; background:#fff; border:1px solid var(--sbx-hair, #e2e8f0); border-radius:10px; box-shadow:0 12px 32px rgba(2,6,23,.18); padding:8px; }
+    .cols-panel[hidden]{ display:none; }
+    .cols-panel-hd{ font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; padding:4px 8px 6px; }
+    .cols-row{ display:flex; align-items:center; gap:8px; font-size:13px; color:#0f172a; padding:5px 8px; border-radius:6px; cursor:pointer; }
+    .cols-row:hover{ background:#f8fafc; }
+    .cols-row input{ accent-color:#0f172a; }
+    .cols-reset{ margin-top:6px; width:100%; text-align:center; font-size:12px; color:#475569; background:#f8fafc; border:1px solid var(--sbx-hair, #e2e8f0); border-radius:6px; padding:6px; cursor:pointer; }
+    .cols-reset:hover{ background:#f1f5f9; }
   </style>
   <div id="bulk-overlay" class="bulk-overlay" hidden>
     <div class="bulk-card" role="dialog" aria-modal="true" aria-label="Bulk edit SKUs">
@@ -393,7 +411,7 @@ const gridOptions = {
       if(ext.comp==="incomplete" && full) return false; }
     return true;
   },
-  onGridReady:(e)=>{ gridApi=e.api; populateFilters(); updateShown(); },
+  onGridReady:(e)=>{ gridApi=e.api; populateFilters(); applyStoredColVisibility(); buildColsMenu(); updateShown(); },
   onModelUpdated:updateShown,
   rowSelection:"multiple",
   suppressRowClickSelection:true,
@@ -446,6 +464,18 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("bulk-overlay").addEventListener("click", (e)=>{ if(e.target===$("bulk-overlay")) closeBulk(); });
   document.querySelectorAll(".bapply").forEach(cb=>{
     cb.addEventListener("change", ()=>{ $("b-"+cb.dataset.f).disabled = !cb.checked; });
+  });
+
+  // ---- columns menu ----
+  $("cols-btn").addEventListener("click", (e)=>{
+    e.stopPropagation();
+    const p=$("cols-panel"); p.hidden=!p.hidden;
+    $("cols-btn").setAttribute("aria-expanded", String(!p.hidden));
+  });
+  $("cols-reset").addEventListener("click", resetCols);
+  document.addEventListener("click", (e)=>{
+    const m=$("cols-menu");
+    if(m && !m.contains(e.target)){ $("cols-panel").hidden=true; $("cols-btn").setAttribute("aria-expanded","false"); }
   });
 });
 
@@ -545,6 +575,51 @@ async function saveDrawer(){
   }catch(err){
     setSaveMsg("Network error — not saved.", "err"); $("dr-save").disabled=false;
   }
+}
+
+/* ---- column visibility (per-browser, persisted) ---- */
+const COLS_LS_KEY = "skus.hiddenCols.v1";
+// Toggleable columns only — selection, Product (name + SKU), and Actions stay locked on.
+const TOGGLE_COLS = [
+  {id:"category",       label:"Category"},
+  {id:"item_type",      label:"Item type"},
+  {id:"_margin",        label:"Gross Margin"},
+  {id:"msrp",           label:"MSRP"},
+  {id:"unit_cogs",      label:"Unit COGS"},
+  {id:"_comp",          label:"Completeness"},
+  {id:"is_reorderable", label:"Reorder"},
+  {id:"is_active",      label:"Status"},
+];
+function loadHiddenCols(){
+  try{ const v=JSON.parse(localStorage.getItem(COLS_LS_KEY));
+    return Array.isArray(v) ? v.filter(id=>TOGGLE_COLS.some(c=>c.id===id)) : []; }
+  catch(_){ return []; }
+}
+function saveHiddenCols(arr){ try{ localStorage.setItem(COLS_LS_KEY, JSON.stringify(arr)); }catch(_){} }
+function applyStoredColVisibility(){
+  if(!gridApi) return;
+  const hidden=loadHiddenCols();
+  TOGGLE_COLS.forEach(c=> gridApi.setColumnsVisible([c.id], !hidden.includes(c.id)));
+}
+function buildColsMenu(){
+  const hidden=loadHiddenCols(), list=$("cols-list"); list.innerHTML="";
+  TOGGLE_COLS.forEach(c=>{
+    const row=document.createElement("label"); row.className="cols-row";
+    const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=!hidden.includes(c.id);
+    cb.addEventListener("change", ()=>{
+      gridApi.setColumnsVisible([c.id], cb.checked);
+      const h=loadHiddenCols().filter(x=>x!==c.id);
+      if(!cb.checked) h.push(c.id);
+      saveHiddenCols(h);
+    });
+    row.appendChild(cb); row.appendChild(document.createTextNode(" "+c.label));
+    list.appendChild(row);
+  });
+}
+function resetCols(){
+  saveHiddenCols([]);
+  TOGGLE_COLS.forEach(c=> gridApi.setColumnsVisible([c.id], true));
+  buildColsMenu();
 }
 
 /* ---- bulk edit ---- */
