@@ -115,6 +115,23 @@ def test_no_data_shows_empty_state(client):
     assert "No ad spend imported yet" in r.text
 
 
+def test_export_xlsx_downloads(client):
+    with SessionLocal() as db:
+        _seed_month(db, "M", datetime(2026, 5, 15, 12, 0), gross=15769.65, spend="7824.02")
+        _seed_campaign(db, 2026, 5, "15769.65", 413)
+        db.commit()
+    r = client.get("/export/ad-spend.xlsx")
+    assert r.status_code == 200
+    assert "spreadsheetml" in r.headers["content-type"]
+    assert "attachment" in r.headers["content-disposition"]
+    assert len(r.content) > 100          # a real xlsx payload
+
+    # Range scope flows through to the filename.
+    r2 = client.get("/export/ad-spend.xlsx?scope=range&start_date=2026-05-01&end_date=2026-05-31")
+    assert r2.status_code == 200
+    assert "2026-05-01_to_2026-05-31" in r2.headers["content-disposition"]
+
+
 @pytest.mark.parametrize("url", ["/reports/ad-spend", "/reports/ad-spend?scope=all-time"])
 def test_no_credit_info_or_reimbursements_link(client, url):
     with SessionLocal() as db:

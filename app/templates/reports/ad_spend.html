@@ -9,6 +9,8 @@
   subtitle="Monthly GMV Max performance — SKU orders, cost per order, gross revenue, ROI, ad spend, and ROAS. Toggle All-Time for the combined total.",
   accent_bar=true,
 ) %}
+  <a href="/export/ad-spend.xlsx?scope={{ scope }}{% if scope == 'range' and start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}"
+     class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Download</a>
   <button onclick="window.print()" type="button"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Print</button>
 {% endcall %}
