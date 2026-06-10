@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Data Health · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Data Health",
+  title="Data Health",
+  subtitle="Data-quality checks in one place: unmapped SKUs, orphan (settlement-only) orders, and policy violations. Each section links to its detailed grid.",
+  accent_bar=true,
+) %}
+{% endcall %}
+
+{% set n_unmapped = unmapped_rows | length %}
+{% set n_orphans = orphan_rows | length %}
+{% set n_violations = violations | length %}
+
+{# Summary strip #}
+<section class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+  {% for label, n, anchor in [
+    ("Unmapped SKUs", n_unmapped, "#unmapped"),
+    ("Orphan Orders", n_orphans, "#orphans"),
+    ("Policy Violations", n_violations, "#violations"),
+  ] %}
+  <a href="{{ anchor }}" class="rounded-xl border bg-white p-5 shadow-sm transition hover:shadow {{ 'border-rose-200' if n else 'border-slate-200' }}">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
+    <div class="mt-2 flex items-center gap-2">
+      <span class="text-2xl font-semibold tabular-nums {{ 'text-rose-600' if n else 'text-slate-900' }}">{{ n }}</span>
+      {% if n == 0 %}<span class="text-xs font-medium text-emerald-600">All clear</span>{% else %}<span class="text-xs font-medium text-rose-500">need attention</span>{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</section>
+
+{# ---- Unmapped SKUs ---- #}
+<section id="unmapped" class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Unmapped SKUs <span class="ml-1 text-sm font-normal text-slate-500">({{ n_unmapped }})</span></h2>
+    <a href="/reports/unmapped-skus" class="text-xs font-medium text-sky-700 hover:text-sky-900">Detailed grid →</a>
+  </header>
+  {% if n_unmapped == 0 %}
+  <div class="px-6 py-5 text-sm text-emerald-700">✓ Every TikTok SKU ID maps to a catalog SKU or bundle.</div>
+  {% else %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">Identifier</th>
+          <th class="px-4 py-2.5 text-right">Units</th>
+          <th class="px-4 py-2.5 text-right">Paid</th>
+          <th class="px-4 py-2.5 text-right">Sample</th>
+          <th class="px-4 py-2.5 text-right">Gross</th>
+          <th class="px-4 py-2.5 text-right">Lines</th>
+          <th class="px-4 py-2.5">First seen</th>
+          <th class="px-4 py-2.5">Last seen</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in unmapped_rows %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900">{{ r.identifier }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.units }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ r.paid_units }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ r.sample_units }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.gross | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ r.line_count }}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-slate-500">{{ r.first_seen or "—" }}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-slate-500">{{ r.last_seen or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+{# ---- Orphan Orders ---- #}
+<section id="orphans" class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Orphan Orders <span class="ml-1 text-sm font-normal text-slate-500">({{ n_orphans }})</span></h2>
+    <a href="/reports/settlement-only-orders" class="text-xs font-medium text-sky-700 hover:text-sky-900">Detailed grid →</a>
+  </header>
+  {% if n_orphans == 0 %}
+  <div class="px-6 py-5 text-sm text-emerald-700">✓ Every settled order has a matching order row.</div>
+  {% else %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">Order ID</th>
+          <th class="px-4 py-2.5">Statement IDs</th>
+          <th class="px-4 py-2.5 text-right">Settlement Gross</th>
+          <th class="px-4 py-2.5 text-right">Fees</th>
+          <th class="px-4 py-2.5">Paid</th>
+          <th class="px-4 py-2.5">Settled</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in orphan_rows %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900">{{ r.tiktok_order_id }}</td>
+          <td class="px-4 py-2.5 text-slate-600">{{ r.statement_ids }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.settlement_gross | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ r.settlement_fees | money }}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-slate-500">{{ r.paid_date or "—" }}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-slate-500">{{ r.settled_date or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+{# ---- Policy Violations (all-time, unacknowledged) ---- #}
+<section id="violations" class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Policy Violations <span class="ml-1 text-sm font-normal text-slate-500">({{ n_violations }} unacknowledged)</span></h2>
+    <a href="/reports/policy-violations" class="text-xs font-medium text-sky-700 hover:text-sky-900">Detailed grid →</a>
+  </header>
+  {% if n_violations == 0 %}
+  <div class="px-6 py-5 text-sm text-emerald-700">✓ No unacknowledged seller-funded discount violations.</div>
+  {% else %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">Order</th>
+          <th class="px-4 py-2.5">Placed</th>
+          <th class="px-4 py-2.5">SKU</th>
+          <th class="px-4 py-2.5 text-right">MSRP</th>
+          <th class="px-4 py-2.5 text-right">Seller-funded</th>
+          <th class="px-4 py-2.5 text-right">% MSRP</th>
+          <th class="px-4 py-2.5 text-right">Cap</th>
+          <th class="px-4 py-2.5 text-right">Excess</th>
+          <th class="px-4 py-2.5"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in violations %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900">{{ r.tiktok_order_id }}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-slate-500">{{ r.placed_at.strftime("%Y-%m-%d") }}</td>
+          <td class="px-4 py-2.5 text-slate-700">{{ r.sku_code or r.sku }}{% if r.name %} · <span class="text-slate-500">{{ r.name }}</span>{% endif %}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.gross_sales | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.seller_funded_discount | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-rose-600">{{ r.pct_of_msrp | pct }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-500">{{ r.cap_amount | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums font-medium text-rose-600">{{ r.excess | money }}</td>
+          <td class="px-4 py-2.5 text-right">
+            <form action="/reports/policy-violations/{{ r.order_line_id }}/acknowledge" method="post" class="inline">
+              <button type="submit"
+                      class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Acknowledge</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -29,6 +29,7 @@ from app.reports.dashboard_trends import (
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.policy_violations import (
+    all_policy_violations,
     compute_policy_violations,
     months_with_unacknowledged_violations,
 )
@@ -296,6 +297,25 @@ def samples_by_creator_view(request: Request, db: Session = Depends(get_db)):
         request,
         "reports/samples_by_creator.html",
         {"view": view, "creator_rows": [_creator_view(r) for r in view.rows]},
+    )
+
+
+@router.get("/reports/data-health")
+def data_health_view(request: Request, db: Session = Depends(get_db)):
+    """Consolidated Data Health overview — Unmapped SKUs, Orphan Orders, and
+    (all-time, unacknowledged) Policy Violations on one page. The per-section
+    detailed grids live at their own routes, linked from here."""
+    unmapped = find_unmapped_skus(db)
+    orphans = find_settlement_only_orders(db)
+    violations = all_policy_violations(db, only_unacknowledged=True)
+    return templates.TemplateResponse(
+        request,
+        "reports/data_health.html",
+        {
+            "unmapped_rows": [_unmapped_view(r) for r in unmapped],
+            "orphan_rows": [_orphan_view(r) for r in orphans],
+            "violations": violations,
+        },
     )
 
 

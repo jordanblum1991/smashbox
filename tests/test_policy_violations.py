@@ -16,6 +16,7 @@ from app.models import (
 )
 from app.reports.pnl import PeriodKind
 from app.reports.policy_violations import (
+    all_policy_violations,
     compute_policy_violations,
     count_policy_violations,
 )
@@ -59,6 +60,23 @@ def _seed(db, *, placed_at, gross, seller_funded, violates, sku="SBX-A", order_t
         seller_funded_discount=Decimal(seller_funded),
         discount_policy_violation=violates,
     ))
+
+
+def test_all_policy_violations_all_time_and_acknowledged_filter():
+    with SessionLocal() as db:
+        _seed(db, placed_at=datetime(2026, 5, 10), gross="100", seller_funded="35", violates=True)
+        _seed(db, placed_at=datetime(2026, 1, 3), gross="100", seller_funded="40", violates=True, sku="SBX-B")
+        _seed(db, placed_at=datetime(2026, 5, 11), gross="100", seller_funded="20", violates=False)  # compliant
+        db.commit()
+        rows = all_policy_violations(db, only_unacknowledged=True)
+        assert len(rows) == 2                          # both flagged, across months; compliant excluded
+        assert rows[0].placed_at >= rows[1].placed_at  # most recent first
+        # Acknowledge one → it drops from the unacknowledged list but stays in the full list.
+        line = db.query(OrderLine).filter(OrderLine.discount_policy_violation.is_(True)).first()
+        line.policy_violation_acknowledged = True
+        db.commit()
+        assert len(all_policy_violations(db, only_unacknowledged=True)) == 1
+        assert len(all_policy_violations(db, only_unacknowledged=False)) == 2
 
 
 def test_returns_only_flagged_lines_in_period():

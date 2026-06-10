@@ -19,16 +19,9 @@
       ] %}
       {% set primary_links_right = [
         ("/reports/demand-planning", "Inventory"),
+        ("/reports/reconciliation", "Recon"),
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
-      {# count = None → no global check available (e.g. Recon is period-scoped),
-         render no status dot. Otherwise 0 → green, >0 → red pill. #}
-      {% set health_links = [
-        ("/reports/unmapped-skus", "Unmapped SKUs", dh.unmapped),
-        ("/reports/settlement-only-orders", "Orphan Orders", dh.orphans),
-        ("/reports/policy-violations", "Policy Violations", dh.policy_violations),
-        ("/reports/reconciliation", "Recon", None),
-      ] %}
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
       {% for href, label in primary_links_left %}
         <a href="{{ href }}"
@@ -82,38 +75,18 @@
         </a>
       {% endfor %}
 
-      {# Data Health dropdown — opens on hover OR keyboard focus (group-focus-within).
-         A red dot appears on the trigger when any health count is > 0; each row
-         in the menu shows its own count badge so you can see what to fix. #}
-      <div class="group relative">
-        <button type="button"
-                class="relative inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 group-hover:bg-slate-100 group-focus-within:bg-slate-100">
-          Data Health
-          {% if health_total > 0 %}
-          <span title="{{ health_total }} issue{{ '' if health_total == 1 else 's' }} need attention"
-                class="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">
-            {{ health_total }}
-          </span>
-          {% endif %}
-          {{ ui.icon("chevron-down", "h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
-        </button>
-        <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
-          {% for href, label, count in health_links %}
-          <a href="{{ href }}"
-             class="flex items-center justify-between px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
-            <span>{{ label }}</span>
-            {% if count is none %}
-              {# no global check — render nothing #}
-            {% elif count > 0 %}
-              <span title="{{ count }} issue{{ '' if count == 1 else 's' }}"
-                    class="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">{{ count }}</span>
-            {% else %}
-              <span title="No issues" class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
-            {% endif %}
-          </a>
-          {% endfor %}
-        </div>
-      </div>
+      {# Data Health — single page consolidating unmapped SKUs, orphan orders,
+         and policy violations. Red badge shows the total issue count. #}
+      <a href="/reports/data-health"
+         class="relative inline-flex items-center rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+        Data Health
+        {% if health_total > 0 %}
+        <span title="{{ health_total }} issue{{ '' if health_total == 1 else 's' }} need attention"
+              class="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">
+          {{ health_total }}
+        </span>
+        {% endif %}
+      </a>
 
       {# Import action — pulled out of the link list and styled as a primary
          action button so it reads as "do something" rather than "go somewhere". #}
