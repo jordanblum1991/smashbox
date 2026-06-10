@@ -61,7 +61,7 @@
         <td class="px-3 py-3 print:py-1 min-h-[4rem]">
           <form action="/reports/ad-spend/credits" method="post"
                 class="flex items-center justify-end gap-1.5 print:hidden">
-            <input type="date" name="applied_date" required value="{{ row_date_default }}"
+            <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="applied_date" required value="{{ row_date_default }}"
                    title="Date this credit is applied on — drives which P&amp;L period it lands in"
                    class="w-[150px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <span class="inline-block w-3 text-right text-slate-400">$</span>
@@ -124,7 +124,7 @@
         class="flex flex-wrap items-end gap-3 p-6">
     <label class="block">
       <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Applied date</span>
-      <input type="date" name="applied_date" required value="{{ today.isoformat() }}"
+      <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="applied_date" required value="{{ today.isoformat() }}"
              class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
     </label>
     <label class="block">

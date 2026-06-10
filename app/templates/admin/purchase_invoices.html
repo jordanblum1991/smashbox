@@ -53,7 +53,7 @@
     </label>
     <label class="md:col-span-1">
       <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice date</span>
-      <input type="date" name="invoice_date" required
+      <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="invoice_date" required
              class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
     </label>
     <label class="md:col-span-1">
@@ -134,7 +134,7 @@
         </label>
         <label class="md:col-span-1">
           <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice date</span>
-          <input type="date" name="invoice_date" required value="{{ inv.invoice_date.isoformat() }}"
+          <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="invoice_date" required value="{{ inv.invoice_date.isoformat() }}"
                  class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
         </label>
         <label class="md:col-span-1">
@@ -162,7 +162,7 @@
         <div class="flex flex-wrap items-end gap-2">
           <form action="/admin/product-invoices/{{ inv.id }}/credits/{{ c.id }}/edit" method="post"
                 class="flex flex-wrap items-end gap-2">
-            <input type="date" name="credit_date" required value="{{ c.credit_date.isoformat() }}"
+            <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="credit_date" required value="{{ c.credit_date.isoformat() }}"
                    class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <input type="number" name="amount" required step="0.01" min="0.01" value="{{ '%.2f' % c.amount }}"
                    class="w-28 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
@@ -187,7 +187,7 @@
             class="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
         <label>
           <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Credit date</span>
-          <input type="date" name="credit_date" required
+          <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="credit_date" required
                  class="mt-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
         </label>
         <label>
