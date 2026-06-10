@@ -20,5 +20,35 @@
   <footer class="mx-auto max-w-7xl px-6 pb-10 text-xs text-slate-400 print:hidden">
     Smashbox internal · {{ today.year if today else "" }}
   </footer>
+
+  {# Visual date picker (Litepicker, vendored, self-contained). Auto-attaches to
+     any <input data-datepicker="single|range">. A range input pairs with its end
+     field via data-datepicker-end="<css selector>". Writes YYYY-MM-DD, so server
+     parsing is unchanged; plain typing still works if JS doesn't load. #}
+  <script src="/static/vendor/litepicker/litepicker.js"></script>
+  <script>
+    (function () {
+      if (typeof Litepicker === "undefined") return;
+      document.querySelectorAll("input[data-datepicker]").forEach(function (el) {
+        if (el._litepickerInit) return;
+        el._litepickerInit = true;
+        var mode = el.getAttribute("data-datepicker");
+        if (mode === "range") {
+          var endEl = document.querySelector(el.getAttribute("data-datepicker-end") || "");
+          if (!endEl) return;
+          new Litepicker({
+            element: el, elementEnd: endEl, singleMode: false, allowRepick: true,
+            autoApply: true, format: "YYYY-MM-DD", numberOfMonths: 2, numberOfColumns: 2,
+            startDate: el.value || null, endDate: endEl.value || null,
+          });
+        } else {
+          new Litepicker({
+            element: el, singleMode: true, autoApply: true, format: "YYYY-MM-DD",
+            startDate: el.value || null,
+          });
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

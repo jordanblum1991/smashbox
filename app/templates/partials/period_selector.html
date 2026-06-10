@@ -111,11 +111,14 @@
       <div id="ps-custom-date-group"
            class="{% if kind != 'custom' %}hidden{% endif %} flex flex-wrap items-center gap-2">
         <span class="text-xs text-slate-500">From</span>
-        <input type="date" name="start_date" value="{{ custom_sd }}"
-               class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+        <input type="text" id="ps-custom-start" name="start_date" value="{{ custom_sd }}"
+               placeholder="YYYY-MM-DD" autocomplete="off"
+               data-datepicker="range" data-datepicker-end="#ps-custom-end"
+               class="w-36 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
         <span class="text-xs text-slate-500">to</span>
-        <input type="date" name="end_date" value="{{ custom_ed }}"
-               class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+        <input type="text" id="ps-custom-end" name="end_date" value="{{ custom_ed }}"
+               placeholder="YYYY-MM-DD" autocomplete="off"
+               class="w-36 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
         <button type="submit"
                 class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Apply</button>
       </div>
