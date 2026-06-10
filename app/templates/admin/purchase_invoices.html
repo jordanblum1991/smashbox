@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Smashbox Product Invoices · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Smashbox Product Invoices",
+  subtitle="Log invoices received from Smashbox for sellable-inventory purchases, and apply the credits you receive against them. Net owed = amount − credits. This is a record of what we owe — it does not feed the P&L.",
+  accent_bar=true,
+) %}
+{% endcall %}
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
+{% if notice %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+  {{ notice }}
+</div>
+{% endif %}
+
+{# Summary tiles #}
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Total Billed</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ total_billed | money }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Credits Applied</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ total_credits | money }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Net Owed</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ total_net | money }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Outstanding (Open)</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ open_net | money }}</div>
+  </div>
+</section>
+
+{# Add invoice #}
+<section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="mb-4 text-sm font-semibold text-slate-900">Add an invoice</h2>
+  <form action="/admin/product-invoices" method="post" class="grid grid-cols-1 gap-3 md:grid-cols-6">
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice #</span>
+      <input type="text" name="number" required maxlength="64" placeholder="e.g. SBX-10042"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice date</span>
+      <input type="date" name="invoice_date" required
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+      <input type="number" name="amount" required step="0.01" min="0.01" placeholder="0.00"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-2">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Note / PO <span class="font-normal normal-case text-slate-400">(optional)</span></span>
+      <input type="text" name="note" maxlength="512" placeholder="e.g. PO 4471"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <div class="md:col-span-1 flex items-end">
+      <button type="submit"
+              class="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">Save</button>
+    </div>
+  </form>
+</section>
+
+{# Invoice list #}
+<section class="space-y-4">
+  {% if invoices | length == 0 %}
+  <div class="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center shadow-sm">
+    <p class="text-sm text-slate-700">No invoices logged yet.</p>
+    <p class="mt-1 text-xs text-slate-500">Add one with the form above.</p>
+  </div>
+  {% endif %}
+
+  {% for inv in invoices %}
+  <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+      <div class="flex items-center gap-3">
+        <span class="text-base font-semibold text-slate-900">{{ inv.number }}</span>
+        <span class="text-xs text-slate-500">{{ inv.invoice_date.strftime("%b %d, %Y") }}</span>
+        {% if inv.status == "paid" %}
+        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-700">Paid</span>
+        {% else %}
+        <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-amber-700">Open</span>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-2">
+        <form action="/admin/product-invoices/{{ inv.id }}/status" method="post" class="inline">
+          <input type="hidden" name="status" value="{{ 'open' if inv.status == 'paid' else 'paid' }}">
+          <button type="submit"
+                  class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+            {{ "Reopen" if inv.status == "paid" else "Mark paid" }}
+          </button>
+        </form>
+        <form action="/admin/product-invoices/{{ inv.id }}/delete" method="post" class="inline">
+          <button type="submit"
+                  onclick="return confirm('Delete invoice {{ inv.number }} and its credits?')"
+                  class="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">Delete</button>
+        </form>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-3 gap-4 border-b border-slate-100 px-5 py-3 text-sm">
+      <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount</div>
+        <div class="mt-1 tabular-nums text-slate-900">{{ inv.amount | money }}</div></div>
+      <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Credits</div>
+        <div class="mt-1 tabular-nums text-slate-900">{{ inv.credits_total | money }}</div></div>
+      <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Net Owed</div>
+        <div class="mt-1 tabular-nums font-semibold {{ 'text-rose-600' if inv.net_owed < 0 else 'text-slate-900' }}">{{ inv.net_owed | money }}</div></div>
+    </div>
+
+    {% if inv.note %}
+    <div class="border-b border-slate-100 px-5 py-2 text-xs text-slate-500">{{ inv.note }}</div>
+    {% endif %}
+
+    {# Credits #}
+    <div class="px-5 py-3">
+      {% if inv.credits | length %}
+      <table class="w-full text-sm">
+        <thead class="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <tr><th class="py-1">Credit date</th><th class="py-1 text-right">Amount</th><th class="py-1">Reason</th><th class="py-1"></th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for c in inv.credits %}
+          <tr>
+            <td class="py-1.5 whitespace-nowrap text-slate-700">{{ c.credit_date.strftime("%b %d, %Y") }}</td>
+            <td class="py-1.5 text-right tabular-nums text-slate-900">{{ c.amount | money }}</td>
+            <td class="py-1.5 text-slate-600">{{ c.reason or "—" }}</td>
+            <td class="py-1.5 text-right">
+              <form action="/admin/product-invoices/{{ inv.id }}/credits/{{ c.id }}/delete" method="post" class="inline">
+                <button type="submit" onclick="return confirm('Remove this credit?')"
+                        class="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-rose-600 hover:bg-rose-50">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-xs text-slate-400">No credits applied.</p>
+      {% endif %}
+
+      {# Add credit #}
+      <form action="/admin/product-invoices/{{ inv.id }}/credits" method="post"
+            class="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
+        <label>
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Credit date</span>
+          <input type="date" name="credit_date" required
+                 class="mt-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label>
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+          <input type="number" name="amount" required step="0.01" min="0.01" placeholder="0.00"
+                 class="mt-1 w-32 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="flex-1 min-w-[8rem]">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Reason <span class="font-normal normal-case text-slate-400">(optional)</span></span>
+          <input type="text" name="reason" maxlength="512" placeholder="e.g. damaged units"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <button type="submit"
+                class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Add credit</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}
