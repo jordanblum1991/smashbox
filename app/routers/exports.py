@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.reports.ad_spend import compute_ad_spend_monthly
 from app.reports.monthly_pnl import compute_monthly_pnl
+from app.reports.purchase_statement import compute_purchase_statement
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.sample_tracking import samples_by_sku_shipped
 from app.reports.sku_profitability import compute_sku_profitability
@@ -183,6 +184,82 @@ def export_ad_spend_xlsx(
         fname += "_all-time"
     elif scope == "range" and start and end:
         fname += f"_{start_date}_to_{end_date}"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}.xlsx"'},
+    )
+
+
+@router.get("/product-invoice-statement.xlsx")
+def export_purchase_statement_xlsx(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Download the Smashbox Product Invoice statement (opening balance, the
+    debit/credit/payment ledger with running balance, totals, closing balance),
+    honoring an optional [start_date, end_date] window."""
+    start = end = None
+    try:
+        start = date.fromisoformat(start_date) if start_date else None
+        end = date.fromisoformat(end_date) if end_date else None
+    except ValueError:
+        start = end = None
+    if start and end and start > end:
+        start = end = None
+
+    stmt = compute_purchase_statement(db, start, end)
+
+    buf = BytesIO()
+    wb = xlsxwriter.Workbook(buf, {"in_memory": True})
+    ws = wb.add_worksheet("Statement")
+    bold = wb.add_format({"bold": True})
+    hdr = wb.add_format({"bold": True, "bottom": 1})
+    money = wb.add_format({"num_format": "$#,##0.00"})
+    t = wb.add_format({"bold": True, "top": 2})
+    t_money = wb.add_format({"bold": True, "top": 2, "num_format": "$#,##0.00"})
+
+    ws.write("A1", "Smashbox — Product Invoice Statement", bold)
+    period = (f"{start.isoformat()} to {end.isoformat()}" if (start and end) else "All-time")
+    ws.write("A2", period)
+
+    headers = ["Date", "Description", "Debit", "Credit", "Payment", "Balance"]
+    for c, h in enumerate(headers):
+        ws.write(3, c, h, hdr)
+
+    r = 4
+    ws.write(r, 1, "Opening balance")
+    ws.write_number(r, 5, float(stmt.opening_balance), money)
+    r += 1
+    for row in stmt.rows:
+        ws.write(r, 0, row.date.isoformat())
+        ws.write(r, 1, row.description)
+        if row.debit:
+            ws.write_number(r, 2, float(row.debit), money)
+        if row.credit:
+            ws.write_number(r, 3, float(row.credit), money)
+        if row.payment:
+            ws.write_number(r, 4, float(row.payment), money)
+        ws.write_number(r, 5, float(row.balance), money)
+        r += 1
+
+    ws.write(r, 1, "Totals / Closing balance", t)
+    ws.write(r, 0, "", t)
+    ws.write_number(r, 2, float(stmt.total_debits), t_money)
+    ws.write_number(r, 3, float(stmt.total_credits), t_money)
+    ws.write_number(r, 4, float(stmt.total_payments), t_money)
+    ws.write_number(r, 5, float(stmt.closing_balance), t_money)
+
+    ws.set_column(0, 0, 12)
+    ws.set_column(1, 1, 34)
+    ws.set_column(2, 5, 14)
+    wb.close()
+    buf.seek(0)
+
+    fname = "smashbox_product_invoice_statement"
+    if start and end:
+        fname += f"_{start.isoformat()}_to_{end.isoformat()}"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

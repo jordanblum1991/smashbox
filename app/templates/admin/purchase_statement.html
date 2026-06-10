@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Product Invoice Statement · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Smashbox Product Invoice Statement",
+  subtitle="Account statement of invoices (debits), credits, and payments, with a running balance. Pick a date range to scope it; anything before the range rolls into the opening balance.",
+  accent_bar=true,
+) %}
+  <a href="/export/product-invoice-statement.xlsx{% if start_date and end_date %}?start_date={{ start_date }}&end_date={{ end_date }}{% endif %}"
+     class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Download statement</a>
+  <button onclick="window.print()" type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Print</button>
+{% endcall %}
+
+<div class="mb-6 flex flex-wrap items-center gap-3 print:hidden">
+  <a href="/admin/product-invoices" class="text-sm text-sky-700 hover:text-sky-900">← Back to invoices</a>
+  <form method="get" action="/admin/product-invoices/statement" class="flex flex-wrap items-center gap-2 text-sm">
+    <span class="text-xs text-slate-500">From</span>
+    <input type="text" id="stmt-start" name="start_date" value="{{ start_date }}"
+           placeholder="YYYY-MM-DD" autocomplete="off"
+           data-datepicker="range" data-datepicker-end="#stmt-end"
+           class="w-36 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+    <span class="text-xs text-slate-500">to</span>
+    <input type="text" id="stmt-end" name="end_date" value="{{ end_date }}"
+           placeholder="YYYY-MM-DD" autocomplete="off"
+           class="w-36 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+    <button type="submit" class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Apply</button>
+    <a href="/admin/product-invoices/statement" class="text-xs text-slate-500 underline underline-offset-2">All-time</a>
+    {% if range_error %}<span class="text-xs font-medium text-rose-600">{{ range_error }}</span>{% endif %}
+  </form>
+</div>
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">
+      Statement{% if stmt.start and stmt.end %} · {{ stmt.start.strftime("%b %d, %Y") }} – {{ stmt.end.strftime("%b %d, %Y") }}{% else %} · All-time{% endif %}
+    </h2>
+    <span class="text-xs text-slate-500">Closing balance:
+      <strong class="tabular-nums {{ 'text-rose-600' if stmt.closing_balance < 0 else 'text-slate-900' }}">{{ stmt.closing_balance | money }}</strong></span>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">Date</th>
+          <th class="px-4 py-2.5">Description</th>
+          <th class="px-4 py-2.5 text-right">Debit</th>
+          <th class="px-4 py-2.5 text-right">Credit</th>
+          <th class="px-4 py-2.5 text-right">Payment</th>
+          <th class="px-4 py-2.5 text-right">Balance</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        <tr class="bg-slate-50/40">
+          <td class="px-4 py-2.5 text-slate-500" colspan="5">Opening balance</td>
+          <td class="px-4 py-2.5 text-right tabular-nums font-medium text-slate-900">{{ stmt.opening_balance | money }}</td>
+        </tr>
+        {% for r in stmt.rows %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 whitespace-nowrap text-slate-700">{{ r.date.strftime("%b %d, %Y") }}</td>
+          <td class="px-4 py-2.5 text-slate-700">{{ r.description }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ (r.debit | money) if r.debit else "—" }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ (r.credit | money) if r.credit else "—" }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ (r.payment | money) if r.payment else "—" }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums font-medium {{ 'text-rose-600' if r.balance < 0 else 'text-slate-900' }}">{{ r.balance | money }}</td>
+        </tr>
+        {% else %}
+        <tr><td class="px-4 py-6 text-center text-sm text-slate-500" colspan="6">No transactions in this period.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-300 bg-slate-100 text-sm font-semibold text-slate-900">
+        <tr>
+          <td class="px-4 py-3" colspan="2">Period totals / Closing balance</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ stmt.total_debits | money }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ stmt.total_credits | money }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ stmt.total_payments | money }}</td>
+          <td class="px-4 py-3 text-right tabular-nums {{ 'text-rose-600' if stmt.closing_balance < 0 else 'text-slate-900' }}">{{ stmt.closing_balance | money }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% endblock %}

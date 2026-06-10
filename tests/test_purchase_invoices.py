@@ -15,12 +15,15 @@ from app.main import app
 from app.models.purchase_invoice import PurchaseInvoice
 from app.routers.purchase_invoices import (
     add_purchase_credit,
+    add_purchase_payment,
     create_purchase_invoice,
     delete_purchase_credit,
     delete_purchase_invoice,
+    delete_purchase_payment,
     set_purchase_invoice_status,
     update_purchase_credit,
     update_purchase_invoice,
+    update_purchase_payment,
 )
 
 
@@ -206,6 +209,50 @@ def test_edit_credit_404():
         assert ei.value.status_code == 404
 
 
+def test_payments_reduce_net_owed():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv_id = _invoices(db)[0].id
+        add_purchase_credit(invoice_id=inv_id, credit_date="2026-06-05", amount="200.00", reason=None, db=db)
+        add_purchase_payment(invoice_id=inv_id, payment_date="2026-06-10", amount="300.00", reference="ck 88", db=db)
+        db.commit()
+        inv = _invoices(db)[0]
+        assert inv.payments_total == Decimal("300.00")
+        assert inv.net_owed == Decimal("500.00")   # 1000 − 200 credit − 300 payment
+
+
+def test_edit_payment_and_delete():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv = _invoices(db)[0]
+        add_purchase_payment(invoice_id=inv.id, payment_date="2026-06-10", amount="300.00", reference=None, db=db)
+        db.commit()
+        pid = _invoices(db)[0].payments[0].id
+        update_purchase_payment(invoice_id=inv.id, payment_id=pid, payment_date="2026-06-11",
+                                amount="350.00", reference="rev", db=db)
+        db.commit()
+        assert _invoices(db)[0].net_owed == Decimal("650.00")   # 1000 − 350
+        delete_purchase_payment(invoice_id=inv.id, payment_id=pid, db=db); db.commit()
+        assert _invoices(db)[0].net_owed == Decimal("1000.00")
+
+
+def test_payment_invalid_amount_rejected():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv_id = _invoices(db)[0].id
+        r = add_purchase_payment(invoice_id=inv_id, payment_date="2026-06-10", amount="0", reference=None, db=db)
+        db.commit()
+        assert r.status_code == 303 and "error=" in str(r.headers.get("location"))
+        assert _invoices(db)[0].payments == []
+
+
+def test_payment_on_missing_invoice_404():
+    with SessionLocal() as db:
+        with pytest.raises(HTTPException) as ei:
+            add_purchase_payment(invoice_id=999, payment_date="2026-06-10", amount="50.00", reference=None, db=db)
+        assert ei.value.status_code == 404
+
+
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
@@ -230,3 +277,28 @@ def test_list_view_empty_state(client):
     r = client.get("/admin/product-invoices")
     assert r.status_code == 200
     assert "No invoices logged yet" in r.text
+
+
+def test_statement_page_renders(client):
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv = _invoices(db)[0]
+        add_purchase_credit(invoice_id=inv.id, credit_date="2026-06-05", amount="200.00", reason=None, db=db)
+        add_purchase_payment(invoice_id=inv.id, payment_date="2026-06-10", amount="300.00", reference="ck 9", db=db)
+        db.commit()
+    r = client.get("/admin/product-invoices/statement")
+    assert r.status_code == 200
+    assert "Statement" in r.text
+    assert "Opening balance" in r.text
+    assert "Invoice SBX-001" in r.text
+    assert "$500.00" in r.text          # closing balance 1000 − 200 − 300
+
+
+def test_statement_export_downloads(client):
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+    r = client.get("/export/product-invoice-statement.xlsx")
+    assert r.status_code == 200
+    assert "spreadsheetml" in r.headers["content-type"]
+    assert "attachment" in r.headers["content-disposition"]
+    assert len(r.content) > 100

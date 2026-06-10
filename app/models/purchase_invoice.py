@@ -49,16 +49,26 @@ class PurchaseInvoice(Base):
         cascade="all, delete-orphan",
         order_by="PurchaseInvoiceCredit.credit_date",
     )
+    payments: Mapped[list["PurchaseInvoicePayment"]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        order_by="PurchaseInvoicePayment.payment_date",
+    )
 
     @property
     def credits_total(self) -> Decimal:
         return sum((c.amount for c in self.credits), Decimal("0"))
 
     @property
+    def payments_total(self) -> Decimal:
+        return sum((p.amount for p in self.payments), Decimal("0"))
+
+    @property
     def net_owed(self) -> Decimal:
-        """Amount billed minus all credits applied. May go negative if credits
-        exceed the invoice (surfaced as a flag in the UI, not blocked)."""
-        return self.amount - self.credits_total
+        """Outstanding balance: amount billed minus credits applied minus
+        payments made. May go negative if credits + payments exceed the invoice
+        (surfaced as a flag in the UI, not blocked)."""
+        return self.amount - self.credits_total - self.payments_total
 
 
 class PurchaseInvoiceCredit(Base):
@@ -78,3 +88,22 @@ class PurchaseInvoiceCredit(Base):
     )
 
     invoice: Mapped["PurchaseInvoice"] = relationship(back_populates="credits")
+
+
+class PurchaseInvoicePayment(Base):
+    __tablename__ = "purchase_invoice_payments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_invoice_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_invoices.id"), index=True, nullable=False
+    )
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    reference: Mapped[str | None] = mapped_column(Text, nullable=True)  # check #, memo
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    invoice: Mapped["PurchaseInvoice"] = relationship(back_populates="payments")
