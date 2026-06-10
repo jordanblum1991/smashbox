@@ -23,24 +23,31 @@
 {% endif %}
 
 {# Summary tiles #}
-<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+<section class="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Total Billed</div>
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Total Invoiced</div>
     <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ total_billed | money }}</div>
   </div>
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Credits Applied</div>
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Credits</div>
     <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ total_credits | money }}</div>
   </div>
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Net Owed</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ total_net | money }}</div>
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Payments</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ total_payments | money }}</div>
   </div>
   <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Outstanding (Open)</div>
-    <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{{ open_net | money }}</div>
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">Open Balance</div>
+    <div class="mt-2 text-2xl font-semibold tabular-nums {{ 'text-rose-600' if open_balance < 0 else 'text-slate-900' }}">{{ open_balance | money }}</div>
   </div>
 </section>
+
+<div class="mb-6">
+  <a href="/admin/product-invoices/statement"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    View statement →
+  </a>
+</div>
 
 {# Add invoice #}
 <section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -202,6 +209,58 @@
         </label>
         <button type="submit"
                 class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Add credit</button>
+      </form>
+    </div>
+
+    {# Payments #}
+    <div class="border-t border-slate-100 px-5 py-3">
+      {% if inv.payments | length %}
+      <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Payments</div>
+      <div class="space-y-2">
+        {% for p in inv.payments %}
+        <div class="flex flex-wrap items-end gap-2">
+          <form action="/admin/product-invoices/{{ inv.id }}/payments/{{ p.id }}/edit" method="post"
+                class="flex flex-wrap items-end gap-2">
+            <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="payment_date" required value="{{ p.payment_date.isoformat() }}"
+                   class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="number" name="amount" required step="0.01" min="0.01" value="{{ '%.2f' % p.amount }}"
+                   class="w-28 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="text" name="reference" maxlength="512" value="{{ p.reference or '' }}" placeholder="reference"
+                   class="min-w-[8rem] flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <button type="submit"
+                    class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Save</button>
+          </form>
+          <form action="/admin/product-invoices/{{ inv.id }}/payments/{{ p.id }}/delete" method="post">
+            <button type="submit" onclick="return confirm('Remove this payment?')"
+                    class="rounded-md border border-rose-200 bg-white px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50">Remove</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-xs text-slate-400">No payments recorded.</p>
+      {% endif %}
+
+      {# Add payment #}
+      <form action="/admin/product-invoices/{{ inv.id }}/payments" method="post"
+            class="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
+        <label>
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Payment date</span>
+          <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="payment_date" required
+                 class="mt-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label>
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+          <input type="number" name="amount" required step="0.01" min="0.01" placeholder="0.00"
+                 class="mt-1 w-32 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="flex-1 min-w-[8rem]">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Reference <span class="font-normal normal-case text-slate-400">(optional)</span></span>
+          <input type="text" name="reference" maxlength="512" placeholder="e.g. check #1042"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <button type="submit"
+                class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Add payment</button>
       </form>
     </div>
   </div>

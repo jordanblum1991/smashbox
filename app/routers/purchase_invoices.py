@@ -16,7 +16,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import require_admin
 from app.db import get_db
-from app.models.purchase_invoice import PurchaseInvoice, PurchaseInvoiceCredit
+from app.models.purchase_invoice import (
+    PurchaseInvoice,
+    PurchaseInvoiceCredit,
+    PurchaseInvoicePayment,
+)
+from app.reports.purchase_statement import compute_purchase_statement
 from app.templating import templates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -64,14 +69,14 @@ def product_invoices_page(
 ):
     invoices = db.execute(
         select(PurchaseInvoice)
-        .options(selectinload(PurchaseInvoice.credits))
+        .options(selectinload(PurchaseInvoice.credits), selectinload(PurchaseInvoice.payments))
         .order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.id.desc())
     ).scalars().all()
 
     total_billed = sum((i.amount for i in invoices), Decimal("0"))
     total_credits = sum((i.credits_total for i in invoices), Decimal("0"))
-    total_net = total_billed - total_credits
-    open_net = sum((i.net_owed for i in invoices if i.status != "paid"), Decimal("0"))
+    total_payments = sum((i.payments_total for i in invoices), Decimal("0"))
+    open_balance = total_billed - total_credits - total_payments
 
     return templates.TemplateResponse(
         request,
@@ -80,10 +85,42 @@ def product_invoices_page(
             "invoices": invoices,
             "total_billed": total_billed,
             "total_credits": total_credits,
-            "total_net": total_net,
-            "open_net": open_net,
+            "total_payments": total_payments,
+            "open_balance": open_balance,
             "error": error,
             "notice": notice,
+        },
+    )
+
+
+@router.get("/product-invoices/statement", dependencies=[Depends(require_admin)])
+def product_invoice_statement(
+    request: Request,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    db: Session = Depends(get_db),
+):
+    start = end = None
+    range_error: str | None = None
+    try:
+        start = date.fromisoformat(start_date) if start_date else None
+        end = date.fromisoformat(end_date) if end_date else None
+    except ValueError:
+        start = end = None
+        range_error = "Invalid date — use YYYY-MM-DD."
+    if range_error is None and start and end and start > end:
+        start = end = None
+        range_error = "Start date must be on or before end date."
+
+    stmt = compute_purchase_statement(db, start, end)
+    return templates.TemplateResponse(
+        request,
+        "admin/purchase_statement.html",
+        {
+            "stmt": stmt,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+            "range_error": range_error,
         },
     )
 
@@ -213,6 +250,66 @@ def delete_purchase_credit(invoice_id: int, credit_id: int, db: Session = Depend
     db.delete(credit)
     db.commit()
     return _back(notice="Credit removed.")
+
+
+@router.post("/product-invoices/{invoice_id}/payments", dependencies=[Depends(require_admin)])
+def add_purchase_payment(
+    invoice_id: int,
+    payment_date: str = Form(...),
+    amount: str = Form(...),
+    reference: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    inv = db.get(PurchaseInvoice, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    d, err = _parse_date(payment_date, "Payment date")
+    if err:
+        return _back(error=err)
+    amt, err = _parse_amount(amount, "Payment amount")
+    if err:
+        return _back(error=err)
+    db.add(PurchaseInvoicePayment(
+        purchase_invoice_id=inv.id, payment_date=d, amount=amt,
+        reference=((reference or "").strip() or None),
+    ))
+    db.commit()
+    return _back(notice=f"Recorded ${amt} payment on {inv.number}.")
+
+
+@router.post("/product-invoices/{invoice_id}/payments/{payment_id}/edit", dependencies=[Depends(require_admin)])
+def update_purchase_payment(
+    invoice_id: int,
+    payment_id: int,
+    payment_date: str = Form(...),
+    amount: str = Form(...),
+    reference: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    pay = db.get(PurchaseInvoicePayment, payment_id)
+    if pay is None or pay.purchase_invoice_id != invoice_id:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    d, err = _parse_date(payment_date, "Payment date")
+    if err:
+        return _back(error=err)
+    amt, err = _parse_amount(amount, "Payment amount")
+    if err:
+        return _back(error=err)
+    pay.payment_date = d
+    pay.amount = amt
+    pay.reference = (reference or "").strip() or None
+    db.commit()
+    return _back(notice="Payment updated.")
+
+
+@router.post("/product-invoices/{invoice_id}/payments/{payment_id}/delete", dependencies=[Depends(require_admin)])
+def delete_purchase_payment(invoice_id: int, payment_id: int, db: Session = Depends(get_db)):
+    pay = db.get(PurchaseInvoicePayment, payment_id)
+    if pay is None or pay.purchase_invoice_id != invoice_id:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    db.delete(pay)
+    db.commit()
+    return _back(notice="Payment removed.")
 
 
 @router.post("/product-invoices/{invoice_id}/status", dependencies=[Depends(require_admin)])
