@@ -19,6 +19,8 @@ from app.routers.purchase_invoices import (
     delete_purchase_credit,
     delete_purchase_invoice,
     set_purchase_invoice_status,
+    update_purchase_credit,
+    update_purchase_invoice,
 )
 
 
@@ -121,6 +123,86 @@ def test_credit_on_missing_invoice_404():
     with SessionLocal() as db:
         with pytest.raises(HTTPException) as ei:
             add_purchase_credit(invoice_id=999, credit_date="2026-06-05", amount="50.00", reason=None, db=db)
+        assert ei.value.status_code == 404
+
+
+def test_edit_invoice_updates_fields():
+    with SessionLocal() as db:
+        _mk(db, number="SBX-001"); db.commit()
+        inv_id = _invoices(db)[0].id
+        update_purchase_invoice(invoice_id=inv_id, number="SBX-002",
+                                invoice_date="2026-07-01", amount="1500.00", note="rev", db=db)
+        db.commit()
+        inv = _invoices(db)[0]
+        assert inv.number == "SBX-002"
+        assert inv.amount == Decimal("1500.00")
+        assert inv.note == "rev"
+
+
+def test_edit_invoice_keep_same_number_ok():
+    with SessionLocal() as db:
+        _mk(db, number="SBX-001"); db.commit()
+        inv_id = _invoices(db)[0].id
+        r = update_purchase_invoice(invoice_id=inv_id, number="SBX-001",
+                                    invoice_date="2026-06-01", amount="1200.00", note=None, db=db)
+        db.commit()
+        assert r.status_code == 303 and "error=" not in str(r.headers.get("location"))
+        assert _invoices(db)[0].amount == Decimal("1200.00")
+
+
+def test_edit_invoice_duplicate_number_rejected():
+    with SessionLocal() as db:
+        _mk(db, number="SBX-001"); _mk(db, number="SBX-002"); db.commit()
+        target = [i for i in _invoices(db) if i.number == "SBX-002"][0]
+        r = update_purchase_invoice(invoice_id=target.id, number="SBX-001",
+                                    invoice_date="2026-06-01", amount="1000.00", note=None, db=db)
+        db.commit()
+        assert r.status_code == 303 and "error=" in str(r.headers.get("location"))
+        assert [i for i in _invoices(db) if i.id == target.id][0].number == "SBX-002"
+
+
+def test_edit_invoice_invalid_amount_rejected():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv_id = _invoices(db)[0].id
+        r = update_purchase_invoice(invoice_id=inv_id, number="SBX-001",
+                                    invoice_date="2026-06-01", amount="0", note=None, db=db)
+        db.commit()
+        assert r.status_code == 303 and "error=" in str(r.headers.get("location"))
+        assert _invoices(db)[0].amount == Decimal("1000.00")
+
+
+def test_edit_invoice_404():
+    with SessionLocal() as db:
+        with pytest.raises(HTTPException) as ei:
+            update_purchase_invoice(invoice_id=999, number="X", invoice_date="2026-06-01",
+                                    amount="10.00", note=None, db=db)
+        assert ei.value.status_code == 404
+
+
+def test_edit_credit_updates_fields():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv = _invoices(db)[0]
+        add_purchase_credit(invoice_id=inv.id, credit_date="2026-06-05", amount="200.00", reason="x", db=db)
+        db.commit()
+        cid = _invoices(db)[0].credits[0].id
+        update_purchase_credit(invoice_id=inv.id, credit_id=cid, credit_date="2026-06-07",
+                               amount="250.00", reason="adjusted", db=db)
+        db.commit()
+        c = _invoices(db)[0].credits[0]
+        assert c.amount == Decimal("250.00")
+        assert c.reason == "adjusted"
+        assert _invoices(db)[0].net_owed == Decimal("750.00")
+
+
+def test_edit_credit_404():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv_id = _invoices(db)[0].id
+        with pytest.raises(HTTPException) as ei:
+            update_purchase_credit(invoice_id=inv_id, credit_id=999, credit_date="2026-06-05",
+                                   amount="50.00", reason=None, db=db)
         assert ei.value.status_code == 404
 
 

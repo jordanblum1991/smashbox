@@ -123,29 +123,61 @@
     <div class="border-b border-slate-100 px-5 py-2 text-xs text-slate-500">{{ inv.note }}</div>
     {% endif %}
 
+    {# Edit invoice details #}
+    <details class="border-b border-slate-100 px-5 py-2">
+      <summary class="cursor-pointer select-none text-xs font-medium text-sky-700 hover:text-sky-900">Edit invoice details</summary>
+      <form action="/admin/product-invoices/{{ inv.id }}/edit" method="post" class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-6">
+        <label class="md:col-span-1">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice #</span>
+          <input type="text" name="number" required maxlength="64" value="{{ inv.number }}"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-1">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice date</span>
+          <input type="date" name="invoice_date" required value="{{ inv.invoice_date.isoformat() }}"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-1">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+          <input type="number" name="amount" required step="0.01" min="0.01" value="{{ '%.2f' % inv.amount }}"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-2">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Note / PO</span>
+          <input type="text" name="note" maxlength="512" value="{{ inv.note or '' }}"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <div class="md:col-span-1 flex items-end">
+          <button type="submit" class="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">Save</button>
+        </div>
+      </form>
+    </details>
+
     {# Credits #}
     <div class="px-5 py-3">
       {% if inv.credits | length %}
-      <table class="w-full text-sm">
-        <thead class="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-          <tr><th class="py-1">Credit date</th><th class="py-1 text-right">Amount</th><th class="py-1">Reason</th><th class="py-1"></th></tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          {% for c in inv.credits %}
-          <tr>
-            <td class="py-1.5 whitespace-nowrap text-slate-700">{{ c.credit_date.strftime("%b %d, %Y") }}</td>
-            <td class="py-1.5 text-right tabular-nums text-slate-900">{{ c.amount | money }}</td>
-            <td class="py-1.5 text-slate-600">{{ c.reason or "—" }}</td>
-            <td class="py-1.5 text-right">
-              <form action="/admin/product-invoices/{{ inv.id }}/credits/{{ c.id }}/delete" method="post" class="inline">
-                <button type="submit" onclick="return confirm('Remove this credit?')"
-                        class="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-rose-600 hover:bg-rose-50">Remove</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Credits applied</div>
+      <div class="space-y-2">
+        {% for c in inv.credits %}
+        <div class="flex flex-wrap items-end gap-2">
+          <form action="/admin/product-invoices/{{ inv.id }}/credits/{{ c.id }}/edit" method="post"
+                class="flex flex-wrap items-end gap-2">
+            <input type="date" name="credit_date" required value="{{ c.credit_date.isoformat() }}"
+                   class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="number" name="amount" required step="0.01" min="0.01" value="{{ '%.2f' % c.amount }}"
+                   class="w-28 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <input type="text" name="reason" maxlength="512" value="{{ c.reason or '' }}" placeholder="reason"
+                   class="min-w-[8rem] flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <button type="submit"
+                    class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Save</button>
+          </form>
+          <form action="/admin/product-invoices/{{ inv.id }}/credits/{{ c.id }}/delete" method="post">
+            <button type="submit" onclick="return confirm('Remove this credit?')"
+                    class="rounded-md border border-rose-200 bg-white px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50">Remove</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
       {% else %}
       <p class="text-xs text-slate-400">No credits applied.</p>
       {% endif %}
