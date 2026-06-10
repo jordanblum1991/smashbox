@@ -98,6 +98,48 @@ def test_mark_paid_and_reopen():
         assert _invoices(db)[0].status == "open"
 
 
+def test_mark_paid_records_payment_for_outstanding():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv_id = _invoices(db)[0].id
+        set_purchase_invoice_status(invoice_id=inv_id, status="paid", db=db); db.commit()
+        inv = _invoices(db)[0]
+        assert inv.status == "paid"
+        assert inv.net_owed == Decimal("0.00")        # settled
+        assert len(inv.payments) == 1
+        assert inv.payments[0].amount == Decimal("1000.00")
+        assert inv.payments[0].reference == "Marked paid"
+
+
+def test_reopen_removes_auto_payment_keeps_real_payments():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv = _invoices(db)[0]
+        add_purchase_payment(invoice_id=inv.id, payment_date="2026-06-01", amount="100.00", reference="real check", db=db)
+        db.commit()
+        set_purchase_invoice_status(invoice_id=inv.id, status="paid", db=db); db.commit()
+        assert _invoices(db)[0].net_owed == Decimal("0.00")
+        assert len(_invoices(db)[0].payments) == 2     # real 100 + auto 900
+        set_purchase_invoice_status(invoice_id=inv.id, status="open", db=db); db.commit()
+        inv = _invoices(db)[0]
+        assert inv.status == "open"
+        assert len(inv.payments) == 1                  # auto-payment removed, real kept
+        assert inv.payments[0].reference == "real check"
+        assert inv.net_owed == Decimal("900.00")
+
+
+def test_mark_paid_no_auto_payment_when_already_settled():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        inv = _invoices(db)[0]
+        add_purchase_credit(invoice_id=inv.id, credit_date="2026-06-01", amount="1000.00", reason=None, db=db)
+        db.commit()
+        set_purchase_invoice_status(invoice_id=inv.id, status="paid", db=db); db.commit()
+        inv = _invoices(db)[0]
+        assert inv.payments == []                       # nothing outstanding → no auto-payment
+        assert inv.net_owed == Decimal("0.00")
+
+
 def test_delete_credit_restores_net():
     with SessionLocal() as db:
         _mk(db); db.commit()

@@ -22,9 +22,14 @@ from app.models.purchase_invoice import (
     PurchaseInvoicePayment,
 )
 from app.reports.purchase_statement import compute_purchase_statement
+from app.services.reporting_tz import today_local
 from app.templating import templates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# Reference stamped on the payment auto-created when an invoice is marked Paid,
+# so Reopen can find and remove exactly that payment (and leave real ones).
+MARK_PAID_REF = "Marked paid"
 
 
 def _back(*, error: str | None = None, notice: str | None = None) -> RedirectResponse:
@@ -344,7 +349,24 @@ def set_purchase_invoice_status(
     new_status = (status or "").strip().lower()
     if new_status not in ("open", "paid"):
         return _back(error=f"Invalid status {status!r}.")
-    inv.status = new_status
+
+    if new_status == "paid":
+        # Settle the outstanding balance with an auto-payment so it drops out of
+        # Open Balance and shows on the statement.
+        outstanding = inv.net_owed
+        if outstanding > 0:
+            db.add(PurchaseInvoicePayment(
+                purchase_invoice_id=inv.id, payment_date=today_local(),
+                amount=outstanding, reference=MARK_PAID_REF,
+            ))
+        inv.status = "paid"
+    else:
+        # Reopen — remove only the auto-payment(s) we created; keep real ones.
+        for p in list(inv.payments):
+            if (p.reference or "") == MARK_PAID_REF:
+                db.delete(p)
+        inv.status = "open"
+
     db.commit()
     return _back(notice=f"{inv.number} marked {new_status}.")
 
