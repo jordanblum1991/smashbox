@@ -35,14 +35,39 @@
 <form method="get" action="/reports/ad-spend" class="mb-6 flex flex-wrap items-center gap-2 text-sm print:hidden">
   <input type="hidden" name="scope" value="range">
   <span class="text-xs text-slate-500">From</span>
-  <input type="date" name="start_date" value="{{ start_date or '' }}"
-         class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+  <input type="text" id="range-start" name="start_date" value="{{ start_date or '' }}"
+         placeholder="YYYY-MM-DD" autocomplete="off"
+         class="w-36 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
   <span class="text-xs text-slate-500">to</span>
-  <input type="date" name="end_date" value="{{ end_date or '' }}"
-         class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
+  <input type="text" id="range-end" name="end_date" value="{{ end_date or '' }}"
+         placeholder="YYYY-MM-DD" autocomplete="off"
+         class="w-36 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800">
   <button type="submit" class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Apply</button>
   {% if range_error %}<span class="text-xs font-medium text-rose-600">{{ range_error }}</span>{% endif %}
 </form>
+{# Visual range picker — one calendar, click start then end. Fills the two
+   inputs above (YYYY-MM-DD), which the form submits unchanged. Self-contained;
+   injects its own styles. #}
+<script src="/static/vendor/litepicker/litepicker.js"></script>
+<script>
+  (function () {
+    var startEl = document.getElementById("range-start");
+    var endEl = document.getElementById("range-end");
+    if (!startEl || !endEl || typeof Litepicker === "undefined") return;  // typing fallback
+    new Litepicker({
+      element: startEl,
+      elementEnd: endEl,
+      singleMode: false,
+      allowRepick: true,
+      autoApply: true,
+      format: "YYYY-MM-DD",
+      numberOfMonths: 2,
+      numberOfColumns: 2,
+      startDate: startEl.value || null,
+      endDate: endEl.value || null,
+    });
+  })();
+</script>
 {% endif %}
 
 {% if monthly.rows %}
