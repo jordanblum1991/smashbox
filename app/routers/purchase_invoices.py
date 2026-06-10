@@ -118,6 +118,43 @@ def create_purchase_invoice(
     return _back(notice=f"Added invoice {num}.")
 
 
+@router.post("/product-invoices/{invoice_id}/edit", dependencies=[Depends(require_admin)])
+def update_purchase_invoice(
+    invoice_id: int,
+    number: str = Form(...),
+    invoice_date: str = Form(...),
+    amount: str = Form(...),
+    note: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    inv = db.get(PurchaseInvoice, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    num = (number or "").strip()
+    if not num:
+        return _back(error="Invoice number is required.")
+    d, err = _parse_date(invoice_date, "Invoice date")
+    if err:
+        return _back(error=err)
+    amt, err = _parse_amount(amount, "Amount")
+    if err:
+        return _back(error=err)
+    # Unique number — but the invoice may keep its own number.
+    clash = db.execute(
+        select(PurchaseInvoice).where(
+            PurchaseInvoice.number == num, PurchaseInvoice.id != invoice_id
+        )
+    ).scalar_one_or_none()
+    if clash is not None:
+        return _back(error=f"Invoice {num!r} already exists.")
+    inv.number = num
+    inv.invoice_date = d
+    inv.amount = amt
+    inv.note = (note or "").strip() or None
+    db.commit()
+    return _back(notice=f"Updated invoice {num}.")
+
+
 @router.post("/product-invoices/{invoice_id}/credits", dependencies=[Depends(require_admin)])
 def add_purchase_credit(
     invoice_id: int,
@@ -141,6 +178,31 @@ def add_purchase_credit(
     ))
     db.commit()
     return _back(notice=f"Added ${amt} credit to {inv.number}.")
+
+
+@router.post("/product-invoices/{invoice_id}/credits/{credit_id}/edit", dependencies=[Depends(require_admin)])
+def update_purchase_credit(
+    invoice_id: int,
+    credit_id: int,
+    credit_date: str = Form(...),
+    amount: str = Form(...),
+    reason: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    credit = db.get(PurchaseInvoiceCredit, credit_id)
+    if credit is None or credit.purchase_invoice_id != invoice_id:
+        raise HTTPException(status_code=404, detail="Credit not found")
+    d, err = _parse_date(credit_date, "Credit date")
+    if err:
+        return _back(error=err)
+    amt, err = _parse_amount(amount, "Credit amount")
+    if err:
+        return _back(error=err)
+    credit.credit_date = d
+    credit.amount = amt
+    credit.reason = (reason or "").strip() or None
+    db.commit()
+    return _back(notice="Credit updated.")
 
 
 @router.post("/product-invoices/{invoice_id}/credits/{credit_id}/delete", dependencies=[Depends(require_admin)])
