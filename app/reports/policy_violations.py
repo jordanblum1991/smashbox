@@ -186,7 +186,25 @@ def compute_policy_violations(
         .order_by(Order.placed_at.desc())
     ).all()
 
-    # Catalog enrichment (single round trip).
+    rows = _build_violation_rows(db, rows_raw, cap_pct)
+
+    today = today_local()
+    return PolicyViolationView(
+        period_kind=period,
+        year=year or today.year,
+        month=month or today.month,
+        title_suffix=suffix,
+        start=start,
+        end=end,
+        rows=rows,
+        policy_cap_pct=cap_pct,
+    )
+
+
+def _build_violation_rows(db: Session, rows_raw, cap_pct: Decimal) -> list[PolicyViolationRow]:
+    """Enrich raw (line, order, sku) tuples with catalog name/code and build
+    PolicyViolationRow objects. Shared by compute_policy_violations (period-
+    scoped) and all_policy_violations (all-time)."""
     keys = {r[4] for r in rows_raw if r[4]}
     sku_by_key: dict[str, Sku] = {}
     bundle_by_key: dict[str, Bundle] = {}
@@ -237,18 +255,35 @@ def compute_policy_violations(
             acknowledged=bool(ack),
             acknowledged_at=ack_at,
         ))
+    return rows
 
-    today = today_local()
-    return PolicyViolationView(
-        period_kind=period,
-        year=year or today.year,
-        month=month or today.month,
-        title_suffix=suffix,
-        start=start,
-        end=end,
-        rows=rows,
-        policy_cap_pct=cap_pct,
+
+def all_policy_violations(db: Session, *, only_unacknowledged: bool = True) -> list[PolicyViolationRow]:
+    """All-time policy-violation lines (most recent first), for the Data Health
+    overview. only_unacknowledged → exclude lines already acknowledged."""
+    cap_pct = settings.seller_funded_policy_cap_pct
+    stmt = (
+        select(
+            OrderLine.id,
+            Order.tiktok_order_id,
+            Order.placed_at,
+            Order.status,
+            OrderLine.sku,
+            OrderLine.quantity,
+            OrderLine.gross_sales,
+            OrderLine.seller_funded_discount,
+            OrderLine.policy_violation_acknowledged,
+            OrderLine.policy_violation_acknowledged_at,
+        )
+        .join(Order, Order.id == OrderLine.order_id)
+        .where(Order.order_type == OrderType.PAID)
+        .where(OrderLine.discount_policy_violation.is_(True))
+        .order_by(Order.placed_at.desc())
     )
+    if only_unacknowledged:
+        stmt = stmt.where(OrderLine.policy_violation_acknowledged.is_(False))
+    rows_raw = db.execute(stmt).all()
+    return _build_violation_rows(db, rows_raw, cap_pct)
 
 
 def count_policy_violations(db: Session) -> int:
