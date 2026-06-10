@@ -64,8 +64,8 @@
              class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
     </label>
     <label class="md:col-span-1">
-      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Due date <span class="font-normal normal-case text-slate-400">(optional)</span></span>
-      <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="due_date"
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Due date <span class="font-normal normal-case text-slate-400">(defaults to Net 30)</span></span>
+      <input type="text" data-datepicker="single" autocomplete="off" placeholder="Net 30 if blank" name="due_date"
              class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
     </label>
     <label class="md:col-span-1">
@@ -134,6 +134,20 @@
         <div class="mt-1 tabular-nums text-slate-900">{{ inv.payments_total | money }}</div></div>
       <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Net Owed</div>
         <div class="mt-1 tabular-nums font-semibold {{ 'text-rose-600' if inv.net_owed < 0 else 'text-slate-900' }}">{{ inv.net_owed | money }}</div></div>
+    </div>
+
+    {# Inline due-date editor (Net 30 default; override or one-click Net 30). #}
+    <div class="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-2">
+      <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Due date</span>
+      <form action="/admin/product-invoices/{{ inv.id }}/due-date" method="post" class="flex flex-wrap items-center gap-2">
+        <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="due_date"
+               value="{{ inv.due_date.isoformat() if inv.due_date else '' }}"
+               class="w-36 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <button type="submit"
+                class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Save</button>
+        <button type="submit" name="net30" value="1"
+                class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Net 30</button>
+      </form>
     </div>
 
     {% if inv.note %}
