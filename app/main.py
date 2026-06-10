@@ -76,6 +76,7 @@ def _ensure_columns() -> None:
             ("service_level", "NUMERIC(4,3)"),
         ],
         "bundles":              [shop_id_col],
+        "purchase_invoices":    [("due_date", "DATE")],
         "users": [
             shop_id_col,
             ("is_super_admin", "BOOLEAN NOT NULL DEFAULT 0"),

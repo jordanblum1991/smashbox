@@ -44,15 +44,15 @@
 
 <div class="mb-6">
   <a href="/admin/product-invoices/statement"
-     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-    View statement →
+     class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
+    View account statement →
   </a>
 </div>
 
 {# Add invoice #}
 <section class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
   <h2 class="mb-4 text-sm font-semibold text-slate-900">Add an invoice</h2>
-  <form action="/admin/product-invoices" method="post" class="grid grid-cols-1 gap-3 md:grid-cols-6">
+  <form action="/admin/product-invoices" method="post" class="grid grid-cols-1 gap-3 md:grid-cols-7">
     <label class="md:col-span-1">
       <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice #</span>
       <input type="text" name="number" required maxlength="64" placeholder="e.g. SBX-10042"
@@ -61,6 +61,11 @@
     <label class="md:col-span-1">
       <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice date</span>
       <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="invoice_date" required
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Due date <span class="font-normal normal-case text-slate-400">(optional)</span></span>
+      <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="due_date"
              class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
     </label>
     <label class="md:col-span-1">
@@ -94,7 +99,10 @@
     <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
       <div class="flex items-center gap-3">
         <span class="text-base font-semibold text-slate-900">{{ inv.number }}</span>
-        <span class="text-xs text-slate-500">{{ inv.invoice_date.strftime("%b %d, %Y") }}</span>
+        <span class="text-xs text-slate-500">{{ inv.invoice_date.strftime("%b %d, %Y") }}{% if inv.due_date %} · due {{ inv.due_date.strftime("%b %d, %Y") }}{% endif %}</span>
+        {% if inv.is_overdue %}
+        <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-rose-700">Overdue</span>
+        {% endif %}
         {% if inv.status == "paid" %}
         <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-700">Paid</span>
         {% else %}
@@ -117,11 +125,13 @@
       </div>
     </header>
 
-    <div class="grid grid-cols-3 gap-4 border-b border-slate-100 px-5 py-3 text-sm">
+    <div class="grid grid-cols-2 gap-4 border-b border-slate-100 px-5 py-3 text-sm md:grid-cols-4">
       <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount</div>
         <div class="mt-1 tabular-nums text-slate-900">{{ inv.amount | money }}</div></div>
       <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Credits</div>
         <div class="mt-1 tabular-nums text-slate-900">{{ inv.credits_total | money }}</div></div>
+      <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Payments</div>
+        <div class="mt-1 tabular-nums text-slate-900">{{ inv.payments_total | money }}</div></div>
       <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Net Owed</div>
         <div class="mt-1 tabular-nums font-semibold {{ 'text-rose-600' if inv.net_owed < 0 else 'text-slate-900' }}">{{ inv.net_owed | money }}</div></div>
     </div>
@@ -133,7 +143,7 @@
     {# Edit invoice details #}
     <details class="border-b border-slate-100 px-5 py-2">
       <summary class="cursor-pointer select-none text-xs font-medium text-sky-700 hover:text-sky-900">Edit invoice details</summary>
-      <form action="/admin/product-invoices/{{ inv.id }}/edit" method="post" class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-6">
+      <form action="/admin/product-invoices/{{ inv.id }}/edit" method="post" class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-7">
         <label class="md:col-span-1">
           <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice #</span>
           <input type="text" name="number" required maxlength="64" value="{{ inv.number }}"
@@ -142,6 +152,11 @@
         <label class="md:col-span-1">
           <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice date</span>
           <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="invoice_date" required value="{{ inv.invoice_date.isoformat() }}"
+                 class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        </label>
+        <label class="md:col-span-1">
+          <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Due date</span>
+          <input type="text" data-datepicker="single" autocomplete="off" placeholder="YYYY-MM-DD" name="due_date" value="{{ inv.due_date.isoformat() if inv.due_date else '' }}"
                  class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
         </label>
         <label class="md:col-span-1">

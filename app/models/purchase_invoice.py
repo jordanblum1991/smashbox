@@ -35,6 +35,7 @@ class PurchaseInvoice(Base):
     # Smashbox's invoice number. Unique so the same invoice isn't logged twice.
     number: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)        # when payment is due
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)   # total billed
     status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)  # open | paid
     note: Mapped[str | None] = mapped_column(Text, nullable=True)             # PO / memo
@@ -69,6 +70,14 @@ class PurchaseInvoice(Base):
         payments made. May go negative if credits + payments exceed the invoice
         (surfaced as a flag in the UI, not blocked)."""
         return self.amount - self.credits_total - self.payments_total
+
+    @property
+    def is_overdue(self) -> bool:
+        """Past its due date with an outstanding balance still owed."""
+        if self.due_date is None or self.net_owed <= 0:
+            return False
+        from app.services.reporting_tz import today_local
+        return self.due_date < today_local()
 
 
 class PurchaseInvoiceCredit(Base):
