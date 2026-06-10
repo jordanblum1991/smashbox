@@ -5,7 +5,7 @@ purchases, plus credits applied against each. Mirrors the validation / 303-flash
 discipline of app/routers/gmv_max_reimbursements.py. Net owed = amount − credits;
 status is open|paid. Standalone — does not feed the P&L.
 """
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
@@ -159,6 +159,10 @@ def create_purchase_invoice(
     due, err = _parse_date_optional(due_date, "Due date")
     if err:
         return _back(error=err)
+    # Smashbox terms are Net 30 — default the due date to 30 days after the
+    # invoice date when one isn't entered. An explicit value overrides.
+    if due is None:
+        due = d + timedelta(days=30)
     amt, err = _parse_amount(amount, "Amount")
     if err:
         return _back(error=err)
@@ -369,6 +373,30 @@ def set_purchase_invoice_status(
 
     db.commit()
     return _back(notice=f"{inv.number} marked {new_status}.")
+
+
+@router.post("/product-invoices/{invoice_id}/due-date", dependencies=[Depends(require_admin)])
+def set_purchase_invoice_due_date(
+    invoice_id: int,
+    due_date: str | None = Form(default=None),
+    net30: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    """Quick inline edit of just the due date. `net30` sets it to 30 days after
+    the invoice date (Smashbox terms); otherwise the typed date is used (blank
+    clears it)."""
+    inv = db.get(PurchaseInvoice, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if net30:
+        inv.due_date = inv.invoice_date + timedelta(days=30)
+    else:
+        due, err = _parse_date_optional(due_date, "Due date")
+        if err:
+            return _back(error=err)
+        inv.due_date = due
+    db.commit()
+    return _back(notice=f"Updated due date for {inv.number}.")
 
 
 @router.post("/product-invoices/{invoice_id}/delete", dependencies=[Depends(require_admin)])

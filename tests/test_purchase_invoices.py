@@ -21,6 +21,7 @@ from app.routers.purchase_invoices import (
     delete_purchase_credit,
     delete_purchase_invoice,
     delete_purchase_payment,
+    set_purchase_invoice_due_date,
     set_purchase_invoice_status,
     update_purchase_credit,
     update_purchase_invoice,
@@ -307,10 +308,35 @@ def test_due_date_create_edit_and_clear():
         assert _invoices(db)[0].due_date is None
 
 
-def test_create_without_due_date_is_none():
+def test_create_defaults_to_net30_when_blank():
     with SessionLocal() as db:
-        _mk(db); db.commit()
+        create_purchase_invoice(number="N30", invoice_date="2026-06-01", amount="100.00",
+                                due_date=None, note=None, db=db)
+        db.commit()
+        # 2026-06-01 + 30 days = 2026-07-01 (Smashbox terms)
+        assert _invoices(db)[0].due_date == date(2026, 7, 1)
+
+
+def test_set_due_date_inline_override_net30_and_clear():
+    with SessionLocal() as db:
+        _mk(db); db.commit()                       # invoice_date 2026-06-01 → due defaults to 2026-07-01
+        inv_id = _invoices(db)[0].id
+        # Explicit override.
+        set_purchase_invoice_due_date(invoice_id=inv_id, due_date="2026-08-15", net30=None, db=db); db.commit()
+        assert _invoices(db)[0].due_date == date(2026, 8, 15)
+        # One-click Net 30 → invoice_date + 30.
+        set_purchase_invoice_due_date(invoice_id=inv_id, due_date=None, net30="1", db=db); db.commit()
+        assert _invoices(db)[0].due_date == date(2026, 7, 1)
+        # Clear.
+        set_purchase_invoice_due_date(invoice_id=inv_id, due_date="", net30=None, db=db); db.commit()
         assert _invoices(db)[0].due_date is None
+
+
+def test_set_due_date_missing_invoice_404():
+    with SessionLocal() as db:
+        with pytest.raises(HTTPException) as ei:
+            set_purchase_invoice_due_date(invoice_id=999, due_date="2026-08-15", net30=None, db=db)
+        assert ei.value.status_code == 404
 
 
 def test_is_overdue():
