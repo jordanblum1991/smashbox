@@ -47,6 +47,17 @@ def _parse_date(raw: str, label: str) -> tuple[date | None, str | None]:
         return None, f"{label} must be a valid date (YYYY-MM-DD)."
 
 
+def _parse_date_optional(raw: str, label: str) -> tuple[date | None, str | None]:
+    """Like _parse_date but blank → (None, None) — for optional date fields."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+    try:
+        return date.fromisoformat(raw), None
+    except ValueError:
+        return None, f"{label} must be a valid date (YYYY-MM-DD)."
+
+
 def _parse_amount(raw: str, label: str) -> tuple[Decimal | None, str | None]:
     raw = (raw or "").strip()
     if not raw:
@@ -130,6 +141,7 @@ def create_purchase_invoice(
     number: str = Form(...),
     invoice_date: str = Form(...),
     amount: str = Form(...),
+    due_date: str | None = Form(default=None),
     note: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
@@ -137,6 +149,9 @@ def create_purchase_invoice(
     if not num:
         return _back(error="Invoice number is required.")
     d, err = _parse_date(invoice_date, "Invoice date")
+    if err:
+        return _back(error=err)
+    due, err = _parse_date_optional(due_date, "Due date")
     if err:
         return _back(error=err)
     amt, err = _parse_amount(amount, "Amount")
@@ -148,7 +163,7 @@ def create_purchase_invoice(
     if exists is not None:
         return _back(error=f"Invoice {num!r} already exists.")
     db.add(PurchaseInvoice(
-        number=num, invoice_date=d, amount=amt, status="open",
+        number=num, invoice_date=d, due_date=due, amount=amt, status="open",
         note=((note or "").strip() or None),
     ))
     db.commit()
@@ -161,6 +176,7 @@ def update_purchase_invoice(
     number: str = Form(...),
     invoice_date: str = Form(...),
     amount: str = Form(...),
+    due_date: str | None = Form(default=None),
     note: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
@@ -171,6 +187,9 @@ def update_purchase_invoice(
     if not num:
         return _back(error="Invoice number is required.")
     d, err = _parse_date(invoice_date, "Invoice date")
+    if err:
+        return _back(error=err)
+    due, err = _parse_date_optional(due_date, "Due date")
     if err:
         return _back(error=err)
     amt, err = _parse_amount(amount, "Amount")
@@ -186,6 +205,7 @@ def update_purchase_invoice(
         return _back(error=f"Invoice {num!r} already exists.")
     inv.number = num
     inv.invoice_date = d
+    inv.due_date = due
     inv.amount = amt
     inv.note = (note or "").strip() or None
     db.commit()

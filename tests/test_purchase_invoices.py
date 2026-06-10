@@ -4,6 +4,7 @@ called directly (same pattern as the other admin CRUD tests).
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -40,7 +41,7 @@ def _invoices(db):
 
 def _mk(db, number="SBX-001", amount="1000.00"):
     return create_purchase_invoice(
-        number=number, invoice_date="2026-06-01", amount=amount, note="PO 42", db=db
+        number=number, invoice_date="2026-06-01", amount=amount, due_date=None, note="PO 42", db=db
     )
 
 
@@ -71,8 +72,8 @@ def test_credits_reduce_net_owed():
 
 def test_invalid_amount_rejected_no_write():
     with SessionLocal() as db:
-        r1 = create_purchase_invoice(number="A", invoice_date="2026-06-01", amount="abc", note=None, db=db)
-        r2 = create_purchase_invoice(number="B", invoice_date="2026-06-01", amount="0", note=None, db=db)
+        r1 = create_purchase_invoice(number="A", invoice_date="2026-06-01", amount="abc", due_date=None, note=None, db=db)
+        r2 = create_purchase_invoice(number="B", invoice_date="2026-06-01", amount="0", due_date=None, note=None, db=db)
         db.commit()
         assert r1.status_code == 303 and "error=" in str(r1.headers.get("location"))
         assert r2.status_code == 303 and "error=" in str(r2.headers.get("location"))
@@ -134,7 +135,7 @@ def test_edit_invoice_updates_fields():
         _mk(db, number="SBX-001"); db.commit()
         inv_id = _invoices(db)[0].id
         update_purchase_invoice(invoice_id=inv_id, number="SBX-002",
-                                invoice_date="2026-07-01", amount="1500.00", note="rev", db=db)
+                                invoice_date="2026-07-01", amount="1500.00", due_date=None, note="rev", db=db)
         db.commit()
         inv = _invoices(db)[0]
         assert inv.number == "SBX-002"
@@ -147,7 +148,7 @@ def test_edit_invoice_keep_same_number_ok():
         _mk(db, number="SBX-001"); db.commit()
         inv_id = _invoices(db)[0].id
         r = update_purchase_invoice(invoice_id=inv_id, number="SBX-001",
-                                    invoice_date="2026-06-01", amount="1200.00", note=None, db=db)
+                                    invoice_date="2026-06-01", amount="1200.00", due_date=None, note=None, db=db)
         db.commit()
         assert r.status_code == 303 and "error=" not in str(r.headers.get("location"))
         assert _invoices(db)[0].amount == Decimal("1200.00")
@@ -158,7 +159,7 @@ def test_edit_invoice_duplicate_number_rejected():
         _mk(db, number="SBX-001"); _mk(db, number="SBX-002"); db.commit()
         target = [i for i in _invoices(db) if i.number == "SBX-002"][0]
         r = update_purchase_invoice(invoice_id=target.id, number="SBX-001",
-                                    invoice_date="2026-06-01", amount="1000.00", note=None, db=db)
+                                    invoice_date="2026-06-01", amount="1000.00", due_date=None, note=None, db=db)
         db.commit()
         assert r.status_code == 303 and "error=" in str(r.headers.get("location"))
         assert [i for i in _invoices(db) if i.id == target.id][0].number == "SBX-002"
@@ -169,7 +170,7 @@ def test_edit_invoice_invalid_amount_rejected():
         _mk(db); db.commit()
         inv_id = _invoices(db)[0].id
         r = update_purchase_invoice(invoice_id=inv_id, number="SBX-001",
-                                    invoice_date="2026-06-01", amount="0", note=None, db=db)
+                                    invoice_date="2026-06-01", amount="0", due_date=None, note=None, db=db)
         db.commit()
         assert r.status_code == 303 and "error=" in str(r.headers.get("location"))
         assert _invoices(db)[0].amount == Decimal("1000.00")
@@ -179,7 +180,7 @@ def test_edit_invoice_404():
     with SessionLocal() as db:
         with pytest.raises(HTTPException) as ei:
             update_purchase_invoice(invoice_id=999, number="X", invoice_date="2026-06-01",
-                                    amount="10.00", note=None, db=db)
+                                    amount="10.00", due_date=None, note=None, db=db)
         assert ei.value.status_code == 404
 
 
@@ -244,6 +245,54 @@ def test_payment_invalid_amount_rejected():
         db.commit()
         assert r.status_code == 303 and "error=" in str(r.headers.get("location"))
         assert _invoices(db)[0].payments == []
+
+
+def test_due_date_create_edit_and_clear():
+    with SessionLocal() as db:
+        create_purchase_invoice(number="D1", invoice_date="2026-06-01", amount="100.00",
+                                due_date="2026-07-01", note=None, db=db)
+        db.commit()
+        inv = _invoices(db)[0]
+        assert inv.due_date == date(2026, 7, 1)
+        # Edit to a new due date, then clear it (blank → None).
+        update_purchase_invoice(invoice_id=inv.id, number="D1", invoice_date="2026-06-01",
+                                amount="100.00", due_date="2026-07-15", note=None, db=db)
+        db.commit()
+        assert _invoices(db)[0].due_date == date(2026, 7, 15)
+        update_purchase_invoice(invoice_id=inv.id, number="D1", invoice_date="2026-06-01",
+                                amount="100.00", due_date="", note=None, db=db)
+        db.commit()
+        assert _invoices(db)[0].due_date is None
+
+
+def test_create_without_due_date_is_none():
+    with SessionLocal() as db:
+        _mk(db); db.commit()
+        assert _invoices(db)[0].due_date is None
+
+
+def test_is_overdue():
+    with SessionLocal() as db:
+        # Past due with a balance → overdue.
+        create_purchase_invoice(number="OD", invoice_date="2026-01-01", amount="1000.00",
+                                due_date="2026-01-15", note=None, db=db)
+        db.commit()
+        inv = _invoices(db)[0]
+        assert inv.is_overdue is True
+        # Pay it off → no longer overdue (net owed 0).
+        add_purchase_payment(invoice_id=inv.id, payment_date="2026-02-01", amount="1000.00", reference=None, db=db)
+        db.commit()
+        assert _invoices(db)[0].is_overdue is False
+        # Future due date → not overdue.
+        create_purchase_invoice(number="FUT", invoice_date="2026-06-01", amount="500.00",
+                                due_date="2999-01-01", note=None, db=db)
+        # No due date → not overdue.
+        create_purchase_invoice(number="ND", invoice_date="2026-06-01", amount="500.00",
+                                due_date=None, note=None, db=db)
+        db.commit()
+        by_num = {i.number: i for i in _invoices(db)}
+        assert by_num["FUT"].is_overdue is False
+        assert by_num["ND"].is_overdue is False
 
 
 def test_payment_on_missing_invoice_404():
