@@ -48,6 +48,14 @@
      class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Download CSV</a>
   <button type="button" onclick="window.print()"
      class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Print</button>
+  <form action="/admin/product-invoices/import-csv" method="post" enctype="multipart/form-data"
+        class="inline-flex items-center gap-2">
+    <input type="file" name="file" accept=".csv,text/csv" required
+           class="block w-40 text-xs text-slate-600 file:mr-2 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-2 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-50">
+    <button type="submit"
+            title="CSV columns: Number, Invoice Date, Amount (required); Due Date, Note, Status (optional)"
+            class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Import CSV</button>
+  </form>
 </div>
 
 {# Print-only invoice list — the on-screen cards don't print as a clean list. #}

@@ -3,9 +3,11 @@ import csv
 import io
 from datetime import date
 from decimal import Decimal
+from urllib.parse import unquote_plus
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.db import Base, SessionLocal, engine
 from app.main import app
@@ -62,3 +64,30 @@ def test_product_invoices_csv(client: TestClient):
     assert row[3] == "1000.00"      # amount
     assert row[6] == "1000.00"      # net owed (no credits/payments)
     assert row[7] == "open"
+
+
+def test_product_invoices_csv_import(client: TestClient):
+    content = (
+        "Number,Invoice Date,Amount,Due Date,Note,Status\n"
+        "SBX-IMP-1,2026-06-01,500.00,2026-07-01,PO 9,open\n"
+        "SBX-IMP-2,2026-06-02,250.00,,,paid\n"          # blank due date -> Net 30
+        "SBX-IMP-1,2026-06-03,999.00,,,open\n"          # duplicate number -> skipped
+        ",2026-06-04,100.00,,,open\n"                   # missing number -> error
+    )
+    r = client.post(
+        "/admin/product-invoices/import-csv",
+        files={"file": ("invoices.csv", content, "text/csv")},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    loc = unquote_plus(r.headers["location"])
+    assert loc.startswith("/admin/invoices?tab=product")
+    assert "Imported 2 invoices" in loc          # 2 created, 1 dup, 1 error
+    with SessionLocal() as db:
+        rows = db.execute(select(PurchaseInvoice)).scalars().all()
+        assert {i.number for i in rows} == {"SBX-IMP-1", "SBX-IMP-2"}
+        paid = db.execute(
+            select(PurchaseInvoice).where(PurchaseInvoice.number == "SBX-IMP-2")
+        ).scalar_one()
+        assert paid.status == "paid"
+        assert paid.due_date is not None          # Net 30 default applied

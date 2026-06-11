@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -202,6 +202,82 @@ def create_purchase_invoice(
     ))
     db.commit()
     return _back(notice=f"Added invoice {num}.")
+
+
+@router.post("/product-invoices/import-csv", dependencies=[Depends(require_admin)])
+def import_product_invoices_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Bulk-create product invoices from an uploaded CSV. Columns are matched
+    case-insensitively and extra columns are ignored, so a file exported from
+    this page re-imports cleanly. Required: Number, Invoice Date, Amount.
+    Optional: Due Date (Net 30 default), Note, Status (open|paid).
+
+    Per the importer discipline, invalid rows are skipped with reasons rather
+    than silently dropped, and duplicates (by invoice number) are skipped."""
+    try:
+        raw = file.file.read().decode("utf-8-sig")     # -sig strips a BOM
+    except (UnicodeDecodeError, AttributeError):
+        return _back(error="Could not read the file as UTF-8 CSV.")
+    reader = csv.DictReader(io.StringIO(raw))
+    if not reader.fieldnames:
+        return _back(error="The CSV has no header row.")
+    norm = {h: (h or "").strip().lower().replace(" ", "_") for h in reader.fieldnames}
+
+    created = 0
+    dupes = 0
+    errors: list[str] = []
+    seen: set[str] = set()
+    existing = {n for (n,) in db.execute(select(PurchaseInvoice.number)).all()}
+
+    for i, row in enumerate(reader, start=2):          # row 1 is the header
+        r = {norm[k]: (v or "").strip() for k, v in row.items() if k in norm}
+        number = r.get("number", "")
+        if not number:
+            errors.append(f"row {i}: missing Number")
+            continue
+        d, err = _parse_date(r.get("invoice_date", ""), "Invoice date")
+        if err:
+            errors.append(f"row {i} ({number}): {err}")
+            continue
+        due, err = _parse_date_optional(r.get("due_date", ""), "Due date")
+        if err:
+            errors.append(f"row {i} ({number}): {err}")
+            continue
+        if due is None:
+            due = d + timedelta(days=30)                # Net 30 default
+        amt, err = _parse_amount(r.get("amount", ""), "Amount")
+        if err:
+            errors.append(f"row {i} ({number}): {err}")
+            continue
+        status = (r.get("status", "") or "").lower()
+        if status not in ("open", "paid"):
+            status = "open"
+        if number in seen or number in existing:
+            dupes += 1
+            continue
+        seen.add(number)
+        db.add(PurchaseInvoice(
+            number=number, invoice_date=d, due_date=due, amount=amt,
+            status=status, note=(r.get("note") or None),
+        ))
+        created += 1
+
+    try:
+        db.commit()
+    except Exception:                                  # noqa: BLE001
+        db.rollback()
+        return _back(error="Import failed while saving — no invoices were added.")
+
+    msg = f"Imported {created} invoice{'' if created == 1 else 's'}."
+    if dupes:
+        msg += f" Skipped {dupes} duplicate{'' if dupes == 1 else 's'}."
+    if errors:
+        shown = "; ".join(errors[:5])
+        more = f" (+{len(errors) - 5} more)" if len(errors) > 5 else ""
+        return _back(error=f"{msg} {len(errors)} row error(s): {shown}{more}")
+    return _back(notice=msg)
 
 
 @router.post("/product-invoices/{invoice_id}/edit", dependencies=[Depends(require_admin)])

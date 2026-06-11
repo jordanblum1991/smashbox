@@ -5,6 +5,10 @@
   subtitle="Data-quality checks in one place: unmapped SKUs, orphan (settlement-only) orders, and policy violations. Each section links to its detailed grid.",
   accent_bar=true,
 ) %}
+  <a href="/reports/data-health.csv"
+     class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSV</a>
+  <button onclick="window.print()" type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
 
 {% set n_unmapped = unmapped_rows | length %}

@@ -4,6 +4,8 @@ Each report renders to a Jinja template. Print styles live in static/css/app.css
 so any report page can be sent to PDF or paper for brand meetings.
 """
 import calendar
+import csv
+import io
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
@@ -335,6 +337,102 @@ def recon_health_view(
 def data_health_view():
     """Back-compat: Data Health is now the default tab of /reports/recon-health."""
     return RedirectResponse("/reports/recon-health", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# CSV downloads for the report pages (Ad Spend, Reconciliation, Data Health).
+# csv.writer handles quoting; Response streams the in-memory string.
+# ---------------------------------------------------------------------------
+def _csv_response(rows, header: list, filename: str) -> Response:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(header)
+    for row in rows:
+        w.writerow(row)
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/reports/ad-spend.csv")
+def ad_spend_csv(db: Session = Depends(get_db)) -> Response:
+    """Per-month GMV-Max ad-spend KPIs as CSV (mirrors the Ad Spend table)."""
+    monthly = compute_ad_spend_monthly(db, None, None)
+
+    def rows():
+        for r in monthly.rows:
+            yield [
+                r.year, "%02d" % r.month, f"{r.gross_spend:.2f}", f"{r.roas:.2f}",
+                r.sku_orders if r.sku_orders is not None else "",
+                f"{r.cost_per_order:.2f}" if r.cost_per_order is not None else "",
+                f"{r.gross_revenue:.2f}" if r.gross_revenue is not None else "",
+                f"{r.roi:.2f}" if r.roi is not None else "",
+            ]
+
+    return _csv_response(
+        rows(),
+        ["Year", "Month", "Gross Spend (GMV-Max)", "ROAS", "SKU Orders",
+         "Cost per Order", "Gross Revenue", "ROI"],
+        "ad_spend.csv",
+    )
+
+
+@router.get("/reports/reconciliation.csv")
+def reconciliation_csv(
+    year: int | None = None, month: int | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Daily sales reconciliation (our GMV vs TikTok GMV) for the month as CSV."""
+    y, m = _ym(year, month)
+    data = daily_sales_reconciliation(db, y, m)
+
+    def rows():
+        for r in data:
+            yield [
+                r.day.isoformat(), f"{r.gmv:.2f}",
+                f"{r.tiktok_gmv:.2f}" if r.tiktok_gmv is not None else "",
+                f"{r.tiktok_variance:.2f}" if r.tiktok_variance is not None else "",
+                f"{r.refunds:.2f}", f"{r.net_customer_sales:.2f}", r.orders_count,
+            ]
+
+    return _csv_response(
+        rows(),
+        ["Date", "Our GMV", "TikTok GMV", "Variance", "Refunds",
+         "Net Customer Sales", "Orders"],
+        f"reconciliation_{y}-{m:02d}.csv",
+    )
+
+
+@router.get("/reports/data-health.csv")
+def data_health_csv(db: Session = Depends(get_db)) -> Response:
+    """All open data-quality issues (unmapped SKUs, orphan orders, policy
+    violations) in one CSV, tagged by Issue Type."""
+    def rows():
+        for r in find_unmapped_skus(db):
+            yield ["Unmapped SKU", r.identifier,
+                   f"{r.units} units, {r.line_count} lines",
+                   f"{float(r.gross):.2f}",
+                   r.last_seen.strftime("%Y-%m-%d") if r.last_seen else ""]
+        for r in find_settlement_only_orders(db):
+            sids = r.statement_ids
+            sids_str = "; ".join(sids) if isinstance(sids, (list, tuple)) else (str(sids) if sids else "")
+            yield ["Orphan Order", r.tiktok_order_id,
+                   ("statements: " + sids_str) if sids_str else "",
+                   f"{float(r.settlement_gross):.2f}",
+                   r.settled_date.strftime("%Y-%m-%d") if r.settled_date else ""]
+        for r in all_policy_violations(db, only_unacknowledged=True):
+            yield ["Policy Violation", r.sku_code or r.sku,
+                   f"order {r.tiktok_order_id}, excess {r.excess:.2f}",
+                   f"{r.seller_funded_discount:.2f}",
+                   r.placed_at.strftime("%Y-%m-%d")]
+
+    return _csv_response(
+        rows(),
+        ["Issue Type", "Identifier", "Detail", "Amount", "Date"],
+        "data_health.csv",
+    )
 
 
 @router.get("/reports/unmapped-skus")
