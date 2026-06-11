@@ -54,7 +54,7 @@
       <div class="group relative">
         <button type="button"
                 class="relative inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 group-hover:bg-slate-100 group-focus-within:bg-slate-100">
-          Ad Spend
+          Ads
           {{ ui.icon("chevron-down", "h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
         </button>
         <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
@@ -74,19 +74,8 @@
         </a>
       {% endfor %}
 
-      {# Recon & Health — consolidated page: the Data Health checks (unmapped
-         SKUs, orphan orders, policy violations) and the monthly Reconciliation
-         as two tabs. Red badge shows the data-health issue count. #}
-      <a href="/reports/recon-health"
-         class="relative inline-flex items-center rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
-        Recon &amp; Health
-        {% if health_total > 0 %}
-        <span title="{{ health_total }} issue{{ '' if health_total == 1 else 's' }} need attention"
-              class="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">
-          {{ health_total }}
-        </span>
-        {% endif %}
-      </a>
+      {# Reconciliation + Data Health now live in the Admin dropdown (top-right).
+         The data-health issue count rides on its dropdown item. #}
 
       {# Import action — pulled out of the link list and styled as a primary
          action button so it reads as "do something" rather than "go somewhere". #}
@@ -134,6 +123,18 @@
             <a href="/admin/invoices"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
               Invoices &amp; AP
+            </a>
+            <a href="/reports/recon-health?tab=recon"
+               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+              Reconciliation
+            </a>
+            <a href="/reports/recon-health?tab=data-health"
+               class="flex items-center justify-between rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+              <span>Data Health</span>
+              {% if health_total > 0 %}
+              <span title="{{ health_total }} issue{{ '' if health_total == 1 else 's' }} need attention"
+                    class="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ health_total }}</span>
+              {% endif %}
             </a>
             {% endif %}
           </div>

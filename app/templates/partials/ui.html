@@ -320,7 +320,7 @@
    - `caller`: long-form copy; use the `caller()` slot so callers can embed strong/links
    - `action_label`/`action_href`: right-aligned CTA (optional)
    ========================================================================== #}
-{% macro banner(tone="info", title="", action_label=none, action_href=none) -%}
+{% macro banner(tone="info", title="", action_label=none, action_href=none, compact=false) -%}
   {% set tones = {
     'info':    {'bg':'bg-sky-50',     'border':'border-sky-200',    'text':'text-sky-900',    'icon':'text-sky-500'},
     'warn':    {'bg':'bg-amber-50',   'border':'border-amber-200',  'text':'text-amber-900',  'icon':'text-amber-500'},
@@ -329,8 +329,8 @@
   } %}
   {% set t = tones[tone] %}
   {% set glyph = {'info': 'info', 'warn': 'triangle-alert', 'error': 'circle-alert', 'success': 'circle-check'}[tone] %}
-<div class="mb-6 flex items-start gap-3 rounded-xl border {{ t.bg }} {{ t.border }} px-4 py-3 text-sm leading-snug {{ t.text }}">
-  {{ icon(glyph, "mt-0.5 h-4 w-4 shrink-0 " ~ t.icon) }}
+<div class="{{ 'mb-4' if compact else 'mb-6' }} flex items-start gap-3 rounded-xl border {{ t.bg }} {{ t.border }} {{ 'px-3 py-2 text-xs' if compact else 'px-4 py-3 text-sm' }} leading-snug {{ t.text }}">
+  {{ icon(glyph, "mt-0.5 shrink-0 " ~ ("h-3.5 w-3.5" if compact else "h-4 w-4") ~ " " ~ t.icon) }}
   <div class="min-w-0 flex-1">
     {% if title %}<span class="font-semibold">{{ title }}</span>{% if caller %} — {% endif %}{% endif %}
     {% if caller %}{{ caller() }}{% endif %}

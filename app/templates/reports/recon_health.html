@@ -1,15 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Recon' if active_tab == 'recon' else 'Data Health' }} · Recon & Health · Smashbox{% endblock %}
+{% block title %}{{ 'Reconciliation' if active_tab == 'recon' else 'Data Health' }} · Smashbox{% endblock %}
 
-{# Server-rendered tabs (same pattern as Catalog / Invoices): the active tab's
-   body is included on a full page load. Recon's month-nav links carry tab=recon
-   so paging months stays on the Recon tab. #}
+{# Backs both the "Reconciliation" and "Data Health" Admin-menu items via ?tab=.
+   No in-page tabs — each menu item opens its own section. Recon's month-nav
+   links carry tab=recon so paging months stays on the reconciliation view. #}
 {% block content %}
-<nav class="mb-6 inline-flex gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="Recon & Health sections">
-  <a href="/reports/recon-health?tab=data-health"
-     class="rounded-lg px-6 py-2.5 text-sm font-semibold transition {{ 'bg-indigo-600 text-white shadow-sm' if active_tab == 'data-health' else 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700' }}">Data Health</a>
-  <a href="/reports/recon-health?tab=recon"
-     class="rounded-lg px-6 py-2.5 text-sm font-semibold transition {{ 'bg-indigo-600 text-white shadow-sm' if active_tab == 'recon' else 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700' }}">Recon</a>
-</nav>
 {% if active_tab == 'recon' %}{% include "reports/_recon_health_recon_body.html" %}{% else %}{% include "reports/_recon_health_data_body.html" %}{% endif %}
 {% endblock %}

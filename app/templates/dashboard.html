@@ -82,7 +82,7 @@
 
 {% if has_orders and not coverage_full %}
 {% set pending = pnl.orders_count - pnl.orders_settled %}
-{% call ui.banner(tone=('error' if coverage_severe else 'warn'),
+{% call ui.banner(tone=('error' if coverage_severe else 'warn'), compact=true,
                   title="Settlement coverage: " ~ ("%.0f" % coverage_pct) ~ "%") %}
   {{ pnl.orders_settled }} of {{ pnl.orders_count }} paid orders have been settled.
   {{ pending }} order{{ '' if pending == 1 else 's' }} still pending, so some fees, commissions, ad costs, and shipping costs may not be fully reflected yet.
@@ -135,7 +135,7 @@
   {{ ui.kpi(label="Total Units Sold", value="{:,}".format(pnl.units_sold), hint="Bundles count as 1 unit",
       href="/reports/pnl" ~ pnl_qs, surface="bg-sky-50",
       delta=trends.units.delta, spark=trends.units.spark) }}
-  {{ ui.kpi(label="Ad Spend", value=pnl.net_ad_spend | money, hint="Net of credits",
+  {{ ui.kpi(label="Ads", value=pnl.net_ad_spend | money, hint="Net of credits",
       href="/reports/ad-spend", surface="bg-amber-50",
       delta=trends.ad_spend.delta, delta_polarity="neutral", spark=trends.ad_spend.spark) }}
 </section>

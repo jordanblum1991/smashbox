@@ -19,25 +19,20 @@ def client() -> TestClient:
 
 
 def test_recon_health_defaults_to_data_health(client: TestClient):
+    # No ?tab → Data Health section (the default).
     r = client.get("/reports/recon-health")
     assert r.status_code == 200
     body = r.text
-    assert 'href="/reports/recon-health?tab=data-health"' in body
-    assert 'href="/reports/recon-health?tab=recon"' in body
-    # data-health body sections
     assert "Unmapped SKUs" in body
     assert "Orphan Orders" in body
     assert "Policy Violations" in body
-    # Data Health is the active (indigo) tab
-    assert 'bg-indigo-600 text-white shadow-sm">Data Health' in body
 
 
-def test_recon_health_recon_tab(client: TestClient):
+def test_recon_health_recon_section(client: TestClient):
     r = client.get("/reports/recon-health?tab=recon")
     assert r.status_code == 200
     body = r.text
-    assert 'bg-indigo-600 text-white shadow-sm">Recon' in body
-    # data-health-only content must not be on the recon tab
+    # data-health-only content must not be on the reconciliation view
     assert "Unmapped SKUs" not in body
 
 
