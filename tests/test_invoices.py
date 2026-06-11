@@ -31,7 +31,7 @@ from app.routers.invoices import (
     invoice_mark_paid,
     invoice_new_form,
     invoice_preview,
-    invoices_list,
+    invoices_hub,
 )
 
 

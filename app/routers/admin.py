@@ -35,21 +35,36 @@ from app.templating import extract_size, strip_size, templates, title_case
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/users", dependencies=[Depends(require_admin)])
-def users_page(
+# ---------------------------------------------------------------------------
+# Catalog — SKUs + Bundles consolidated under one page (two server-rendered
+# tabs) and one nav item. Context builders live next to each tab's section
+# (_skus_context / _bundles_context).
+# ---------------------------------------------------------------------------
+@router.get("/catalog", dependencies=[Depends(require_admin)])
+def catalog_page(
     request: Request,
     db: Session = Depends(get_db),
+    tab: str = "skus",
     error: str | None = None,
     notice: str | None = None,
 ):
-    users = db.execute(
-        select(User).order_by(User.is_active.desc(), User.created_at.desc())
-    ).scalars().all()
-    return templates.TemplateResponse(
-        request,
-        "admin/users.html",
-        {"users": users, "error": error, "notice": notice},
-    )
+    """Consolidated product Catalog: SKUs and Bundles as two tabs under one
+    menu item. Each tab is a full page load — the heavy ag-grid can't size in a
+    hidden container, so server-rendering the active tab keeps the existing
+    grid/drawer/bulk-edit JS working unchanged. `tab` selects the panel."""
+    active_tab = "bundles" if tab == "bundles" else "skus"
+    ctx = {"active_tab": active_tab, "error": error, "notice": notice}
+    ctx.update(_bundles_context(db) if active_tab == "bundles" else _skus_context(db))
+    return templates.TemplateResponse(request, "admin/catalog.html", ctx)
+
+
+@router.get("/users", dependencies=[Depends(require_admin)])
+def users_page(error: str | None = None, notice: str | None = None):
+    """Back-compat: user management now lives on the consolidated /account page.
+    Redirect old links/bookmarks there, preserving any flash message."""
+    params = {k: v for k, v in (("error", error), ("notice", notice)) if v}
+    qs = f"?{urlencode(params)}" if params else ""
+    return RedirectResponse(url=f"/account{qs}", status_code=303)
 
 
 @router.post("/users", dependencies=[Depends(require_admin)])
@@ -152,18 +167,13 @@ def reset_password(
 
 
 def _back(request: Request, *, error: str | None = None, notice: str | None = None) -> RedirectResponse:
-    """Redirect back to /admin/users with a flash-message query string. We use
-    query params (not flask-style flash) so the message is bookmark-able and
-    survives the 303 cleanly without needing extra session storage."""
-    qs = []
-    if error:
-        qs.append(f"error={error}")
-    if notice:
-        qs.append(f"notice={notice}")
-    return RedirectResponse(
-        url=f"/admin/users{('?' + '&'.join(qs)) if qs else ''}",
-        status_code=303,
-    )
+    """Redirect back to the consolidated /account page (which hosts the user-
+    management section) with a flash-message query string. We use query params
+    (not flask-style flash) so the message is bookmark-able and survives the 303
+    cleanly without needing extra session storage."""
+    params = {k: v for k, v in (("error", error), ("notice", notice)) if v}
+    qs = f"?{urlencode(params)}" if params else ""
+    return RedirectResponse(url=f"/account{qs}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -205,31 +215,26 @@ def _bundle_view(b: Bundle) -> dict:
     }
 
 
-@router.get("/bundles", dependencies=[Depends(require_admin)])
-def bundles_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    error: str | None = None,
-    notice: str | None = None,
-):
-    """List all bundles + render the add-bundle form. A-Z by name."""
+def _bundles_context(db: Session) -> dict:
+    """Template context for the Bundles catalog tab. A-Z by name."""
     bundles = db.execute(
         select(Bundle).order_by(Bundle.name.asc())
     ).scalars().all()
     bundle_rows = [_bundle_view(b) for b in bundles]
     active_count = sum(1 for b in bundles if (b.is_active or "Active") == "Active")
-    return templates.TemplateResponse(
-        request,
-        "admin/bundles.html",
-        {
-            "bundle_rows": bundle_rows,
-            "total_count": len(bundles),
-            "active_count": active_count,
-            "inactive_count": len(bundles) - active_count,
-            "error": error,
-            "notice": notice,
-        },
-    )
+    return {
+        "bundle_rows": bundle_rows,
+        "total_count": len(bundles),
+        "active_count": active_count,
+        "inactive_count": len(bundles) - active_count,
+    }
+
+
+@router.get("/bundles", dependencies=[Depends(require_admin)])
+def bundles_page(error: str | None = None, notice: str | None = None):
+    """Back-compat: bundles now live on /admin/catalog (Bundles tab).
+    Redirect old links/bookmarks there, preserving any flash message."""
+    return _bundles_back(error=error, notice=notice)
 
 
 @router.post("/bundles/{bundle_id}/edit", dependencies=[Depends(require_admin)])
@@ -359,15 +364,14 @@ def create_bundle(
 
 
 def _bundles_back(*, error: str | None = None, notice: str | None = None) -> RedirectResponse:
-    """303 back to /admin/bundles with error/notice flash. Uses urlencode so
-    messages with quotes/colons/spaces survive cleanly."""
-    qs: dict[str, str] = {}
+    """303 back to the Catalog page's Bundles tab with error/notice flash. Uses
+    urlencode so messages with quotes/colons/spaces survive cleanly."""
+    qs: dict[str, str] = {"tab": "bundles"}
     if error:
         qs["error"] = error
     if notice:
         qs["notice"] = notice
-    suffix = ("?" + urlencode(qs)) if qs else ""
-    return RedirectResponse(f"/admin/bundles{suffix}", status_code=303)
+    return RedirectResponse(f"/admin/catalog?{urlencode(qs)}", status_code=303)
 
 
 def _money_strict(s: str, label: str, *, min_value: Decimal | None = None) -> Decimal:
@@ -517,32 +521,27 @@ def _sku_view(s: Sku) -> dict:
     }
 
 
-@router.get("/skus", dependencies=[Depends(require_admin)])
-def skus_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    error: str | None = None,
-    notice: str | None = None,
-):
-    """List all SKUs + render the add-SKU form. A-Z by name, then SBX code."""
+def _skus_context(db: Session) -> dict:
+    """Template context for the SKUs catalog tab. A-Z by name, then SBX code."""
     skus = db.execute(
         select(Sku).order_by(Sku.name.asc(), Sku.sku.asc())
     ).scalars().all()
     sku_rows = [_sku_view(s) for s in skus]
     active_count = sum(1 for s in skus if s.is_active)
-    return templates.TemplateResponse(
-        request,
-        "admin/skus.html",
-        {
-            "sku_rows": sku_rows,
-            "total_count": len(skus),
-            "active_count": active_count,
-            "inactive_count": len(skus) - active_count,
-            "error": error,
-            "notice": notice,
-            "service_level_choices": sorted(SERVICE_LEVEL_Z_TABLE.keys()),
-        },
-    )
+    return {
+        "sku_rows": sku_rows,
+        "total_count": len(skus),
+        "active_count": active_count,
+        "inactive_count": len(skus) - active_count,
+        "service_level_choices": sorted(SERVICE_LEVEL_Z_TABLE.keys()),
+    }
+
+
+@router.get("/skus", dependencies=[Depends(require_admin)])
+def skus_page(error: str | None = None, notice: str | None = None):
+    """Back-compat: SKUs now live on /admin/catalog (SKUs tab). Redirect old
+    links/bookmarks there, preserving any flash message."""
+    return _skus_back(error=error, notice=notice)
 
 
 @router.post("/skus", dependencies=[Depends(require_admin)])
@@ -656,14 +655,13 @@ def create_sku(
 
 
 def _skus_back(*, error: str | None = None, notice: str | None = None) -> RedirectResponse:
-    """303 back to /admin/skus with error/notice flash. urlencode'd."""
-    qs: dict[str, str] = {}
+    """303 back to the Catalog page's SKUs tab with error/notice flash. urlencode'd."""
+    qs: dict[str, str] = {"tab": "skus"}
     if error:
         qs["error"] = error
     if notice:
         qs["notice"] = notice
-    suffix = ("?" + urlencode(qs)) if qs else ""
-    return RedirectResponse(f"/admin/skus{suffix}", status_code=303)
+    return RedirectResponse(f"/admin/catalog?{urlencode(qs)}", status_code=303)
 
 
 @router.post("/skus/{sku_id}/edit", dependencies=[Depends(require_admin)])

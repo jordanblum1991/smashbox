@@ -21,3 +21,11 @@ _TMP_DB = Path(tempfile.gettempdir()) / "smashbox_tests.sqlite"
 if _TMP_DB.exists():
     _TMP_DB.unlink()
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DB}"
+
+# Pin auth OFF for tests, hermetically. Many tests assume gated routes return
+# 200 directly (no /login redirect), which holds only when session_secret == "".
+# A developer's local .env may set SESSION_SECRET (for local login preview); an
+# explicit env var beats the .env file in pydantic-settings, so force it empty
+# here BEFORE app.config builds Settings. Without this, the whole suite goes red
+# the moment someone adds SESSION_SECRET to their .env.
+os.environ["SESSION_SECRET"] = ""

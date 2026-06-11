@@ -118,22 +118,14 @@
             {% endif %}
           </div>
           <div class="border-t border-slate-100 px-1 py-1">
-            <a href="/account/password"
+            <a href="/account"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Change password
+              Account
             </a>
             {% if _user.role.value == 'admin' %}
-            <a href="/admin/users"
+            <a href="/admin/catalog"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Manage users
-            </a>
-            <a href="/admin/bundles"
-               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Manage bundles
-            </a>
-            <a href="/admin/skus"
-               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Manage SKUs
+              Catalog
             </a>
             <a href="/admin/gmv-max-reimbursements"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
@@ -141,11 +133,7 @@
             </a>
             <a href="/admin/invoices"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Invoices
-            </a>
-            <a href="/admin/product-invoices"
-               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Smashbox Product Invoices
+              Invoices &amp; AP
             </a>
             {% endif %}
           </div>

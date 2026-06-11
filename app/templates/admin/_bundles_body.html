@@ -1,52 +1,4 @@
-{% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
-{% block title %}Manage Bundles · Smashbox{% endblock %}
-
-{% block head %}
-{# ---- AG Grid (self-hosted) + scoped warm-teal design system. Mirrors the
-       Manage SKUs redesign; scoped under .bundles-page so the nav and other
-       pages are untouched. Typography inherits the site's Inter. ---- #}
-<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
-<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
-<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
-<link rel="stylesheet" href="/static/css/admin-grid.css">
-<style>
-/* Bundle-only: components table, price editors, component-row add form.
-   Shared chrome/tokens live in /static/css/admin-grid.css (scoped .agx). */
-.bundles-page .drawer{ width:520px; }
-.bundles-page .comp-count{ display:inline-flex; align-items:center; gap:6px; font-family:var(--sbx-mono); font-size:13px; color:var(--sbx-ink); }
-.bundles-page .comp-count .pcs{ font-family:var(--sbx-ui); font-size:11.5px; color:var(--sbx-ink-faint); }
-.bundles-page .c2{grid-column:span 2}.bundles-page .c1{grid-column:span 1}
-@media (max-width:760px){ .bundles-page .c2,.bundles-page .c1{grid-column:span 12} }
-.bundles-page .comp-head{ display:grid; grid-template-columns:3fr 3fr 1fr 2fr 2fr 1fr; gap:8px; padding:8px 12px; background:var(--sbx-sunk); border:1px solid var(--sbx-hair); border-bottom:none; border-radius:var(--sbx-radius-sm) var(--sbx-radius-sm) 0 0; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--sbx-ink-soft); }
-.bundles-page .comp-head .r{ text-align:right; }
-.bundles-page #component-rows{ border:1px solid var(--sbx-hair); border-radius:0 0 var(--sbx-radius-sm) var(--sbx-radius-sm); overflow:hidden; }
-.bundles-page .component-row{ display:grid; grid-template-columns:3fr 3fr 1fr 2fr 2fr 1fr; gap:8px; padding:8px 12px; border-top:1px solid var(--sbx-hair-soft); }
-.bundles-page .component-row:first-child{ border-top:none; }
-.bundles-page .component-row .input{ height:34px; font-size:13px; }
-.bundles-page .remove-component-btn{ border:none; background:transparent; color:var(--sbx-neg); font-size:12px; font-weight:500; cursor:pointer; border-radius:6px; }
-.bundles-page .remove-component-btn:hover{ background:#fff1f2; }
-.bundles-page .comp-add-btn{ margin-top:10px; height:32px; padding:0 12px; border:1px solid var(--sbx-hair); background:var(--sbx-surface); color:var(--sbx-ink); border-radius:var(--sbx-radius-sm); font-size:12.5px; font-weight:500; cursor:pointer; }
-.bundles-page .comp-add-btn:hover{ background:var(--sbx-sunk); }
-.bundles-page .price-edit{ display:inline-flex; align-items:center; max-width:160px; border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius-sm); background:var(--sbx-surface); transition:border-color .15s ease, box-shadow .15s ease; }
-.bundles-page .price-edit:focus-within{ border-color:var(--sbx-accent); box-shadow:0 0 0 3px var(--sbx-tint); }
-.bundles-page .price-edit.dirty{ border-color:var(--sbx-accent); background:#FCFEFD; }
-.bundles-page .price-edit .pfx{ padding:0 1px 0 10px; color:var(--sbx-ink-faint); font-size:13.5px; }
-.bundles-page .price-edit input{ border:none; outline:none; background:transparent; width:100%; height:36px; padding:0 10px 0 3px; font-family:var(--sbx-mono); font-variant-numeric:tabular-nums; font-size:13.5px; color:var(--sbx-ink); }
-.bundles-page .comp-table{ width:100%; border-collapse:collapse; }
-.bundles-page .comp-table thead th{ font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--sbx-ink-faint); text-align:left; padding:0 0 8px; border-bottom:1px solid var(--sbx-hair-soft); }
-.bundles-page .comp-table thead th.r{ text-align:right; }
-.bundles-page .comp-table tbody td{ font-size:13px; color:var(--sbx-ink); padding:9px 0; border-bottom:1px solid var(--sbx-hair-soft); vertical-align:top; }
-.bundles-page .comp-table tbody td.r{ text-align:right; font-family:var(--sbx-mono); font-variant-numeric:tabular-nums; }
-.bundles-page .comp-table .csku{ font-family:var(--sbx-mono); font-size:12px; color:var(--sbx-ink); }
-.bundles-page .comp-table .cname{ color:var(--sbx-ink-soft); font-size:12px; }
-.bundles-page .comp-table tfoot td{ font-size:12px; font-weight:600; color:var(--sbx-ink); padding:10px 0 0; }
-.bundles-page .comp-table tfoot td.r{ text-align:right; font-family:var(--sbx-mono); }
-.bundles-page .comp-empty{ font-size:12.5px; color:var(--sbx-ink-faint); padding:10px 0; }
-</style>
-{% endblock %}
-
-{% block content %}
 <div class="bundles-page agx">
 
   <div class="pg-head">
@@ -443,4 +395,3 @@ async function saveDrawer(){
   }catch(err){ setSaveMsg("Network error — not saved.","err"); $("dr-save").disabled=false; }
 }
 </script>
-{% endblock %}

@@ -166,20 +166,29 @@ def _validate_invoice_form(
 # ---------------------------------------------------------------------------
 
 @router.get("/admin/invoices", dependencies=[Depends(require_admin)])
-def invoices_list(
+def invoices_hub(
     request: Request,
     db: Session = Depends(get_db),
+    tab: str = "vendor",
     error: str | None = None,
     notice: str | None = None,
 ) -> Response:
-    invoices = db.execute(
-        select(Invoice).order_by(Invoice.created_at.desc())
-    ).scalars().all()
-    return templates.TemplateResponse(
-        request,
-        "admin/invoices_list.html",
-        {"invoices": invoices, "error": error, "notice": notice},
-    )
+    """Consolidated Invoices page ("Invoices & AP"): Vendor invoices (outbound —
+    Outlandish bills Smashbox) and Product invoices (inbound — the AP ledger) as
+    two server-rendered tabs under one menu item. Each tab renders its existing
+    page body on a full page load, so all inline forms / PDF / statement links
+    keep working. `tab` selects the panel."""
+    active_tab = "product" if tab == "product" else "vendor"
+    ctx: dict = {"active_tab": active_tab, "error": error, "notice": notice}
+    if active_tab == "product":
+        # Lazy import avoids any import-order coupling between the two routers.
+        from app.routers.purchase_invoices import product_context
+        ctx.update(product_context(db))
+    else:
+        ctx["invoices"] = db.execute(
+            select(Invoice).order_by(Invoice.created_at.desc())
+        ).scalars().all()
+    return templates.TemplateResponse(request, "admin/invoices_hub.html", ctx)
 
 
 @router.get("/admin/invoices/new", dependencies=[Depends(require_admin)])

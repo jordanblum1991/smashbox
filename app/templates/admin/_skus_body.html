@@ -1,53 +1,4 @@
-{% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
-{% block title %}Manage SKUs · Smashbox{% endblock %}
-
-{% block head %}
-{# ---- AG Grid, scoped to this page only. Typography inherits the site's
-       Inter (loaded in base.html); figures use tabular-nums like the rest of
-       the app — no separate display/mono typeface. ---- #}
-<link rel="stylesheet" href="/static/vendor/ag-grid/ag-grid.css">
-<link rel="stylesheet" href="/static/vendor/ag-grid/ag-theme-quartz.css">
-<script src="/static/vendor/ag-grid/ag-grid-community.min.js"></script>
-<link rel="stylesheet" href="/static/css/admin-grid.css">
-<style>
-/* SKU-only: completeness ring, planning-field editors, reorder pill.
-   Shared chrome/tokens live in /static/css/admin-grid.css (scoped .agx). */
-.skus-page .reorder{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--sbx-ink-soft); }
-.skus-page .reorder .dot{ width:7px; height:7px; border-radius:50%; }
-.skus-page .reorder.yes .dot{ background:var(--sbx-pos); }
-.skus-page .reorder.no .dot{ background:var(--sbx-ink-faint); opacity:.5; }
-.skus-page .comp{ display:flex; align-items:center; gap:9px; }
-.skus-page .comp svg{ width:26px; height:26px; flex:none; }
-.skus-page .comp .track{ stroke:var(--sbx-hair); }
-.skus-page .comp .arc{ stroke:var(--sbx-pos); }
-.skus-page .comp.empty .arc{ stroke:var(--sbx-hair); }
-.skus-page .comp .lbl{ font-family:var(--sbx-mono); font-size:12px; color:var(--sbx-ink-soft); }
-.skus-page .comp.full .lbl{ color:var(--sbx-pos); font-weight:600; }
-.skus-page .comp .lbl .of{ color:var(--sbx-ink-faint); }
-.skus-page .comp-bar{ display:flex; align-items:center; gap:11px; }
-.skus-page .comp-bar .meter{ flex:1; height:6px; border-radius:3px; background:var(--sbx-hair); overflow:hidden; }
-.skus-page .comp-bar .meter span{ display:block; height:100%; background:var(--sbx-accent); border-radius:3px; transition:width .3s ease; }
-.skus-page .comp-bar .pct{ font-family:var(--sbx-mono); font-size:12px; color:var(--sbx-ink-soft); }
-.skus-page .dr-head .sub{ font-family:var(--sbx-mono); word-break:break-all; }
-.skus-page .check-row{ display:flex; align-items:center; gap:8px; height:38px; }
-.skus-page .check-row input{ width:16px; height:16px; accent-color:var(--sbx-accent); }
-.skus-page .check-row span{ font-size:13.5px; color:var(--sbx-ink); }
-.skus-page .cogs-edit{ display:inline-flex; align-items:center; max-width:150px; border:1px solid var(--sbx-hair); border-radius:var(--sbx-radius-sm); background:var(--sbx-surface); transition:border-color .15s ease, box-shadow .15s ease; }
-.skus-page .cogs-edit:focus-within{ border-color:var(--sbx-accent); box-shadow:0 0 0 3px var(--sbx-tint); }
-.skus-page .cogs-edit.dirty{ border-color:var(--sbx-accent); }
-.skus-page .cogs-edit .pfx{ padding:0 1px 0 10px; color:var(--sbx-ink-faint); font-size:13.5px; }
-.skus-page .cogs-edit input{ border:none; outline:none; background:transparent; width:100%; height:36px; padding:0 10px 0 3px; font-family:var(--sbx-mono); font-variant-numeric:tabular-nums; font-size:13.5px; color:var(--sbx-ink); }
-.skus-page .dl dt label{ cursor:pointer; }
-.skus-page .dl .unit{ color:var(--sbx-ink-faint); font-weight:400; text-transform:none; letter-spacing:0; }
-.skus-page .dl .input.fld{ height:34px; padding:0 10px; font-size:13px; }
-.skus-page .dl input.fld{ font-family:var(--sbx-mono); font-variant-numeric:tabular-nums; }
-.skus-page .dl select.input.fld{ font-family:var(--sbx-ui); cursor:pointer; }
-.skus-page .dl .input.fld.dirty{ border-color:var(--sbx-accent); background:#FCFEFD; }
-</style>
-{% endblock %}
-
-{% block content %}
 <div class="skus-page agx">
 
   <div class="pg-head">
@@ -746,4 +697,3 @@ function closeDrawer(){
   document.getElementById("scrim").classList.remove("open");
 }
 </script>
-{% endblock %}

@@ -381,7 +381,7 @@ def test_list_view_renders(client):
         inv = _invoices(db)[0]
         add_purchase_credit(invoice_id=inv.id, credit_date="2026-06-05", amount="200.00", reason="damaged units", db=db)
         db.commit()
-    r = client.get("/admin/product-invoices")
+    r = client.get("/admin/invoices?tab=product")
     assert r.status_code == 200
     assert "Smashbox Product Invoices" in r.text
     assert "SBX-001" in r.text
@@ -391,7 +391,7 @@ def test_list_view_renders(client):
 
 
 def test_list_view_empty_state(client):
-    r = client.get("/admin/product-invoices")
+    r = client.get("/admin/invoices?tab=product")
     assert r.status_code == 200
     assert "No invoices logged yet" in r.text
 

@@ -62,7 +62,9 @@ def test_create_bundle_with_two_components():
         component_cogs=["5", "3"],
     )
     assert resp.status_code == 303
-    assert resp.headers["location"].startswith("/admin/bundles?notice=")
+    # Add-bundle now redirects to the consolidated Catalog page's Bundles tab.
+    assert resp.headers["location"].startswith("/admin/catalog?tab=bundles")
+    assert "notice=" in resp.headers["location"]
     with SessionLocal() as db:
         b = db.query(Bundle).one()
         assert b.name == "Test Bundle"
