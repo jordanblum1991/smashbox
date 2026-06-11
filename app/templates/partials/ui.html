@@ -49,8 +49,8 @@
    - `subtitle` : short description below the title (optional)
    - `caller()` : right-aligned action slot — use for buttons/links
    ========================================================================== #}
-{% macro page_header(eyebrow="", title="", period=none, subtitle="", accent_bar=false) -%}
-<header class="mb-6 flex flex-wrap items-end justify-between gap-4">
+{% macro page_header(eyebrow="", title="", period=none, subtitle="", accent_bar=false, dense=false) -%}
+<header class="{{ 'mb-4' if dense else 'mb-6' }} flex flex-wrap items-end justify-between gap-4">
   <div>
     {% if eyebrow %}
     {% if accent_bar %}
@@ -59,10 +59,10 @@
     <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-indigo-600">{{ eyebrow }}</p>
     {% endif %}
     {% endif %}
-    <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
+    <h1 class="{{ 'text-2xl' if dense else 'text-3xl' }} font-semibold tracking-tight text-slate-900">
       {{ title }}{% if period %} <span class="font-normal text-slate-300">·</span> <span class="text-sky-700">{{ period }}</span>{% endif %}
     </h1>
-    {% if subtitle %}<p class="mt-1.5 text-sm text-slate-500">{{ subtitle }}</p>{% endif %}
+    {% if subtitle %}<p class="{{ 'mt-1' if dense else 'mt-1.5' }} {{ 'max-w-3xl ' if dense else '' }}text-sm text-slate-500">{{ subtitle }}</p>{% endif %}
   </div>
   {% if caller %}<div class="flex items-center gap-2 print:hidden">{{ caller() }}</div>{% endif %}
 </header>

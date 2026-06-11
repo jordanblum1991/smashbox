@@ -18,6 +18,8 @@ Invoice number is unique. The create form pre-fills with the next
 suggested number (max suffix + 1, or "OL-2026-007" if no invoices exist)
 but the field is editable so finance can issue out-of-band numbers.
 """
+import csv
+import io
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
@@ -189,6 +191,31 @@ def invoices_hub(
             select(Invoice).order_by(Invoice.created_at.desc())
         ).scalars().all()
     return templates.TemplateResponse(request, "admin/invoices_hub.html", ctx)
+
+
+@router.get("/admin/invoices.csv", dependencies=[Depends(require_admin)])
+def vendor_invoices_csv(db: Session = Depends(get_db)) -> Response:
+    """Download the vendor-invoice list (number, date, description, amount,
+    status) as CSV. csv.writer handles quoting/commas in descriptions."""
+    invoices = db.execute(
+        select(Invoice).order_by(Invoice.created_at.desc())
+    ).scalars().all()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Number", "Issue Date", "Description", "Amount", "Status"])
+    for inv in invoices:
+        w.writerow([
+            inv.number,
+            inv.issue_date.isoformat(),
+            inv.description_headline,
+            f"{inv.amount:.2f}",
+            inv.status,
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="vendor_invoices.csv"'},
+    )
 
 
 @router.get("/admin/invoices/new", dependencies=[Depends(require_admin)])

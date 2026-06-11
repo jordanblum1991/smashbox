@@ -5,12 +5,14 @@ purchases, plus credits applied against each. Mirrors the validation / 303-flash
 discipline of app/routers/gmv_max_reimbursements.py. Net owed = amount − credits;
 status is open|paid. Standalone — does not feed the P&L.
 """
+import csv
+import io
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -101,6 +103,35 @@ def product_invoices_page(error: str | None = None, notice: str | None = None):
     """Back-compat: product invoices now live on /admin/invoices (Product tab).
     Redirect old links/bookmarks there, preserving any flash message."""
     return _back(error=error, notice=notice)
+
+
+@router.get("/product-invoices.csv", dependencies=[Depends(require_admin)])
+def product_invoices_csv(db: Session = Depends(get_db)) -> Response:
+    """Download the product-invoice (AP) list with status + balances as CSV."""
+    invoices = product_context(db)["invoices"]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([
+        "Number", "Invoice Date", "Due Date", "Amount",
+        "Credits", "Payments", "Net Owed", "Status",
+    ])
+    for i in invoices:
+        status = "paid" if i.status == "paid" else ("overdue" if i.is_overdue else "open")
+        w.writerow([
+            i.number,
+            i.invoice_date.isoformat(),
+            i.due_date.isoformat() if i.due_date else "",
+            f"{i.amount:.2f}",
+            f"{i.credits_total:.2f}",
+            f"{i.payments_total:.2f}",
+            f"{i.net_owed:.2f}",
+            status,
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="product_invoices.csv"'},
+    )
 
 
 @router.get("/product-invoices/statement", dependencies=[Depends(require_admin)])
