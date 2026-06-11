@@ -22,8 +22,8 @@ def test_invoices_hub_defaults_to_vendor_tab(client: TestClient):
     assert 'href="/admin/invoices?tab=product"' in body
     # vendor body present (its "Create invoice" action + the empty/list section)
     assert "Create invoice" in body
-    # Vendor tab is the active pill
-    assert 'ring-1 ring-slate-200">Vendor' in body
+    # Vendor tab is the active (indigo) pill
+    assert 'bg-indigo-600 text-white shadow-sm">Vendor' in body
 
 
 def test_invoices_hub_product_tab(client: TestClient):
@@ -32,7 +32,7 @@ def test_invoices_hub_product_tab(client: TestClient):
     body = r.text
     assert "Smashbox Product Invoices" in body   # product body header
     assert "Open Balance" in body                # product summary tile
-    assert 'ring-1 ring-slate-200">Product' in body
+    assert 'bg-indigo-600 text-white shadow-sm">Product' in body
     # the vendor-only "Create invoice" button must not be on the product tab
     assert "Create invoice" not in body
 
