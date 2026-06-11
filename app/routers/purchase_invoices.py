@@ -166,6 +166,41 @@ def product_invoice_statement(
     )
 
 
+@router.get("/product-invoices/aging", dependencies=[Depends(require_admin)])
+def product_invoices_aging(request: Request, db: Session = Depends(get_db)):
+    """AP aging report: outstanding product invoices bucketed by days past due."""
+    from app.reports.ap_aging import compute_ap_aging
+    return templates.TemplateResponse(
+        request,
+        "admin/purchase_invoices_aging.html",
+        {"aging": compute_ap_aging(db)},
+    )
+
+
+@router.get("/product-invoices/aging.csv", dependencies=[Depends(require_admin)])
+def product_invoices_aging_csv(db: Session = Depends(get_db)) -> Response:
+    """The aging detail (one row per outstanding invoice) as CSV."""
+    from app.reports.ap_aging import compute_ap_aging
+    aging = compute_ap_aging(db)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Number", "Invoice Date", "Due Date", "Net Owed", "Days Past Due", "Bucket"])
+    for a in aging.invoices:
+        w.writerow([
+            a.number,
+            a.invoice_date.isoformat(),
+            a.due_date.isoformat() if a.due_date else "",
+            f"{a.net_owed:.2f}",
+            a.days_past_due,
+            a.bucket,
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="ap_aging.csv"'},
+    )
+
+
 @router.post("/product-invoices", dependencies=[Depends(require_admin)])
 def create_purchase_invoice(
     number: str = Form(...),

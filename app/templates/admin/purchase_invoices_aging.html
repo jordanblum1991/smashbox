@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}AP Aging · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Admin",
+  title="Product Invoices — Aging",
+  subtitle="Outstanding Smashbox payables bucketed by days past due, as of " ~ aging.as_of.strftime("%b %d, %Y") ~ ".",
+  accent_bar=true,
+  dense=true,
+) %}
+  <a href="/admin/invoices?tab=product"
+     class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">← Back</a>
+  <a href="/admin/product-invoices/aging.csv"
+     class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">CSV</a>
+  <button type="button" onclick="window.print()"
+          class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Print</button>
+{% endcall %}
+
+{# Bucket summary tiles #}
+<section class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+  {% for b in aging.buckets %}
+  {% set overdue = b.label != 'Current' and b.total > 0 %}
+  <div class="rounded-xl border bg-white p-4 shadow-sm {{ 'border-rose-200' if overdue else 'border-slate-200' }}">
+    <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ b.label }}{% if b.label != 'Current' %} days{% endif %}</div>
+    <div class="mt-1 text-xl font-semibold tabular-nums {{ 'text-rose-600' if overdue else 'text-slate-900' }}">{{ b.total | money }}</div>
+    <div class="text-xs text-slate-500">{{ b.count }} invoice{{ '' if b.count == 1 else 's' }}</div>
+  </div>
+  {% endfor %}
+</section>
+
+<div class="mb-6 flex flex-wrap items-center gap-x-8 gap-y-1 text-sm text-slate-700">
+  <div>Total outstanding:
+    <span class="font-semibold tabular-nums text-slate-900">{{ aging.grand_total | money }}</span>
+    <span class="text-slate-500">({{ aging.total_count }} invoice{{ '' if aging.total_count == 1 else 's' }})</span></div>
+  <div>Past due:
+    <span class="font-semibold tabular-nums {{ 'text-rose-600' if aging.overdue_total > 0 else 'text-slate-900' }}">{{ aging.overdue_total | money }}</span>
+    <span class="text-slate-500">({{ aging.overdue_count }})</span></div>
+</div>
+
+{# Detail #}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-4 py-2.5">
+    <h2 class="text-sm font-semibold text-slate-900">Outstanding invoices</h2>
+  </header>
+  {% if aging.invoices | length == 0 %}
+  <div class="px-4 py-8 text-center">
+    <p class="text-sm text-slate-700">No outstanding payables — everything's paid.</p>
+  </div>
+  {% else %}
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-4 py-2">Number</th>
+        <th class="px-3 py-2">Invoice date</th>
+        <th class="px-3 py-2">Due date</th>
+        <th class="px-3 py-2 text-right">Net owed</th>
+        <th class="px-3 py-2 text-right">Days past due</th>
+        <th class="px-3 py-2">Bucket</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for a in aging.invoices %}
+      <tr class="hover:bg-slate-50/60">
+        <td class="px-4 py-2 font-medium text-slate-900 whitespace-nowrap">{{ a.number }}</td>
+        <td class="px-3 py-2 text-slate-700 whitespace-nowrap">{{ a.invoice_date.strftime("%b %d, %Y") }}</td>
+        <td class="px-3 py-2 text-slate-700 whitespace-nowrap">{{ a.due_date.strftime("%b %d, %Y") if a.due_date else "—" }}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-slate-900 whitespace-nowrap">{{ a.net_owed | money }}</td>
+        <td class="px-3 py-2 text-right tabular-nums whitespace-nowrap {{ 'text-rose-600' if a.days_past_due > 0 else 'text-slate-400' }}">{{ a.days_past_due if a.days_past_due > 0 else "—" }}</td>
+        <td class="px-3 py-2 whitespace-nowrap">
+          {% if a.bucket == 'Current' %}
+          <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">Current</span>
+          {% else %}
+          <span class="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">{{ a.bucket }} days</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}
