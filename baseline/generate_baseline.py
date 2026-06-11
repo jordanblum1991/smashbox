@@ -65,6 +65,11 @@ FINANCIAL_COLUMNS = {
     "ad_credits": ["amount"],
     "gmv_max_reimbursements": ["amount"],
     "gmv_max_daily_metrics": ["cost", "gross_revenue"],
+    # Orphan table — no ORM model in app/models/ (legacy GMV Max campaign data,
+    # superseded by gmv_max_daily_metrics) — but it still carries real money, so
+    # the migration checksum covers it. (sample_allowances is the other
+    # model-less table; it is quantity-only, no money column, so it is excluded.)
+    "gmv_max_campaign_metrics": ["gross_revenue"],
     "tiktok_daily_metrics": ["gmv", "gmv_with_tax", "tax", "shipping_fees"],
     "invoices": ["amount"],
     "purchase_invoices": ["amount"],
@@ -140,7 +145,10 @@ def main():
     lines.append(f"- Source snapshot: `scratch/{SNAPSHOT.name}` (gitignored, not committed)")
     lines.append(f"- Tables: {len(tables)}")
     lines.append("- Money sums computed in Python `Decimal` (no float/SQL-SUM drift).")
-    lines.append("- **STATUS: DRAFT pending column-coverage confirmation.**")
+    lines.append("- Two prod tables have no ORM model: `gmv_max_campaign_metrics` "
+                 "(money column `gross_revenue` IS totaled below) and "
+                 "`sample_allowances` (quantity-only, no money — excluded).")
+    lines.append("- **STATUS: Coverage finalized 2026-06-11.**")
     lines.append("")
 
     lines.append("## Row counts (all tables)")

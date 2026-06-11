@@ -3,7 +3,8 @@
 - Source snapshot: `scratch/smashbox-prod-snapshot.db` (gitignored, not committed)
 - Tables: 27
 - Money sums computed in Python `Decimal` (no float/SQL-SUM drift).
-- **STATUS: DRAFT pending column-coverage confirmation.**
+- Two prod tables have no ORM model: `gmv_max_campaign_metrics` (money column `gross_revenue` IS totaled below) and `sample_allowances` (quantity-only, no money — excluded).
+- **STATUS: Coverage finalized 2026-06-11.**
 
 ## Row counts (all tables)
 
@@ -101,6 +102,7 @@
 | gmv_max_reimbursements | amount | 0.00 | 0 | 0 |
 | gmv_max_daily_metrics | cost | 34,970.57 | 159 | 0 |
 | gmv_max_daily_metrics | gross_revenue | 47,751.57 | 159 | 0 |
+| gmv_max_campaign_metrics | gross_revenue | 42,659.78 | 4 | 0 |
 | tiktok_daily_metrics | gmv | 41,070.86 | 129 | 0 |
 | tiktok_daily_metrics | gmv_with_tax | 44,146.24 | 129 | 0 |
 | tiktok_daily_metrics | tax | 3,227.36 | 129 | 0 |
