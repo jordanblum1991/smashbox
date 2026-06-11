@@ -7,15 +7,18 @@ POST /logout  — clear the session and redirect to /login
 These three paths are exempt from SessionAuthMiddleware, so the user can
 actually reach them without being logged in.
 """
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import hash_password, verify_password
+from app.config import settings
 from app.db import get_db
 from app.models.import_batch import _utc_now_naive
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.templating import templates
 
 router = APIRouter(tags=["auth"])
@@ -70,15 +73,50 @@ def logout(request: Request):
     return RedirectResponse(url="/login", status_code=303)
 
 
-# ---- Self-service password change ----------------------------------------
+# ---- Account: self-service password change + (admin) user management ------
+
+def _account_redirect(*, error: str | None = None, notice: str | None = None) -> RedirectResponse:
+    """PRG redirect back to the consolidated /account page with a flash message
+    carried in the query string (same pattern as admin._back)."""
+    params = {k: v for k, v in (("error", error), ("notice", notice)) if v}
+    qs = f"?{urlencode(params)}" if params else ""
+    return RedirectResponse(url=f"/account{qs}", status_code=303)
+
+
+@router.get("/account")
+def account_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    error: str | None = None,
+    notice: str | None = None,
+):
+    """The consolidated Account page: change-your-own-password for everyone,
+    plus a user-management section for admins. Auth middleware ensures the
+    requester is signed in before reaching this route.
+
+    `show_admin` mirrors `require_admin` semantics: full access when auth is
+    disabled (dev), otherwise only for admin-role users. We only load the user
+    list when the admin section will actually render.
+    """
+    user = getattr(request.state, "user", None)
+    show_admin = (not settings.session_secret) or (user is not None and user.role == UserRole.ADMIN)
+    users = []
+    if show_admin:
+        users = db.execute(
+            select(User).order_by(User.is_active.desc(), User.created_at.desc())
+        ).scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "account/index.html",
+        {"users": users, "show_admin": show_admin, "error": error, "notice": notice},
+    )
+
 
 @router.get("/account/password")
-def password_page(request: Request, error: str | None = None, notice: str | None = None):
-    """Render the change-password form. Auth middleware ensures the user is
-    signed in before reaching this route."""
-    return templates.TemplateResponse(
-        request, "account/password.html", {"error": error, "notice": notice},
-    )
+def password_page():
+    """Back-compat: the standalone change-password page is now folded into
+    /account. Redirect any old links/bookmarks there."""
+    return RedirectResponse(url="/account", status_code=303)
 
 
 @router.post("/account/password")
@@ -104,34 +142,15 @@ def password_submit(
         return RedirectResponse(url="/login", status_code=303)
 
     if not verify_password(current_password, user.password_hash):
-        return templates.TemplateResponse(
-            request, "account/password.html",
-            {"error": "Current password is incorrect."},
-            status_code=400,
-        )
+        return _account_redirect(error="Current password is incorrect.")
     if len(new_password) < 8:
-        return templates.TemplateResponse(
-            request, "account/password.html",
-            {"error": "New password must be at least 8 characters."},
-            status_code=400,
-        )
+        return _account_redirect(error="New password must be at least 8 characters.")
     if new_password != confirm_password:
-        return templates.TemplateResponse(
-            request, "account/password.html",
-            {"error": "New password and confirmation do not match."},
-            status_code=400,
-        )
+        return _account_redirect(error="New password and confirmation do not match.")
     if new_password == current_password:
-        return templates.TemplateResponse(
-            request, "account/password.html",
-            {"error": "New password must be different from the current one."},
-            status_code=400,
-        )
+        return _account_redirect(error="New password must be different from the current one.")
 
     user.password_hash = hash_password(new_password)
     db.commit()
 
-    return templates.TemplateResponse(
-        request, "account/password.html",
-        {"notice": "Password changed. Use it the next time you sign in."},
-    )
+    return _account_redirect(notice="Password changed. Use it the next time you sign in.")

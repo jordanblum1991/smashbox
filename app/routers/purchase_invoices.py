@@ -33,13 +33,33 @@ MARK_PAID_REF = "Marked paid"
 
 
 def _back(*, error: str | None = None, notice: str | None = None) -> RedirectResponse:
-    qs: dict[str, str] = {}
+    """303 back to the consolidated Invoices page's Product tab with flash."""
+    qs: dict[str, str] = {"tab": "product"}
     if error:
         qs["error"] = error
     if notice:
         qs["notice"] = notice
-    suffix = ("?" + urlencode(qs)) if qs else ""
-    return RedirectResponse(f"/admin/product-invoices{suffix}", status_code=303)
+    return RedirectResponse(f"/admin/invoices?{urlencode(qs)}", status_code=303)
+
+
+def product_context(db: Session) -> dict:
+    """Template context for the Product tab of the Invoices page (the inbound
+    AP ledger): the invoice list plus the summary totals."""
+    invoices = db.execute(
+        select(PurchaseInvoice)
+        .options(selectinload(PurchaseInvoice.credits), selectinload(PurchaseInvoice.payments))
+        .order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.id.desc())
+    ).scalars().all()
+    total_billed = sum((i.amount for i in invoices), Decimal("0"))
+    total_credits = sum((i.credits_total for i in invoices), Decimal("0"))
+    total_payments = sum((i.payments_total for i in invoices), Decimal("0"))
+    return {
+        "invoices": invoices,
+        "total_billed": total_billed,
+        "total_credits": total_credits,
+        "total_payments": total_payments,
+        "open_balance": total_billed - total_credits - total_payments,
+    }
 
 
 def _parse_date(raw: str, label: str) -> tuple[date | None, str | None]:
@@ -77,36 +97,10 @@ def _parse_amount(raw: str, label: str) -> tuple[Decimal | None, str | None]:
 
 
 @router.get("/product-invoices", dependencies=[Depends(require_admin)])
-def product_invoices_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    error: str | None = None,
-    notice: str | None = None,
-):
-    invoices = db.execute(
-        select(PurchaseInvoice)
-        .options(selectinload(PurchaseInvoice.credits), selectinload(PurchaseInvoice.payments))
-        .order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.id.desc())
-    ).scalars().all()
-
-    total_billed = sum((i.amount for i in invoices), Decimal("0"))
-    total_credits = sum((i.credits_total for i in invoices), Decimal("0"))
-    total_payments = sum((i.payments_total for i in invoices), Decimal("0"))
-    open_balance = total_billed - total_credits - total_payments
-
-    return templates.TemplateResponse(
-        request,
-        "admin/purchase_invoices.html",
-        {
-            "invoices": invoices,
-            "total_billed": total_billed,
-            "total_credits": total_credits,
-            "total_payments": total_payments,
-            "open_balance": open_balance,
-            "error": error,
-            "notice": notice,
-        },
-    )
+def product_invoices_page(error: str | None = None, notice: str | None = None):
+    """Back-compat: product invoices now live on /admin/invoices (Product tab).
+    Redirect old links/bookmarks there, preserving any flash message."""
+    return _back(error=error, notice=notice)
 
 
 @router.get("/product-invoices/statement", dependencies=[Depends(require_admin)])

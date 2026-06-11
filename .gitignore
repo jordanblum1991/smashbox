@@ -11,6 +11,9 @@ htmlcov/
 # App data
 data/*.db
 data/*.db-journal
+
+# Scratch — local-only prod DB snapshots, etc. NEVER commit (raw prod data).
+scratch/
 uploads/*
 !uploads/.gitkeep
 exports/*

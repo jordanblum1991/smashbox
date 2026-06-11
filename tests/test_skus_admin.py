@@ -80,7 +80,9 @@ def test_create_sku_with_full_field_set():
         service_level="0.95",
     )
     assert resp.status_code == 303
-    assert resp.headers["location"].startswith("/admin/skus?notice=")
+    # Add-SKU now redirects to the consolidated Catalog page's SKUs tab.
+    assert resp.headers["location"].startswith("/admin/catalog?tab=skus")
+    assert "notice=" in resp.headers["location"]
     with SessionLocal() as db:
         s = db.query(Sku).one()
         assert s.name == "Test Product"

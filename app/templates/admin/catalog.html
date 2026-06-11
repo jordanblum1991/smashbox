@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Bundles' if active_tab == 'bundles' else 'SKUs' }} · Catalog · Smashbox{% endblock %}
+
+{# Server-rendered tabs: the active tab's head assets (ag-grid etc.) and body
+   are included on a full page load, so each grid initializes normally — a
+   hidden (display:none) ag-grid container can't measure itself and renders
+   zero-height, which is why we don't do client-side tab hiding here. #}
+{% block head %}
+{% if active_tab == 'bundles' %}{% include "admin/_bundles_head.html" %}{% else %}{% include "admin/_skus_head.html" %}{% endif %}
+{% endblock %}
+
+{% block content %}
+<nav class="mb-6 inline-flex gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1 shadow-sm" aria-label="Catalog sections">
+  <a href="/admin/catalog?tab=skus"
+     class="rounded-lg px-5 py-2 text-sm font-semibold transition {{ 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' if active_tab == 'skus' else 'text-slate-500 hover:text-slate-800' }}">SKUs</a>
+  <a href="/admin/catalog?tab=bundles"
+     class="rounded-lg px-5 py-2 text-sm font-semibold transition {{ 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' if active_tab == 'bundles' else 'text-slate-500 hover:text-slate-800' }}">Bundles</a>
+</nav>
+{% if active_tab == 'bundles' %}{% include "admin/_bundles_body.html" %}{% else %}{% include "admin/_skus_body.html" %}{% endif %}
+{% endblock %}
