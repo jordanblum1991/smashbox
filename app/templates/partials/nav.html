@@ -22,6 +22,7 @@
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
+      {% set overdue_ap = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0, "total": 0} %}
       {% for href, label in primary_links_left %}
         <a href="{{ href }}"
            class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
@@ -121,8 +122,12 @@
               GMV Max Reimbursements
             </a>
             <a href="/admin/invoices"
-               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Invoices &amp; AP
+               class="flex items-center justify-between rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+              <span>Invoices &amp; AP</span>
+              {% if overdue_ap.count > 0 %}
+              <span title="{{ overdue_ap.count }} overdue payable{{ '' if overdue_ap.count == 1 else 's' }}"
+                    class="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ overdue_ap.count }}</span>
+              {% endif %}
             </a>
             <a href="/reports/recon-health?tab=recon"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">

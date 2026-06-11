@@ -186,7 +186,7 @@ The resolver runs automatically after `TIKTOK_ORDERS`, `SKU_MASTER`, and `BUNDLE
 
 ## Importers
 
-`app/importers/__init__.py` has the `IMPORTERS: dict[ImportFileKind, type[BaseImporter]]` registry. Four wired up today: `TIKTOK_ORDERS`, `TIKTOK_SETTLEMENTS`, `SKU_MASTER`, `BUNDLE_MAPPING`. `TIKTOK_PAYOUTS` and `SAMPLES` are still TODO. Each importer:
+`app/importers/__init__.py` has the `IMPORTERS: dict[ImportFileKind, type[BaseImporter]]` registry. Eleven wired up today: `TIKTOK_ORDERS`, `TIKTOK_SETTLEMENTS`, `TIKTOK_PAYOUTS`, `TIKTOK_ADS`, `TIKTOK_ANALYTICS`, `TIKTOK_GMV_MAX`, `SKU_MASTER`, `BUNDLE_MAPPING`, `SAMPLES`, `INVENTORY_SNAPSHOT`, `SUPPLIER_RECEIPTS`. (The old "payouts/samples still TODO" note is obsolete — both are built; the payouts importer parses the `payouts-income_*.xlsx` Payments + Statements sheets and feeds the per-payout cash reconciliation in `app/reports/reconciliation.py`.) Each importer:
 
 - Subclasses `BaseImporter`, implements `run(path, db, batch) -> ImportResult`.
 - **Does not commit** — the router commits once the batch is fully processed so a parse failure rolls back the whole file.
