@@ -29,7 +29,7 @@ def client() -> TestClient:
         "/reports/settlement-only-orders",
         "/reports/samples",
         "/reports/policy-violations",
-        "/reports/reconciliation",
+        "/reports/recon-health?tab=recon",
         # Admin-gated route — auth is disabled in tests
         # (settings.session_secret == ""), so the smoke test can hit it
         # like any other route.

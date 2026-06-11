@@ -300,23 +300,41 @@ def samples_by_creator_view(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/reports/recon-health")
+def recon_health_view(
+    request: Request,
+    tab: str = "data-health",
+    year: int | None = None,
+    month: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Consolidated "Recon & Health" page: the Data Health checks (unmapped
+    SKUs, orphan orders, policy violations) and the monthly Reconciliation as
+    two server-rendered tabs under one menu item. `tab` selects the panel;
+    Recon honors year/month like the old standalone route."""
+    active_tab = "recon" if tab == "recon" else "data-health"
+    ctx: dict = {"active_tab": active_tab}
+    if active_tab == "recon":
+        y, m = _ym(year, month)
+        ctx.update({
+            "report": reconcile_month(db, y, m),
+            "monthly_recon": yearly_sales_reconciliation(db, y),
+            "daily_recon": daily_sales_reconciliation(db, y, m),
+            "gmv_recon": gmv_tie_out(db, y),
+        })
+    else:
+        ctx.update({
+            "unmapped_rows": [_unmapped_view(r) for r in find_unmapped_skus(db)],
+            "orphan_rows": [_orphan_view(r) for r in find_settlement_only_orders(db)],
+            "violations": all_policy_violations(db, only_unacknowledged=True),
+        })
+    return templates.TemplateResponse(request, "reports/recon_health.html", ctx)
+
+
 @router.get("/reports/data-health")
-def data_health_view(request: Request, db: Session = Depends(get_db)):
-    """Consolidated Data Health overview — Unmapped SKUs, Orphan Orders, and
-    (all-time, unacknowledged) Policy Violations on one page. The per-section
-    detailed grids live at their own routes, linked from here."""
-    unmapped = find_unmapped_skus(db)
-    orphans = find_settlement_only_orders(db)
-    violations = all_policy_violations(db, only_unacknowledged=True)
-    return templates.TemplateResponse(
-        request,
-        "reports/data_health.html",
-        {
-            "unmapped_rows": [_unmapped_view(r) for r in unmapped],
-            "orphan_rows": [_orphan_view(r) for r in orphans],
-            "violations": violations,
-        },
-    )
+def data_health_view():
+    """Back-compat: Data Health is now the default tab of /reports/recon-health."""
+    return RedirectResponse("/reports/recon-health", status_code=303)
 
 
 @router.get("/reports/unmapped-skus")
@@ -909,24 +927,12 @@ def ad_spend_reimbursements_view(request: Request, db: Session = Depends(get_db)
 
 
 @router.get("/reports/reconciliation")
-def reconciliation_view(
-    request: Request,
-    year: int | None = None,
-    month: int | None = None,
-    db: Session = Depends(get_db),
-):
-    y, m = _ym(year, month)
-    report = reconcile_month(db, y, m)
-    monthly_recon = yearly_sales_reconciliation(db, y)
-    daily_recon = daily_sales_reconciliation(db, y, m)
-    gmv_recon = gmv_tie_out(db, y)
-    return templates.TemplateResponse(
-        request,
-        "reports/reconciliation.html",
-        {
-            "report": report,
-            "monthly_recon": monthly_recon,
-            "daily_recon": daily_recon,
-            "gmv_recon": gmv_recon,
-        },
-    )
+def reconciliation_view(year: int | None = None, month: int | None = None):
+    """Back-compat: Reconciliation is now the Recon tab of /reports/recon-health.
+    Preserve the year/month selection across the redirect."""
+    target = "/reports/recon-health?tab=recon"
+    if year is not None:
+        target += f"&year={year}"
+    if month is not None:
+        target += f"&month={month}"
+    return RedirectResponse(target, status_code=303)

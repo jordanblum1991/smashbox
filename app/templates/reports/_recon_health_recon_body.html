@@ -1,8 +1,4 @@
-{% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
-{% block title %}Reconciliation · Smashbox{% endblock %}
-
-{% block content %}
 {% call ui.page_header(
   eyebrow="Data Health",
   title="Reconciliation",
@@ -100,7 +96,7 @@
         <td class="px-2 py-2 text-right tabular-nums text-slate-500">{{ "{:,}".format(r.orders_count) }}</td>
         <td class="px-2 py-2 text-center print:hidden">
           {% if not is_selected %}
-          <a href="?year={{ r.year }}&month={{ r.month }}"
+          <a href="?tab=recon&year={{ r.year }}&month={{ r.month }}"
              class="inline-block rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100">Open</a>
           {% endif %}
         </td>
@@ -560,4 +556,3 @@
   Seller-funded split is the load-bearing invariant: Outlandish + Smashbox must equal TikTok's reported
   seller-funded total exactly (tolerance $0.00). See <code class="rounded bg-slate-100 px-1">app/rules/seller_funded_split.py</code>.
 </p>
-{% endblock %}

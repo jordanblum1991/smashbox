@@ -19,7 +19,6 @@
       ] %}
       {% set primary_links_right = [
         ("/reports/demand-planning", "Inventory"),
-        ("/reports/reconciliation", "Recon"),
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
@@ -75,11 +74,12 @@
         </a>
       {% endfor %}
 
-      {# Data Health — single page consolidating unmapped SKUs, orphan orders,
-         and policy violations. Red badge shows the total issue count. #}
-      <a href="/reports/data-health"
+      {# Recon & Health — consolidated page: the Data Health checks (unmapped
+         SKUs, orphan orders, policy violations) and the monthly Reconciliation
+         as two tabs. Red badge shows the data-health issue count. #}
+      <a href="/reports/recon-health"
          class="relative inline-flex items-center rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
-        Data Health
+        Recon &amp; Health
         {% if health_total > 0 %}
         <span title="{{ health_total }} issue{{ '' if health_total == 1 else 's' }} need attention"
               class="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">

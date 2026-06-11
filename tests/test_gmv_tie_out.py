@@ -92,6 +92,6 @@ def test_reconciliation_page_renders_gmv_tie_out():
         _metric(db, b.id, date(2026, 5, 10), 100)
         _order(db, b.id, "APR", datetime(2026, 4, 15, 12, 0), 50)  # no metric → stated "—"
         db.commit()
-    r = TestClient(app).get("/reports/reconciliation?year=2026&month=5")
+    r = TestClient(app).get("/reports/recon-health?tab=recon&year=2026&month=5")
     assert r.status_code == 200
     assert "GMV tie-out" in r.text

@@ -22,7 +22,7 @@ def client() -> TestClient:
 
 
 def test_data_health_page_renders(client):
-    r = client.get("/reports/data-health")
+    r = client.get("/reports/recon-health")
     assert r.status_code == 200
     assert "Data Health" in r.text
     # All three sections present...
