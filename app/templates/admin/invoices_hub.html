@@ -5,11 +5,11 @@
    active tab's existing page body on a full page load, so all the inline
    forms / PDF links / statement link keep working unchanged. #}
 {% block content %}
-<nav class="mb-6 inline-flex gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1 shadow-sm" aria-label="Invoice sections">
+<nav class="mb-6 inline-flex gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="Invoice sections">
   <a href="/admin/invoices?tab=vendor"
-     class="rounded-lg px-5 py-2 text-sm font-semibold transition {{ 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' if active_tab == 'vendor' else 'text-slate-500 hover:text-slate-800' }}">Vendor</a>
+     class="rounded-lg px-6 py-2.5 text-sm font-semibold transition {{ 'bg-indigo-600 text-white shadow-sm' if active_tab == 'vendor' else 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700' }}">Vendor</a>
   <a href="/admin/invoices?tab=product"
-     class="rounded-lg px-5 py-2 text-sm font-semibold transition {{ 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' if active_tab == 'product' else 'text-slate-500 hover:text-slate-800' }}">Product</a>
+     class="rounded-lg px-6 py-2.5 text-sm font-semibold transition {{ 'bg-indigo-600 text-white shadow-sm' if active_tab == 'product' else 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700' }}">Product</a>
 </nav>
 {% if active_tab == 'product' %}{% include "admin/_invoices_product_body.html" %}{% else %}{% include "admin/_invoices_vendor_body.html" %}{% endif %}
 {% endblock %}
