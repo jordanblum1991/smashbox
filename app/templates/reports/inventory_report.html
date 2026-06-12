@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Inventory Report · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Operations",
+  title="Inventory Report",
+  subtitle="Complete on-hand by SKU — sellable (SB) and sample (SBS)" ~ (
+    " · last updated " ~ view.last_synced_at.strftime("%b %d, %Y · %I:%M %p %Z")
+    if view.last_synced_at else " · not yet synced"),
+  accent_bar=true,
+) %}
+  <a href="/export/inventory.csv" download
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ ui.icon("download", "h-3.5 w-3.5") }}
+    Download CSV
+  </a>
+  <button onclick="window.print()" type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
+{% endcall %}
+
+<!-- Headline KPIs -->
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {{ ui.kpi("Total Units", view.total_units, "Sellable + sample, across all SKUs") }}
+  {{ ui.kpi("Sellable On-Hand", view.total_sellable, "SB warehouse") }}
+  {{ ui.kpi("Sample On-Hand", view.total_sample, "SBS warehouse") }}
+  {{ ui.kpi("SKUs", view.sku_count, "Distinct SKUs in the report") }}
+</section>
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">On-Hand by SKU</h2>
+    <p class="mt-0.5 text-xs text-slate-500">From the latest SAP sync. Includes out-of-stock SKUs for a complete picture.</p>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2">SKU</th>
+          <th class="px-4 py-2">Product Name</th>
+          <th class="px-4 py-2 text-right">Sellable</th>
+          <th class="px-4 py-2 text-right">Sample</th>
+          <th class="px-4 py-2 text-right">Total</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in view.rows %}
+        <tr class="{% if r.total_on_hand == 0 %}text-slate-400{% endif %}">
+          <td class="px-4 py-2">
+            {% if r.sku_code %}
+              <span class="font-medium {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ r.sku_code }}</span>
+              {% if r.is_bundle %}
+                <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700">Bundle</span>
+              {% endif %}
+            {% else %}
+              <span class="text-rose-700">Unmapped</span>
+              <span class="ml-1 font-mono text-[10px] text-slate-400">{{ r.canonical_sku }}</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2">
+            {% if r.name %}{{ r.name | strip_size | title_case }}{% else %}<span class="text-rose-700">—</span>{% endif %}
+          </td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sellable_on_hand) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sample_on_hand) }}</td>
+          <td class="px-4 py-2 text-right font-semibold tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ "{:,}".format(r.total_on_hand) }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="px-4 py-8 text-center text-slate-400">No inventory yet. Sync from SAP on the Imports page.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if view.rows %}
+      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 font-semibold">
+        <tr>
+          <td class="px-4 py-2" colspan="2">Total</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_units) }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.reports.ad_spend import compute_ad_spend_monthly
+from app.reports.inventory_report import compute_inventory_report
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.purchase_statement import compute_purchase_statement
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
@@ -292,6 +293,29 @@ def export_sku_csv(
         gen(),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="smashbox_sku_{y}-{m:02d}.csv"'},
+    )
+
+
+@router.get("/inventory.csv")
+def export_inventory_csv(db: Session = Depends(get_db)):
+    """Complete inventory (all SKUs, sellable + sample on-hand) as CSV."""
+    view = compute_inventory_report(db)
+
+    def gen():
+        yield "sku_code,name,is_bundle,canonical_sku,sellable_on_hand,sample_on_hand,total_on_hand\n"
+        for r in view.rows:
+            name = (r.name or "").replace(",", " ")
+            sku = (r.sku_code or "Unmapped").replace(",", " ")
+            yield (
+                f"{sku},{name},{r.is_bundle},{r.canonical_sku},"
+                f"{r.sellable_on_hand},{r.sample_on_hand},{r.total_on_hand}\n"
+            )
+
+    stamp = view.last_synced_at.strftime("%Y%m%d") if view.last_synced_at else "current"
+    return StreamingResponse(
+        gen(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="smashbox_inventory_{stamp}.csv"'},
     )
 
 

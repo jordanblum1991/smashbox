@@ -41,6 +41,7 @@ from app.reports.reconciliation import (
     reconcile_month,
     yearly_sales_reconciliation,
 )
+from app.reports.inventory_report import compute_inventory_report
 from app.reports.sample_inventory import compute_sample_inventory_view
 from app.reports.sample_tracking import (
     SamplePeriodKind,
@@ -244,11 +245,22 @@ def samples_view(
 
 @router.get("/reports/sample-inventory")
 def sample_inventory_view(request: Request, db: Session = Depends(get_db)):
-    """Sample pool on-hand inventory, derived from the movement ledger."""
+    """Sample pool on-hand inventory, from the latest SAP SBS snapshot."""
     view = compute_sample_inventory_view(db)
     return templates.TemplateResponse(
         request,
         "reports/sample_inventory.html",
+        {"view": view},
+    )
+
+
+@router.get("/reports/inventory")
+def inventory_report_view(request: Request, db: Session = Depends(get_db)):
+    """Complete inventory: every SKU with sellable (SB) + sample (SBS) on-hand."""
+    view = compute_inventory_report(db)
+    return templates.TemplateResponse(
+        request,
+        "reports/inventory_report.html",
         {"view": view},
     )
 

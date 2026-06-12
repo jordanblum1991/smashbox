@@ -17,8 +17,10 @@
         ("/reports/ad-spend", "Ad Spend Report"),
         ("/reports/ad-spend/reimbursements", "Ad Spend Reimbursements"),
       ] %}
-      {% set primary_links_right = [
-        ("/reports/demand-planning", "Inventory"),
+      {% set inventory_links = [
+        ("/reports/inventory", "Inventory Report"),
+        ("/reports/demand-planning", "Demand Planning"),
+        ("/reports/sample-inventory", "Sample Inventory"),
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
@@ -68,12 +70,21 @@
         </div>
       </div>
 
-      {% for href, label in primary_links_right %}
-        <a href="{{ href }}"
-           class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
-          {{ label }}
-        </a>
-      {% endfor %}
+      <div class="group relative">
+        <button type="button"
+                class="relative inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 group-hover:bg-slate-100 group-focus-within:bg-slate-100">
+          Inventory
+          {{ ui.icon("chevron-down", "h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
+        </button>
+        <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
+          {% for href, label in inventory_links %}
+          <a href="{{ href }}"
+             class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+            {{ label }}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
 
       {# Reconciliation + Data Health now live in the Admin dropdown (top-right).
          The data-health issue count rides on its dropdown item. #}

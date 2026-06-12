@@ -75,6 +75,23 @@ def test_sample_report_reads_sbs_snapshot(monkeypatch):
         assert view.sku_count == 2
 
 
+def test_inventory_report_combines_sellable_and_sample(monkeypatch):
+    from app.reports.inventory_report import compute_inventory_report
+    monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())
+    with SessionLocal() as db:
+        inventory_sync.sync_inventory_from_sap(db, source="test")
+    with SessionLocal() as db:
+        v = compute_inventory_report(db)
+        assert v.total_sellable == 462   # SB: 364 + 0 + 98
+        assert v.total_sample == 252     # SBS: 240 + 12 + 0
+        assert v.total_units == 714
+        assert v.sku_count == 3          # zero-balance SKUs kept (complete report)
+        by = {r.canonical_sku: r for r in v.rows}
+        assert (by["SBX-A"].sellable_on_hand, by["SBX-A"].sample_on_hand,
+                by["SBX-A"].total_on_hand) == (364, 240, 604)
+        assert by["SBX-B"].sellable_on_hand == 0  # out of sellable stock, still listed
+
+
 def test_deleting_sap_batch_clears_both_tables(monkeypatch):
     from app.services.batch_deletion import delete_batch
     monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())
