@@ -3,13 +3,21 @@ from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.bundle import Bundle, BundleComponent
 from app.models.creator import Creator
+from app.models.gmv_max_campaign_metric import GmvMaxCampaignMetric
+from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
 from app.models.gmv_max_reimbursement import GmvMaxReimbursement
 from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.inventory_snapshot import InventorySnapshot
 from app.models.invoice import Invoice
 from app.models.order import Order, OrderLine, OrderType
 from app.models.payout import Payout
+from app.models.purchase_invoice import (
+    PurchaseInvoice,
+    PurchaseInvoiceCredit,
+    PurchaseInvoicePayment,
+)
 from app.models.sample import Sample
+from app.models.sample_allowance import SampleAllowance
 from app.models.sample_inventory_movement import SampleInventoryMovement, SampleMovementType
 from app.models.settlement import Adjustment, Settlement
 from app.models.shop import Shop
@@ -25,6 +33,8 @@ __all__ = [
     "Bundle",
     "BundleComponent",
     "Creator",
+    "GmvMaxCampaignMetric",
+    "GmvMaxDailyMetric",
     "GmvMaxReimbursement",
     "ImportBatch",
     "ImportBatchStatus",
@@ -35,7 +45,11 @@ __all__ = [
     "OrderLine",
     "OrderType",
     "Payout",
+    "PurchaseInvoice",
+    "PurchaseInvoiceCredit",
+    "PurchaseInvoicePayment",
     "Sample",
+    "SampleAllowance",
     "SampleInventoryMovement",
     "SampleMovementType",
     "Settlement",
