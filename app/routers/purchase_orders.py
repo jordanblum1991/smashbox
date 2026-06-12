@@ -120,8 +120,8 @@ def purchase_order_detail(po_id: int, request: Request, db: Session = Depends(ge
 
 
 def _require_draft(po: PurchaseOrder) -> None:
-    if po.is_placed:
-        raise HTTPException(status_code=400, detail="purchase order is placed (read-only)")
+    if not po.is_draft:
+        raise HTTPException(status_code=400, detail=f"purchase order is {po.status} (read-only)")
 
 
 @router.post("/purchase-orders/{po_id}/edit", dependencies=[Depends(require_admin)])
@@ -207,6 +207,29 @@ def purchase_order_reopen(po_id: int, db: Session = Depends(get_db)):
     po.placed_at = None
     db.commit()
     return _back_detail(po_id, notice="Reopened for editing.")
+
+
+@router.post("/purchase-orders/{po_id}/receive", dependencies=[Depends(require_admin)])
+def purchase_order_receive(po_id: int, db: Session = Depends(get_db)):
+    """Mark a placed PO as received — its units stop counting as in-transit, so
+    Demand Planning recommends on the now-arrived stock again."""
+    po = _get_or_404(db, po_id)
+    if not po.is_placed:
+        return _back_detail(po_id, error="Only a placed PO can be received.")
+    po.status = "received"
+    db.commit()
+    return _back_detail(po_id, notice=f"{po.number} marked received — units cleared from in-transit.")
+
+
+@router.post("/purchase-orders/{po_id}/unreceive", dependencies=[Depends(require_admin)])
+def purchase_order_unreceive(po_id: int, db: Session = Depends(get_db)):
+    """Undo a receive — back to placed (in-transit) without losing placed_at."""
+    po = _get_or_404(db, po_id)
+    if not po.is_received:
+        return _back_detail(po_id, error="Only a received PO can be moved back to placed.")
+    po.status = "placed"
+    db.commit()
+    return _back_detail(po_id, notice=f"{po.number} moved back to placed (in-transit).")
 
 
 @router.post("/purchase-orders/{po_id}/delete", dependencies=[Depends(require_admin)])

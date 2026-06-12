@@ -47,7 +47,9 @@
           <td class="px-4 py-2 font-medium text-slate-900"><a href="/admin/purchase-orders/{{ po.id }}" class="hover:underline">{{ po.number }}</a></td>
           <td class="px-4 py-2 text-slate-700">{{ po.supplier }}</td>
           <td class="px-4 py-2">
-            {% if po.is_placed %}
+            {% if po.is_received %}
+            <span class="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-700 ring-1 ring-sky-200">Received</span>
+            {% elif po.is_placed %}
             <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">Placed</span>
             {% else %}
             <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">Draft</span>

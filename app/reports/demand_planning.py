@@ -267,7 +267,15 @@ def compute_demand_planning_view(
                                        if service_level_override is not None
                                        else settings.demand_service_level_default)
     now = as_of or now_local()
-    expected_receipts = expected_receipts or {}
+
+    # In-transit units from PLACED purchase orders feed expected receipts, so the
+    # planner stops re-recommending what's already on order. Any caller-supplied
+    # receipts (the planner page's manual ?receipts_ overrides) add on top.
+    from app.reports.in_transit import compute_in_transit
+    merged_receipts = dict(compute_in_transit(db))
+    for k, v in (expected_receipts or {}).items():
+        merged_receipts[k] = merged_receipts.get(k, 0) + v
+    expected_receipts = merged_receipts
 
     # Load the alias map once and thread it through both signals so a
     # re-coded SKU's demand AND on-hand history collapse into one signal.

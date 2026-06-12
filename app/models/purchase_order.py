@@ -56,6 +56,20 @@ class PurchaseOrder(Base):
     def is_placed(self) -> bool:
         return self.status == "placed"
 
+    @property
+    def is_received(self) -> bool:
+        return self.status == "received"
+
+    @property
+    def is_draft(self) -> bool:
+        return self.status == "draft"
+
+    @property
+    def status_label(self) -> str:
+        return {"draft": "Draft", "placed": "Placed", "received": "Received"}.get(
+            self.status, self.status.title()
+        )
+
 
 class PurchaseOrderLine(Base):
     __tablename__ = "purchase_order_lines"
