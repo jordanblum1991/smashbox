@@ -76,7 +76,9 @@ class SessionAuthMiddleware(BaseHTTPMiddleware):
         `request.state.user`. Missing/invalid → redirect to /login.
     """
 
-    EXEMPT_PREFIXES = ("/static/", "/login", "/logout", "/healthz")
+    # `/auth/google/*` carries the OAuth round-trip, which by definition happens
+    # before the user is signed in — so it must be reachable without a session.
+    EXEMPT_PREFIXES = ("/static/", "/login", "/logout", "/healthz", "/auth/google")
 
     async def dispatch(self, request: Request, call_next):
         if not settings.session_secret:

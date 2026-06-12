@@ -69,6 +69,22 @@ class Settings(BaseSettings):
     basic_auth_username: str = "smashbox"
     basic_auth_password: str = ""
 
+    # ---- Google OAuth ("Sign in with Google") -----------------------------
+    # Set both (Fly secrets) to enable the Google button on /login. Create an
+    # OAuth 2.0 Client ID in Google Cloud Console with authorized redirect URI
+    # <public_base_url>/auth/google/callback. A Google sign-in only succeeds for
+    # an email that already has a User row here (no self-registration).
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Public origin used to build the OAuth redirect URI (the app sits behind
+    # Fly's proxy, so request.url can read as http internally). e.g.
+    # https://smashbox.fly.dev — set as the PUBLIC_BASE_URL secret in prod.
+    public_base_url: str = ""
+
+    @property
+    def google_oauth_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
+
     # ---- Business-rule caps -----------------------------------------------
     # Cap on Outlandish-funded portion of a seller-funded discount, as a
     # fraction of the order's eligible base. Smashbox absorbs anything over.

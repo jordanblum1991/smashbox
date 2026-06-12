@@ -29,7 +29,8 @@ def login_page(request: Request, next: str = "/", error: str | None = None):
     """The form. Pre-fills the redirect target via ?next=… so users land
     back on the page that bounced them out (e.g. /reports/pnl)."""
     return templates.TemplateResponse(
-        request, "login.html", {"next": next, "error": error}
+        request, "login.html",
+        {"next": next, "error": error, "google_enabled": settings.google_oauth_enabled},
     )
 
 
@@ -71,6 +72,64 @@ def login_submit(
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
+
+
+# ---- Google OAuth ("Sign in with Google") ---------------------------------
+
+def _login_error(msg: str) -> RedirectResponse:
+    return RedirectResponse(url=f"/login?{urlencode({'error': msg})}", status_code=303)
+
+
+def _google_redirect_uri(request: Request) -> str:
+    """Absolute callback URL. Prefer the configured public origin (the app runs
+    behind Fly's proxy, so request.url can read as http internally) — it MUST
+    match the Authorized redirect URI registered in Google Cloud Console."""
+    base = (settings.public_base_url or str(request.base_url)).rstrip("/")
+    return f"{base}/auth/google/callback"
+
+
+def resolve_google_user(db: Session, userinfo: dict) -> tuple[User | None, str | None]:
+    """Map verified Google userinfo to an existing active User by email. No
+    self-registration — the email must already have an account here. Returns
+    (user, error_message)."""
+    email = (userinfo.get("email") or "").lower().strip()
+    if not email:
+        return None, "Google didn't return an email address."
+    if userinfo.get("email_verified") is False:
+        return None, "Your Google email address isn't verified."
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        return None, f"No Smashbox account for {email}. Ask an admin to add you first."
+    return user, None
+
+
+@router.get("/auth/google/login")
+async def google_login(request: Request):
+    if not settings.google_oauth_enabled:
+        return _login_error("Google sign-in isn't configured.")
+    from app.oauth import oauth
+    return await oauth.google.authorize_redirect(request, _google_redirect_uri(request))
+
+
+@router.get("/auth/google/callback", name="google_callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    if not settings.google_oauth_enabled:
+        return RedirectResponse(url="/login", status_code=303)
+    from app.oauth import oauth
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        userinfo = token.get("userinfo") or await oauth.google.userinfo(token=token)
+    except Exception:  # noqa: BLE001 — any OAuth failure → generic login error
+        return _login_error("Google sign-in failed. Please try again.")
+
+    user, err = resolve_google_user(db, dict(userinfo or {}))
+    if err:
+        return _login_error(err)
+
+    request.session["user_id"] = user.id
+    user.last_login_at = _utc_now_naive()
+    db.commit()
+    return RedirectResponse(url="/", status_code=303)
 
 
 # ---- Account: self-service password change + (admin) user management ------
