@@ -20,6 +20,7 @@
       {% set inventory_links = [
         ("/reports/inventory", "Inventory Report"),
         ("/reports/demand-planning", "Demand Planning"),
+        ("/admin/purchase-orders", "Purchase Orders"),
         ("/reports/sample-inventory", "Sample Inventory"),
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}

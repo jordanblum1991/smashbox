@@ -1,0 +1,119 @@
+{# Standalone purchase-order document — no base.html / Tailwind. Plain CSS so
+   WeasyPrint renders without external CSS resolution. Mirrors invoice_pdf.html. #}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Purchase Order {{ po.number }}</title>
+<style>
+  @page { size: Letter; margin: 0.75in; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "DejaVu Sans", Helvetica, Arial, sans-serif;
+    color: #334155; font-size: 11pt; line-height: 1.4; background: #fff; padding: 0.75in;
+  }
+  @media print { body { padding: 0; } }
+
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
+  .header .brand-name { font-size: 36pt; font-weight: 800; color: #0f172a; line-height: 1; margin: 0; }
+  .header .brand-subtitle { font-style: italic; color: #64748b; font-size: 10pt; margin-top: 4px; }
+  .header .doc-label { font-size: 26pt; font-weight: 800; color: #0f172a; line-height: 1; letter-spacing: 0.02em; text-align: right; }
+
+  .subheader { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .address-block { color: #475569; font-size: 10pt; }
+  .address-block p { margin: 0; }
+  .meta table { border-collapse: collapse; font-size: 10pt; }
+  .meta th { text-align: left; padding: 0 12px 4px 0; font-weight: 700; color: #0f172a; white-space: nowrap; }
+  .meta td { padding: 0 0 4px 0; color: #475569; white-space: nowrap; }
+
+  .vendor-band { background: #f1f5f9; padding: 6px 12px; margin-bottom: 8px; border-radius: 3px; }
+  .vendor-label { font-size: 9pt; font-weight: 700; color: #0f172a; letter-spacing: 0.08em; }
+  .vendor-content { padding: 0 12px; margin-bottom: 24px; }
+  .vendor-content .name { font-weight: 700; color: #0f172a; }
+
+  table.lineitems { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  table.lineitems thead th {
+    background: #0f172a; color: #fff; text-align: left; text-transform: uppercase;
+    font-size: 9pt; font-weight: 700; letter-spacing: 0.04em; padding: 8px 12px;
+  }
+  table.lineitems thead th.numeric { text-align: right; }
+  table.lineitems tbody td { padding: 7px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  table.lineitems tbody td.numeric { text-align: right; font-variant-numeric: tabular-nums; color: #334155; }
+  table.lineitems tbody td.sku { font-weight: 700; color: #0f172a; }
+  table.lineitems tfoot td { padding: 10px 12px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+  table.lineitems tfoot td.numeric { text-align: right; }
+  table.lineitems tfoot tr { border-top: 2px solid #0f172a; }
+
+  .notes { margin-bottom: 28px; font-size: 10pt; color: #475569; }
+  .notes .label { font-weight: 700; color: #0f172a; }
+  .footer { text-align: center; font-style: italic; color: #64748b; font-size: 9pt; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1 class="brand-name">Smashbox</h1>
+    <div class="brand-subtitle">Purchasing</div>
+  </div>
+  <div class="doc-label">PURCHASE ORDER</div>
+</div>
+
+<div class="subheader">
+  <div class="address-block">
+    <p><strong>Ship to</strong></p>
+    <p>Smashbox</p>
+  </div>
+  <div class="meta">
+    <table>
+      <tr><th>PO #</th><td>{{ po.number }}</td></tr>
+      <tr><th>Date</th><td>{{ (po.placed_at or po.created_at).strftime("%B %d, %Y") }}</td></tr>
+      <tr><th>Status</th><td>{{ "Placed" if po.is_placed else "Draft" }}</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="vendor-band"><span class="vendor-label">VENDOR</span></div>
+<div class="vendor-content">
+  <div class="name">{{ po.supplier }}</div>
+</div>
+
+<table class="lineitems">
+  <thead>
+    <tr>
+      <th>SKU</th>
+      <th>Product</th>
+      <th class="numeric">Qty</th>
+      <th class="numeric">Unit Cost</th>
+      <th class="numeric">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ln in po.lines %}
+    <tr>
+      <td class="sku">{{ ln.sku }}</td>
+      <td>{% if ln.name %}{{ ln.name }}{% endif %}</td>
+      <td class="numeric">{{ "{:,}".format(ln.quantity) }}</td>
+      <td class="numeric">{{ ln.unit_cost | money }}</td>
+      <td class="numeric">{{ ln.line_total | money }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td colspan="2">Total</td>
+      <td class="numeric">{{ "{:,}".format(po.unit_count) }}</td>
+      <td></td>
+      <td class="numeric">{{ po.total | money }}</td>
+    </tr>
+  </tfoot>
+</table>
+
+{% if po.notes %}
+<div class="notes"><span class="label">Notes:</span> {{ po.notes }}</div>
+{% endif %}
+
+<div class="footer">Purchase Order {{ po.number }} · Smashbox</div>
+
+</body>
+</html>

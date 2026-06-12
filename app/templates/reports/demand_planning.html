@@ -181,6 +181,12 @@
          class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">
         {{ ui.icon("download", "h-3.5 w-3.5") }} CSV
       </a>
+      <form action="/admin/purchase-orders/from-plan" method="post" class="print:hidden">
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-800">
+          {{ ui.icon("file-text", "h-3.5 w-3.5") }} Create PO
+        </button>
+      </form>
     </div>
   </header>
 

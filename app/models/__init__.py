@@ -16,6 +16,7 @@ from app.models.purchase_invoice import (
     PurchaseInvoiceCredit,
     PurchaseInvoicePayment,
 )
+from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.models.sample import Sample
 from app.models.sample_allowance import SampleAllowance
 from app.models.sample_inventory_movement import SampleInventoryMovement, SampleMovementType
@@ -49,6 +50,8 @@ __all__ = [
     "PurchaseInvoice",
     "PurchaseInvoiceCredit",
     "PurchaseInvoicePayment",
+    "PurchaseOrder",
+    "PurchaseOrderLine",
     "Sample",
     "SampleAllowance",
     "SampleInventoryMovement",

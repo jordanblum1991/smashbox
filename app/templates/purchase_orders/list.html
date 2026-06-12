@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Purchase Orders · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Operations",
+  title="Purchase Orders",
+  subtitle="Draft a PO from the demand plan, edit it, then place it and send the PDF to your supplier.",
+  accent_bar=true,
+) %}
+  <form action="/admin/purchase-orders/from-plan" method="post" class="inline">
+    <button type="submit"
+            class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
+      {{ ui.icon("refresh-cw", "h-3.5 w-3.5") }} Create PO from plan
+    </button>
+  </form>
+  <form action="/admin/purchase-orders/blank" method="post" class="inline">
+    <button type="submit"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+      + Blank PO
+    </button>
+  </form>
+{% endcall %}
+
+{% if error %}<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"><strong>Error:</strong> {{ error }}</div>{% endif %}
+{% if notice %}<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{{ notice }}</div>{% endif %}
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2">PO #</th>
+          <th class="px-4 py-2">Supplier</th>
+          <th class="px-4 py-2">Status</th>
+          <th class="px-4 py-2 text-right">Items</th>
+          <th class="px-4 py-2 text-right">Units</th>
+          <th class="px-4 py-2 text-right">Total</th>
+          <th class="px-4 py-2">Created</th>
+          <th class="px-4 py-2 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for po in orders %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2 font-medium text-slate-900"><a href="/admin/purchase-orders/{{ po.id }}" class="hover:underline">{{ po.number }}</a></td>
+          <td class="px-4 py-2 text-slate-700">{{ po.supplier }}</td>
+          <td class="px-4 py-2">
+            {% if po.is_placed %}
+            <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">Placed</span>
+            {% else %}
+            <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">Draft</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ po.lines | length }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(po.unit_count) }}</td>
+          <td class="px-4 py-2 text-right font-semibold tabular-nums">{{ po.total | money }}</td>
+          <td class="px-4 py-2 text-slate-600">{{ po.created_at.strftime("%b %d, %Y") }}</td>
+          <td class="px-4 py-2 text-right whitespace-nowrap">
+            <a href="/admin/purchase-orders/{{ po.id }}" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">{{ "View" if po.is_placed else "Edit" }}</a>
+            <a href="/admin/purchase-orders/{{ po.id }}/pdf" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">PDF</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="px-4 py-10 text-center text-slate-400">No purchase orders yet. Use “Create PO from plan” above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

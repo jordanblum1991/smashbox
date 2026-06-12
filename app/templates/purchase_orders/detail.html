@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}{{ po.number }} · Purchase Orders{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Purchase Order",
+  title=po.number,
+  subtitle=("Placed " ~ po.placed_at.strftime("%b %d, %Y") if po.is_placed else "Draft — edit quantities and items below, then place it."),
+  accent_bar=true,
+) %}
+  <a href="/admin/purchase-orders" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">← All POs</a>
+  <a href="/admin/purchase-orders/{{ po.id }}/pdf" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{{ ui.icon("download", "h-3.5 w-3.5") }} PDF</a>
+  <a href="/admin/purchase-orders/{{ po.id }}/csv" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">CSV</a>
+  {% if po.is_placed %}
+  <form action="/admin/purchase-orders/{{ po.id }}/reopen" method="post" class="inline">
+    <button type="submit" class="rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100">Reopen</button>
+  </form>
+  {% else %}
+  <form action="/admin/purchase-orders/{{ po.id }}/place" method="post" class="inline"
+        onsubmit="return confirm('Place {{ po.number }}? You can reopen it later if needed.');">
+    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-500">
+      {{ ui.icon("check", "h-3.5 w-3.5") }} Place order
+    </button>
+  </form>
+  {% endif %}
+{% endcall %}
+
+{% if error %}<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"><strong>Error:</strong> {{ error }}</div>{% endif %}
+{% if notice %}<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{{ notice }}</div>{% endif %}
+
+{# Status + totals strip #}
+<section class="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {{ ui.kpi("Status", "Placed" if po.is_placed else "Draft", "Placed POs are read-only") }}
+  {{ ui.kpi("Items", po.lines | length, "Distinct SKUs") }}
+  {{ ui.kpi("Units", "{:,}".format(po.unit_count), "Total quantity ordered") }}
+  {{ ui.kpi("Total", po.total | money, "At unit cost") }}
+</section>
+
+{# Supplier + notes #}
+<section class="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+  {% if po.is_placed %}
+  <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Supplier</div>
+  <div class="text-sm text-slate-900">{{ po.supplier }}</div>
+  {% if po.notes %}<div class="mt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Notes</div><div class="text-sm text-slate-700">{{ po.notes }}</div>{% endif %}
+  {% else %}
+  <form action="/admin/purchase-orders/{{ po.id }}/edit" method="post" class="grid grid-cols-1 gap-3 md:grid-cols-3">
+    <label class="md:col-span-1">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Supplier</span>
+      <input type="text" name="supplier" value="{{ po.supplier }}" required maxlength="255"
+             class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+    </label>
+    <label class="md:col-span-2">
+      <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Notes <span class="font-normal normal-case text-slate-400">(optional)</span></span>
+      <div class="mt-1 flex gap-2">
+        <input type="text" name="notes" value="{{ po.notes or '' }}" maxlength="1000" placeholder="e.g. ship to LA warehouse"
+               class="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <button type="submit" class="shrink-0 rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800">Save</button>
+      </div>
+    </label>
+  </form>
+  {% endif %}
+</section>
+
+{# Line items #}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-5 py-3">
+    <h2 class="text-sm font-semibold text-slate-900">Items</h2>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2">SKU</th>
+          <th class="px-4 py-2">Product</th>
+          <th class="px-4 py-2 text-right">Quantity</th>
+          <th class="px-4 py-2 text-right">Unit cost</th>
+          <th class="px-4 py-2 text-right">Line total</th>
+          {% if not po.is_placed %}<th class="px-4 py-2 text-right">Actions</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for ln in po.lines %}
+        <tr>
+          <td class="px-4 py-2 font-medium text-slate-900">{{ ln.sku }}</td>
+          <td class="px-4 py-2 text-slate-700">{% if ln.name %}{{ ln.name | strip_size | title_case }}{% else %}—{% endif %}</td>
+          {% if po.is_placed %}
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(ln.quantity) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ ln.unit_cost | money }}</td>
+          {% else %}
+          <td class="px-4 py-2 text-right">
+            <form id="ln-{{ ln.id }}" action="/admin/purchase-orders/{{ po.id }}/lines/{{ ln.id }}/edit" method="post"></form>
+            <input form="ln-{{ ln.id }}" name="quantity" type="number" min="1" value="{{ ln.quantity }}"
+                   class="w-24 rounded-md border border-slate-300 bg-white px-2 py-1 text-right text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          </td>
+          <td class="px-4 py-2 text-right">
+            <input form="ln-{{ ln.id }}" name="unit_cost" type="number" step="0.0001" min="0" value="{{ '%.4f' % ln.unit_cost }}"
+                   class="w-28 rounded-md border border-slate-300 bg-white px-2 py-1 text-right text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          </td>
+          {% endif %}
+          <td class="px-4 py-2 text-right font-semibold tabular-nums">{{ ln.line_total | money }}</td>
+          {% if not po.is_placed %}
+          <td class="px-4 py-2 text-right whitespace-nowrap">
+            <button form="ln-{{ ln.id }}" type="submit" class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Save</button>
+            <form action="/admin/purchase-orders/{{ po.id }}/lines/{{ ln.id }}/delete" method="post" class="inline" onsubmit="return confirm('Remove {{ ln.sku }}?');">
+              <button type="submit" class="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">Remove</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ 6 if not po.is_placed else 5 }}" class="px-4 py-8 text-center text-slate-400">No items yet.{% if not po.is_placed %} Add one below.{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 font-semibold">
+        <tr>
+          <td class="px-4 py-2" colspan="2">Total</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(po.unit_count) }}</td>
+          <td class="px-4 py-2"></td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ po.total | money }}</td>
+          {% if not po.is_placed %}<td></td>{% endif %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  {% if not po.is_placed %}
+  {# Add an item #}
+  <div class="border-t border-slate-200 px-5 py-3">
+    <form action="/admin/purchase-orders/{{ po.id }}/lines" method="post" class="flex flex-wrap items-end gap-2">
+      <label class="min-w-[16rem] flex-1">
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Add SKU</span>
+        <select name="sku_id" required
+                class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+          <option value="">Pick a SKU…</option>
+          {% for s in skus %}
+          <option value="{{ s.id }}">{{ s.sku }}{% if s.name %} — {{ s.name | strip_size | title_case }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Quantity</span>
+        <input type="number" name="quantity" min="1" value="1" required
+               class="mt-1 w-28 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      </label>
+      <button type="submit" class="rounded-md border border-slate-300 bg-white px-3.5 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Add item</button>
+    </form>
+    <p class="mt-1.5 text-[11px] text-slate-400">Unit cost defaults to the SKU's COGS; edit it per line above.</p>
+  </div>
+  {% endif %}
+</section>
+
+{% if not po.is_placed %}
+<div class="mt-4 flex justify-end">
+  <form action="/admin/purchase-orders/{{ po.id }}/delete" method="post" onsubmit="return confirm('Delete {{ po.number }}? This cannot be undone.');">
+    <button type="submit" class="rounded-md border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50">Delete this PO</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

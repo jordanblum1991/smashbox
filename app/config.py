@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     default_brand: str = "smashbox"
 
+    # Default supplier name stamped on a new purchase order (editable per PO).
+    default_po_supplier: str = "Smashbox"
+
     # ---- SAP inventory feed ----------------------------------------------
     # Live on-hand snapshot endpoint (replaces the manual inventory CSV upload).
     # Returns JSON rows of {Itemcode, WhsCode, OnHand, InventoryDate}; we keep
