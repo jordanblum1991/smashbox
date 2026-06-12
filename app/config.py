@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     def google_oauth_enabled(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
 
+    # ---- TikTok Shop API ---------------------------------------------------
+    # App credentials from Partner Center (set as Fly secrets in prod). The
+    # access / refresh tokens are NOT here — they're obtained via the authorize
+    # flow and stored in the tiktok_credentials table (they expire + refresh).
+    tiktok_app_key: str = ""
+    tiktok_app_secret: str = ""
+    tiktok_service_id: str = ""  # forms the seller authorize URL
+
+    @property
+    def tiktok_oauth_enabled(self) -> bool:
+        return bool(self.tiktok_app_key and self.tiktok_app_secret and self.tiktok_service_id)
+
     # ---- Business-rule caps -----------------------------------------------
     # Cap on Outlandish-funded portion of a seller-funded discount, as a
     # fraction of the order's eligible base. Smashbox absorbs anything over.
