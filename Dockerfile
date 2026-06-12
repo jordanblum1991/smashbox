@@ -50,6 +50,11 @@ RUN pip install -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
+# Alembic config + migration scripts — needed by the fly.toml release_command
+# (`alembic upgrade head`), which runs from this WORKDIR (/app). alembic.ini's
+# script_location = alembic resolves relative to here.
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 # Compiled Tailwind from stage 1. Copied AFTER `COPY app` so it lands beside
 # the hand-written app.css rather than being clobbered by it. The dev tree's
