@@ -302,13 +302,15 @@ def export_inventory_csv(db: Session = Depends(get_db)):
     view = compute_inventory_report(db)
 
     def gen():
-        yield "sku_code,name,is_bundle,canonical_sku,sellable_on_hand,sample_on_hand,total_on_hand\n"
+        yield ("sku_code,name,is_bundle,canonical_sku,sellable_on_hand,sample_on_hand,"
+               "total_on_hand,unit_cogs,sellable_value,sample_value,total_value\n")
         for r in view.rows:
             name = (r.name or "").replace(",", " ")
             sku = (r.sku_code or "Unmapped").replace(",", " ")
             yield (
                 f"{sku},{name},{r.is_bundle},{r.canonical_sku},"
-                f"{r.sellable_on_hand},{r.sample_on_hand},{r.total_on_hand}\n"
+                f"{r.sellable_on_hand},{r.sample_on_hand},{r.total_on_hand},"
+                f"{r.unit_cogs:.4f},{r.sellable_value:.2f},{r.sample_value:.2f},{r.total_value:.2f}\n"
             )
 
     stamp = view.last_synced_at.strftime("%Y%m%d") if view.last_synced_at else "current"

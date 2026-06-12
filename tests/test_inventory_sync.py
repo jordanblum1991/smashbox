@@ -92,6 +92,41 @@ def test_inventory_report_combines_sellable_and_sample(monkeypatch):
         assert by["SBX-B"].sellable_on_hand == 0  # out of sellable stock, still listed
 
 
+def test_inventory_report_values_on_hand_at_cogs(monkeypatch):
+    from decimal import Decimal
+    from app.models.sku import Sku
+    from app.reports.inventory_report import compute_inventory_report
+    with SessionLocal() as db:
+        db.add(Sku(sku="SBX-A", name="A", brand="smashbox",
+                   tiktok_sku_id="SBX-A", unit_cogs=Decimal("5.00")))
+        db.commit()
+    monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())
+    with SessionLocal() as db:
+        inventory_sync.sync_inventory_from_sap(db, source="test")
+    with SessionLocal() as db:
+        v = compute_inventory_report(db)
+        by = {r.canonical_sku: r for r in v.rows}
+        a = by["SBX-A"]  # SB 364, SBS 240, cogs 5
+        assert a.unit_cogs == Decimal("5.00")
+        assert a.sellable_value == Decimal("1820.00")  # 364 × 5
+        assert a.sample_value == Decimal("1200.00")    # 240 × 5
+        assert a.total_value == Decimal("3020.00")     # 604 × 5
+        # Only SBX-A has COGS; SBX-B/C are unmapped → 0.
+        assert v.total_sellable_value == Decimal("1820.00")
+        assert v.total_inventory_value == Decimal("3020.00")
+
+
+def test_inventory_alert_summary_empty_when_no_data():
+    from app.reports.inventory_alerts import (
+        compute_inventory_alert_summary, get_inventory_alert_summary, _reset_cache,
+    )
+    with SessionLocal() as db:
+        s = compute_inventory_alert_summary(db)
+        assert s == {"count": 0, "out_of_stock": 0, "at_risk": 0, "reorder_now": 0}
+        _reset_cache()
+        assert get_inventory_alert_summary(db)["count"] == 0
+
+
 def test_deleting_sap_batch_clears_both_tables(monkeypatch):
     from app.services.batch_deletion import delete_batch
     monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())

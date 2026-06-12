@@ -31,10 +31,11 @@
 {% endif %}
 
 <!-- Headline KPIs -->
-<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+  {{ ui.kpi("Inventory Value", view.total_inventory_value | money, "On-hand × unit COGS (sellable + sample)") }}
   {{ ui.kpi("Total Units", view.total_units, "Sellable + sample, across all SKUs") }}
-  {{ ui.kpi("Sellable On-Hand", view.total_sellable, "SB warehouse") }}
-  {{ ui.kpi("Sample On-Hand", view.total_sample, "SBS warehouse") }}
+  {{ ui.kpi("Sellable On-Hand", view.total_sellable, view.total_sellable_value | money ~ " · SB warehouse") }}
+  {{ ui.kpi("Sample On-Hand", view.total_sample, view.total_sample_value | money ~ " · SBS warehouse") }}
   {{ ui.kpi("SKUs", view.sku_count, "Distinct SKUs in the report") }}
 </section>
 
@@ -68,6 +69,7 @@
           <th data-key="sellable" class="select-none px-4 py-2 text-right hover:text-slate-700">Sellable <span class="sort-ind"></span></th>
           <th data-key="sample" class="select-none px-4 py-2 text-right hover:text-slate-700">Sample <span class="sort-ind"></span></th>
           <th data-key="total" class="select-none px-4 py-2 text-right hover:text-slate-700">Total <span class="sort-ind"></span></th>
+          <th data-key="value" class="select-none px-4 py-2 text-right hover:text-slate-700">Value <span class="sort-ind"></span></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100">
@@ -79,6 +81,7 @@
             data-sellable="{{ r.sellable_on_hand }}"
             data-sample="{{ r.sample_on_hand }}"
             data-total="{{ r.total_on_hand }}"
+            data-value="{{ r.total_value }}"
             class="{% if r.total_on_hand == 0 %}text-slate-400{% endif %}">
           <td class="px-4 py-2">
             {% if r.sku_code %}
@@ -97,10 +100,11 @@
           <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sellable_on_hand) }}</td>
           <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sample_on_hand) }}</td>
           <td class="px-4 py-2 text-right font-semibold tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ "{:,}".format(r.total_on_hand) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-700{% endif %}">{{ r.total_value | money }}</td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="5" class="px-4 py-8 text-center text-slate-400">No inventory yet. Sync from SAP on the Imports page.</td>
+          <td colspan="6" class="px-4 py-8 text-center text-slate-400">No inventory yet. Sync from SAP on the Imports page.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -111,6 +115,7 @@
           <td id="foot-sellable" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
           <td id="foot-sample" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
           <td id="foot-total" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_units) }}</td>
+          <td id="foot-value" class="px-4 py-2 text-right tabular-nums">{{ view.total_inventory_value | money }}</td>
         </tr>
       </tfoot>
       {% endif %}
@@ -134,7 +139,8 @@
     var empty = document.getElementById("inv-empty");
     var sortKey = null, sortDir = 1;
 
-    function num(r, k) { return parseInt(r.getAttribute("data-" + k), 10) || 0; }
+    function num(r, k) { return parseFloat(r.getAttribute("data-" + k)) || 0; }
+    function money(n) { return "$" + n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 
     function matches(r) {
       var q = (search.value || "").trim().toLowerCase();
@@ -152,11 +158,12 @@
     }
 
     function apply() {
-      var shown = 0, tSell = 0, tSamp = 0, tTot = 0;
+      var shown = 0, tSell = 0, tSamp = 0, tTot = 0, tVal = 0;
       rows.forEach(function (r) {
         if (matches(r)) {
           r.style.display = "";
-          shown++; tSell += num(r, "sellable"); tSamp += num(r, "sample"); tTot += num(r, "total");
+          shown++; tSell += num(r, "sellable"); tSamp += num(r, "sample");
+          tTot += num(r, "total"); tVal += num(r, "value");
         } else {
           r.style.display = "none";
         }
@@ -166,13 +173,14 @@
       document.getElementById("foot-sellable").textContent = tSell.toLocaleString();
       document.getElementById("foot-sample").textContent = tSamp.toLocaleString();
       document.getElementById("foot-total").textContent = tTot.toLocaleString();
+      document.getElementById("foot-value").textContent = money(tVal);
       document.getElementById("foot-label").textContent = filtered ? "Total (filtered)" : "Total";
       empty.classList.toggle("hidden", shown !== 0);
     }
 
     function sortBy(key) {
       if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = 1; }
-      var numeric = (key === "sellable" || key === "sample" || key === "total");
+      var numeric = (key === "sellable" || key === "sample" || key === "total" || key === "value");
       rows.sort(function (a, b) {
         if (numeric) return (num(a, key) - num(b, key)) * sortDir;
         return (a.getAttribute("data-" + key) || "").localeCompare(

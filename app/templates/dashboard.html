@@ -107,6 +107,17 @@
 {% endcall %}
 {% endif %}
 
+{# Low-stock / reorder alert — sellable SKUs out of stock, at risk, or at their
+   reorder point (velocity-based, from the demand planner). #}
+{% set inv = request.state.inventory_alerts if request.state is defined and request.state.inventory_alerts is defined else {"count": 0, "out_of_stock": 0} %}
+{% if inv.count > 0 %}
+{% call ui.banner(tone=("error" if inv.out_of_stock > 0 else "warn"), compact=true,
+                  title="Reorder needed: " ~ inv.count ~ (" SKU" if inv.count == 1 else " SKUs"),
+                  action_label="Open Demand Planning", action_href="/reports/demand-planning") %}
+  {% if inv.out_of_stock > 0 %}{{ inv.out_of_stock }} out of stock · {% endif %}{{ inv.reorder_now }} at reorder point · {{ inv.at_risk }} at risk.
+{% endcall %}
+{% endif %}
+
 <!-- Last Imported — data freshness per file kind -->
 <section aria-label="Data freshness" class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 print:hidden">
   <div class="mb-3 flex items-center justify-between">

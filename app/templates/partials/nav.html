@@ -25,6 +25,7 @@
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
       {% set overdue_ap = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0, "total": 0} %}
+      {% set inv_alerts = request.state.inventory_alerts if request.state is defined and request.state.inventory_alerts is defined else {"count": 0} %}
       {% for href, label in primary_links_left %}
         <a href="{{ href }}"
            class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
@@ -74,13 +75,21 @@
         <button type="button"
                 class="relative inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 group-hover:bg-slate-100 group-focus-within:bg-slate-100">
           Inventory
+          {% if inv_alerts.count > 0 %}
+          <span title="{{ inv_alerts.count }} SKU{{ '' if inv_alerts.count == 1 else 's' }} need reordering"
+                class="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ inv_alerts.count }}</span>
+          {% endif %}
           {{ ui.icon("chevron-down", "h-3 w-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
         </button>
         <div class="invisible absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
           {% for href, label in inventory_links %}
           <a href="{{ href }}"
-             class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
-            {{ label }}
+             class="flex items-center justify-between px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+            <span>{{ label }}</span>
+            {% if href == "/reports/demand-planning" and inv_alerts.count > 0 %}
+            <span title="{{ inv_alerts.count }} need reordering"
+                  class="ml-2 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ inv_alerts.count }}</span>
+            {% endif %}
           </a>
           {% endfor %}
         </div>

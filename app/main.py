@@ -271,10 +271,12 @@ async def attach_data_health(request: Request, call_next):
     request.state.data_health = {"unmapped": 0, "orphans": 0, "policy_violations": 0}
     request.state.overdue_ap = {"count": 0, "total": 0}
     request.state.payables_due_soon = {"count": 0, "total": 0, "within_days": 14}
+    request.state.inventory_alerts = {"count": 0, "out_of_stock": 0, "at_risk": 0, "reorder_now": 0}
     # /healthz is a DB-free liveness probe — never run the diagnostic queries for
     # it, or a locked/slow DB would hang the probe and trigger a needless restart.
     if not request.url.path.startswith(("/static", "/healthz")):
         try:
+            from app.reports.inventory_alerts import get_inventory_alert_summary
             from app.reports.overdue_ap import compute_due_soon_ap, compute_overdue_ap
             from app.reports.policy_violations import count_policy_violations
             from app.reports.settlement_only_orders import count_settlement_only_orders
@@ -287,6 +289,9 @@ async def attach_data_health(request: Request, call_next):
                 }
                 request.state.overdue_ap = compute_overdue_ap(db)
                 request.state.payables_due_soon = compute_due_soon_ap(db)
+                # Cached (TTL) so the velocity-based reorder compute doesn't run
+                # on every request — see app/reports/inventory_alerts.py.
+                request.state.inventory_alerts = get_inventory_alert_summary(db)
         except Exception:
             pass
     return await call_next(request)

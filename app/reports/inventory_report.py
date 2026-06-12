@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.bundle import Bundle
 from app.models.inventory_snapshot import InventorySnapshot
@@ -34,6 +35,10 @@ class InventoryReportRow:
     sellable_on_hand: int    # SB warehouse
     sample_on_hand: int      # SBS warehouse
     total_on_hand: int       # sellable + sample
+    unit_cogs: Decimal       # per-unit cost (Sku.unit_cogs / Bundle.calculated_cogs)
+    sellable_value: Decimal  # sellable_on_hand × unit_cogs
+    sample_value: Decimal    # sample_on_hand × unit_cogs
+    total_value: Decimal     # total_on_hand × unit_cogs
 
 
 @dataclass
@@ -43,6 +48,9 @@ class InventoryReportView:
     total_sample: int
     total_units: int
     sku_count: int
+    total_sellable_value: Decimal
+    total_sample_value: Decimal
+    total_inventory_value: Decimal
     last_synced_at: datetime | None  # shop-local time of the last SAP sync
     as_of: datetime
 
@@ -89,6 +97,8 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
     if not keys:
         return InventoryReportView(
             rows=[], total_sellable=0, total_sample=0, total_units=0, sku_count=0,
+            total_sellable_value=Decimal("0"), total_sample_value=Decimal("0"),
+            total_inventory_value=Decimal("0"),
             last_synced_at=utc_to_shop_local(last_sync) if last_sync else None,
             as_of=now_local(),
         )
@@ -108,7 +118,9 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
 
     bundle_by_key: dict[str, Bundle] = {}
     for b in db.execute(
-        select(Bundle).where(
+        select(Bundle)
+        .options(selectinload(Bundle.components))  # for calculated_cogs without N+1
+        .where(
             (Bundle.tiktok_sku_id.in_(canonical_keys))
             | (Bundle.bundle_sku.in_(canonical_keys))
         )
@@ -126,13 +138,19 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         bundle = bundle_by_key.get(key)
         if sku:
             sku_code, name, is_bundle = sku.sku, sku.name, False
+            cogs = sku.unit_cogs or Decimal("0")
         elif bundle:
             sku_code, name, is_bundle = bundle.bundle_sku, bundle.name, True
+            cogs = bundle.calculated_cogs
         else:
             sku_code, name, is_bundle = None, None, False
+            cogs = Decimal("0")
         row = InventoryReportRow(
             canonical_sku=key, sku_code=sku_code, name=name, is_bundle=is_bundle,
             sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=sell + samp,
+            unit_cogs=cogs,
+            sellable_value=cogs * sell, sample_value=cogs * samp,
+            total_value=cogs * (sell + samp),
         )
         (mapped if sku_code else unmapped).append(row)
 
@@ -145,6 +163,9 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         total_sample=sum(sample.values()),
         total_units=sum(sellable.values()) + sum(sample.values()),
         sku_count=len(keys),
+        total_sellable_value=sum((r.sellable_value for r in rows), Decimal("0")),
+        total_sample_value=sum((r.sample_value for r in rows), Decimal("0")),
+        total_inventory_value=sum((r.total_value for r in rows), Decimal("0")),
         last_synced_at=utc_to_shop_local(last_sync) if last_sync else None,
         as_of=now_local(),
     )
