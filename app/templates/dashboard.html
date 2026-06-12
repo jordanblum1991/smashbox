@@ -118,6 +118,24 @@
 {% endcall %}
 {% endif %}
 
+{# Data-health summary — unmapped SKUs, settlement orphans, policy violations,
+   and missing COGS all quietly distort the P&L, so surface them on the home
+   page rather than only on the nav badge. One consolidated banner. #}
+{% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0, "missing_cogs": 0} %}
+{% set dh_total = dh.unmapped + dh.orphans + dh.policy_violations + (dh.missing_cogs if dh.missing_cogs is defined else 0) %}
+{% if dh_total > 0 %}
+{% call ui.banner(tone="warn", compact=true,
+                  title="Data health: " ~ dh_total ~ (" issue" if dh_total == 1 else " issues"),
+                  action_label="Open Data Health", action_href="/reports/recon-health?tab=data-health") %}
+  {% set parts = [] %}
+  {% if dh.unmapped > 0 %}{% set _ = parts.append(dh.unmapped ~ (" unmapped SKU" if dh.unmapped == 1 else " unmapped SKUs")) %}{% endif %}
+  {% if dh.missing_cogs > 0 %}{% set _ = parts.append(dh.missing_cogs ~ " missing COGS") %}{% endif %}
+  {% if dh.policy_violations > 0 %}{% set _ = parts.append(dh.policy_violations ~ (" policy violation" if dh.policy_violations == 1 else " policy violations")) %}{% endif %}
+  {% if dh.orphans > 0 %}{% set _ = parts.append(dh.orphans ~ (" settlement orphan" if dh.orphans == 1 else " settlement orphans")) %}{% endif %}
+  {{ parts | join(" · ") }} — these can distort the P&L until resolved.
+{% endcall %}
+{% endif %}
+
 <!-- Last Imported — data freshness per file kind -->
 <section aria-label="Data freshness" class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 print:hidden">
   <div class="mb-3 flex items-center justify-between">
