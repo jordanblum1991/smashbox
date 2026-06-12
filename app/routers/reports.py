@@ -848,6 +848,81 @@ def demand_planning_csv(
     )
 
 
+@router.get("/reports/demand-planning-pipeline.csv")
+def demand_planning_pipeline_csv(
+    request: Request,
+    service_level: str | None = None,
+    cover: int | None = None,
+    overstocked: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """CSV export of the upcoming purchase pipeline — the next-90-day PO calendar
+    bucketed by when each SKU must be ordered. Honors the same query params as
+    the demand-planning page so it matches what's shown on screen."""
+    sl_dec: Decimal | None = None
+    if service_level:
+        from app.config import SERVICE_LEVEL_Z_TABLE
+        try:
+            cand = Decimal(service_level)
+            if cand in SERVICE_LEVEL_Z_TABLE:
+                sl_dec = cand
+        except InvalidOperation:
+            sl_dec = None
+
+    expected_receipts: dict[str, int] = {}
+    for k, val in request.query_params.items():
+        if k.startswith("receipts_") and val.strip():
+            try:
+                expected_receipts[k[len("receipts_"):]] = int(val)
+            except ValueError:
+                pass
+
+    view = compute_demand_planning_view(
+        db,
+        service_level_override=sl_dec,
+        cover_days=cover,
+        overstocked_days=overstocked,
+        expected_receipts=expected_receipts or None,
+    )
+    p = view.pipeline
+
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "bucket", "order_by_date", "status", "sku", "component_sku", "product",
+        "on_hand", "reorder_point", "days_until_reorder",
+        "suggested_qty", "investment_usd",
+    ])
+    for bucket, items in [
+        ("order_today", p.overdue), ("within_30_days", p.next_30),
+        ("within_60_days", p.next_60), ("within_90_days", p.next_90),
+    ]:
+        for i in items:
+            writer.writerow([
+                bucket,
+                i.order_by_date.isoformat(),
+                i.status.value,
+                i.sku_code or "",
+                i.component_sku,
+                i.name or "",
+                i.on_hand,
+                i.reorder_point,
+                i.days_until_reorder,
+                i.suggested_qty,
+                str(i.investment.quantize(Decimal("0.01"))),
+            ])
+
+    filename = f"purchase-pipeline-{view.as_of.isoformat()}.csv"
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/reports/demand-planning/sku/{component_sku}/procurement")
 def demand_planning_update_procurement(
     component_sku: str,

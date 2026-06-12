@@ -72,7 +72,7 @@
     <a href="/reports/demand-planning.csv{% if request.query_params %}?{{ request.query_params }}{% endif %}"
        class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
       {{ ui.icon("download", "h-3.5 w-3.5") }}
-      CSV
+      Replenishment CSV
     </a>
     <button onclick="window.print()" type="button"
             class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
@@ -173,9 +173,15 @@
         reorder point within the window.
       </p>
     </div>
-    <span class="shrink-0 text-xs text-slate-500">
-      Total committed: <span class="font-semibold tabular-nums text-slate-900">{{ p.total_investment | money }}</span>
-    </span>
+    <div class="flex shrink-0 items-center gap-3">
+      <span class="text-xs text-slate-500">
+        Total committed: <span class="font-semibold tabular-nums text-slate-900">{{ p.total_investment | money }}</span>
+      </span>
+      <a href="/reports/demand-planning-pipeline.csv{% if request.query_params %}?{{ request.query_params }}{% endif %}"
+         class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">
+        {{ ui.icon("download", "h-3.5 w-3.5") }} CSV
+      </a>
+    </div>
   </header>
 
   {# Bucket tiles. #}
@@ -203,8 +209,40 @@
   </div>
 
   {# Detail grid — every PO in the next 90 days, sorted by order-by date. #}
-  <div class="agx">
+  <div class="agx print:hidden">
     <div id="pipeline-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%"></div>
+  </div>
+
+  {# Print-only static table (ag-grid doesn't render in print). #}
+  <div class="hidden px-6 py-2 print:block">
+    <table class="w-full border-collapse text-xs">
+      <thead><tr class="border-b border-slate-300 text-left uppercase tracking-wider text-slate-500">
+        <th class="py-1.5 pr-3">Order by</th>
+        <th class="py-1.5 pr-3">Bucket</th>
+        <th class="py-1.5 pr-3">SKU</th>
+        <th class="py-1.5 pr-3">Product</th>
+        <th class="py-1.5 pr-3 text-right">Order qty</th>
+        <th class="py-1.5 pr-3 text-right">Investment</th>
+      </tr></thead>
+      <tbody>
+        {% for label, items in [('Order today', p.overdue), ('Within 30d', p.next_30), ('Within 60d', p.next_60), ('Within 90d', p.next_90)] %}
+        {% for i in items %}
+        <tr class="border-b border-slate-200">
+          <td class="py-1 pr-3">{{ i.order_by_date.strftime("%Y-%m-%d") }}</td>
+          <td class="py-1 pr-3">{{ label }}</td>
+          <td class="py-1 pr-3 font-medium">{{ i.sku_code or i.component_sku }}</td>
+          <td class="py-1 pr-3">{{ (i.name | strip_size | title_case) if i.name else "" }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ "{:,}".format(i.suggested_qty) }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ i.investment | money }}</td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+        <tr class="border-t-2 border-slate-300 font-semibold">
+          <td class="py-1.5 pr-3" colspan="5">Total committed</td>
+          <td class="py-1.5 pr-3 text-right tabular-nums">{{ p.total_investment | money }}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
   <footer class="border-t border-slate-200 bg-slate-50/40 px-6 py-3 text-xs text-slate-500">
     Order-by date = today + (on_hand − reorder_point) / daily_velocity. For currently-healthy SKUs, the reorder quantity
@@ -364,7 +402,7 @@
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ v.rows | length }} SKU{{ "" if v.rows | length == 1 else "s" }}</span>
   </header>
-  <div class="toolbar" style="border:none; border-bottom:1px solid var(--sbx-hair); border-radius:0;">
+  <div class="toolbar print:hidden" style="border:none; border-bottom:1px solid var(--sbx-hair); border-radius:0;">
     <div class="tb-left">
       <div class="search"><span class="ic">{{ ui.icon("search", "h-4 w-4") }}</span>
         <input id="dp-search" type="text" placeholder="Search SKU, code, product…" autocomplete="off"></div>
@@ -384,8 +422,40 @@
       <div class="count-chip"><span class="mono"><strong>{{ v.rows | length }}</strong></span> SKUs <span class="note">· <span id="dp-shown" class="mono">—</span> shown</span></div>
     </div>
   </div>
-  <div class="grid-wrap flush">
+  <div class="grid-wrap flush print:hidden">
     <div id="replenishment-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:600px"></div>
+  </div>
+
+  {# Print-only static table (ag-grid doesn't render in print). #}
+  <div class="hidden px-6 py-2 print:block">
+    <table class="w-full border-collapse text-xs">
+      <thead><tr class="border-b border-slate-300 text-left uppercase tracking-wider text-slate-500">
+        <th class="py-1.5 pr-3">Status</th>
+        <th class="py-1.5 pr-3">SKU</th>
+        <th class="py-1.5 pr-3">Product</th>
+        <th class="py-1.5 pr-3 text-right">On hand</th>
+        <th class="py-1.5 pr-3 text-right">Available</th>
+        <th class="py-1.5 pr-3 text-right">Days supply</th>
+        <th class="py-1.5 pr-3 text-right">Reorder pt</th>
+        <th class="py-1.5 pr-3 text-right">Order qty</th>
+        <th class="py-1.5 pr-3 text-right">Investment</th>
+      </tr></thead>
+      <tbody>
+        {% for r in v.rows %}
+        <tr class="border-b border-slate-200">
+          <td class="py-1 pr-3">{{ r.status.value.replace("_", " ") | title }}</td>
+          <td class="py-1 pr-3 font-medium">{{ r.sku_code or r.component_sku }}</td>
+          <td class="py-1 pr-3">{{ (r.name | strip_size | title_case) if r.name else "" }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ "{:,}".format(r.on_hand) }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ "{:,}".format(r.available) }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ r.days_of_supply if r.days_of_supply is not none else "—" }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ "{:,}".format(r.reorder_point) }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ "{:,}".format(r.suggested_order_qty) }}</td>
+          <td class="py-1 pr-3 text-right tabular-nums">{{ r.investment | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   <footer class="border-t border-slate-200 bg-slate-50/40 px-6 py-3 text-xs text-slate-500">
     Velocity uses trailing 14-day and 60-day rates across shipped/completed PAID orders, with bundle SKUs expanded into their components.
