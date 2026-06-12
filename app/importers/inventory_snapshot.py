@@ -54,47 +54,57 @@ REQUIRED = {"sku", "on_hand"}
 
 class InventorySnapshotImporter(BaseImporter):
     def run(self, path: Path, db: Session, batch: ImportBatch) -> ImportResult:
-        result = ImportResult()
+        df = _normalize_columns(_read(path))
+        return import_dataframe(df, db, batch)
 
-        df = _read(path)
-        df = _normalize_columns(df)
 
-        missing = REQUIRED - set(df.columns)
-        if missing:
-            raise ValueError(
-                f"inventory snapshot file missing required columns: {sorted(missing)}. "
-                f"Got: {list(df.columns)}"
-            )
+def import_dataframe(df: pd.DataFrame, db: Session, batch: ImportBatch) -> ImportResult:
+    """Upsert on-hand rows from an already-loaded DataFrame.
 
-        upload_time = _utc_now_naive()
+    The shared core of both ingestion paths: the CSV/XLSX importer (`run`, which
+    reads a file first) and the SAP API sync (`app/services/inventory_sync.py`,
+    which builds the frame in memory). Columns must already be normalized to
+    `sku` / `on_hand` / `captured_at` — see COL_ALIASES. Idempotent on
+    (sku, captured_at): a re-run updates on_hand in place rather than appending.
+    """
+    result = ImportResult()
 
-        for i, row in df.iterrows():
-            row_num = int(i) + 2  # +1 for header, +1 for 1-indexed display
-            try:
-                sku, on_hand, captured_at = _parse_row(row, upload_time)
-            except ValueError as exc:
-                result.skip(f"row {row_num}: {exc}")
-                continue
+    missing = REQUIRED - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"inventory snapshot file missing required columns: {sorted(missing)}. "
+            f"Got: {list(df.columns)}"
+        )
 
-            existing = db.execute(
-                select(InventorySnapshot)
-                .where(InventorySnapshot.sku == sku)
-                .where(InventorySnapshot.captured_at == captured_at)
-            ).scalar_one_or_none()
+    upload_time = _utc_now_naive()
 
-            if existing is None:
-                db.add(InventorySnapshot(
-                    import_batch_id=batch.id,
-                    sku=sku,
-                    on_hand=on_hand,
-                    captured_at=captured_at,
-                ))
-            else:
-                existing.on_hand = on_hand
-                existing.import_batch_id = batch.id
-            result.rows_imported += 1
+    for i, row in df.iterrows():
+        row_num = int(i) + 2  # +1 for header, +1 for 1-indexed display
+        try:
+            sku, on_hand, captured_at = _parse_row(row, upload_time)
+        except ValueError as exc:
+            result.skip(f"row {row_num}: {exc}")
+            continue
 
-        return result
+        existing = db.execute(
+            select(InventorySnapshot)
+            .where(InventorySnapshot.sku == sku)
+            .where(InventorySnapshot.captured_at == captured_at)
+        ).scalar_one_or_none()
+
+        if existing is None:
+            db.add(InventorySnapshot(
+                import_batch_id=batch.id,
+                sku=sku,
+                on_hand=on_hand,
+                captured_at=captured_at,
+            ))
+        else:
+            existing.on_hand = on_hand
+            existing.import_batch_id = batch.id
+        result.rows_imported += 1
+
+    return result
 
 
 def _read(path: Path) -> pd.DataFrame:

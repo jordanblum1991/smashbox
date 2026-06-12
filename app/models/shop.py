@@ -27,3 +27,15 @@ class Shop(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="America/Los_Angeles")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now_naive)
+
+    # ---- SAP inventory auto-sync schedule (user-editable on the Uploads page) -
+    # The in-process scheduler reads these to register a cron job that pulls the
+    # SAP feed. `days` is an APScheduler day_of_week string ("mon,tue,...");
+    # hour/minute are in this shop's `timezone`. Editing them on the Uploads page
+    # live-reschedules the running job. Defaults seed weekday 07:30 local.
+    inventory_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    inventory_sync_hour: Mapped[int] = mapped_column(Integer, default=7)
+    inventory_sync_minute: Mapped[int] = mapped_column(Integer, default=30)
+    inventory_sync_days: Mapped[str] = mapped_column(
+        String(64), default="mon,tue,wed,thu,fri"
+    )

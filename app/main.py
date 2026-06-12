@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -19,7 +20,24 @@ from app.routers import dashboard, exports, reports, uploads
 
 BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="Smashbox", docs_url="/api/docs", redoc_url=None)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the in-process scheduler (SAP inventory auto-sync) on boot and stop
+    it on shutdown. No-op unless SCHEDULER_ENABLED is set — see
+    app/services/scheduler.py. Kept in lifespan (not module import) because
+    AsyncIOScheduler needs the running event loop."""
+    from app.services.scheduler import shutdown_scheduler, start_scheduler
+
+    start_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
+
+
+app = FastAPI(
+    title="Smashbox", docs_url="/api/docs", redoc_url=None, lifespan=lifespan
+)
 
 # Auto-create tables for v1. Switch to Alembic migrations before going to Postgres.
 Base.metadata.create_all(bind=engine)

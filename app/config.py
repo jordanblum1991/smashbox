@@ -22,6 +22,25 @@ class Settings(BaseSettings):
 
     default_brand: str = "smashbox"
 
+    # ---- SAP inventory feed ----------------------------------------------
+    # Live on-hand snapshot endpoint (replaces the manual inventory CSV upload).
+    # Returns JSON rows of {Itemcode, WhsCode, OnHand, InventoryDate}; we keep
+    # the SB (sellable) warehouse for demand planning. Override in prod via
+    # `fly secrets set SAP_INVENTORY_URL=...` if the endpoint/token rotates.
+    sap_inventory_url: str = "https://api.fhiheat.com/PoKde7rmxb.php"
+    sap_inventory_warehouse: str = "SB"  # sellable warehouse code in the feed
+
+    # Whether the in-process APScheduler runs at all. OFF by default so the test
+    # suite and local dev never spawn a background scheduler; production turns it
+    # on with `fly secrets set SCHEDULER_ENABLED=true`. WHEN/whether the inventory
+    # sync actually fires is a separate, user-editable setting persisted on the
+    # Shop row (inventory_sync_enabled/hour/minute/days) — this flag only gates
+    # the scheduler machinery itself. The values below seed a fresh Shop.
+    scheduler_enabled: bool = False
+    inventory_sync_default_hour: int = 7
+    inventory_sync_default_minute: int = 30
+    inventory_sync_default_days: str = "mon,tue,wed,thu,fri"
+
     # ---- Auth (per-user sessions) -----------------------------------------
     # Phase 1: real users instead of the v1 shared HTTP Basic credential.
     #

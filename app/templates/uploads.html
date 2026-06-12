@@ -34,6 +34,103 @@
   .upload-bar-fill { animation: upload-bar-slide 1.4s linear infinite; }
 </style>
 
+{# ── Live inventory feed (SAP) ─────────────────────────────────────────────
+   Replaces the manual inventory CSV upload for sellable (SB) on-hand. Pull on
+   demand with the button, or let the scheduler run it on the editable schedule
+   below. The CSV path under "Inventory Snapshot" still works as a fallback. #}
+{% if shop %}
+{% set sync_days = shop.inventory_sync_days.split(",") %}
+{% set day_labels = {"mon":"Mon","tue":"Tue","wed":"Wed","thu":"Thu","fri":"Fri","sat":"Sat","sun":"Sun"} %}
+<section class="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-center justify-between border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="flex items-center gap-2 text-base font-semibold text-slate-900">
+        {{ ui.icon("refresh-cw", "h-4 w-4 text-sky-600") }}
+        Live inventory feed (SAP)
+      </h2>
+      <p class="mt-0.5 text-xs text-slate-500">Pulls sellable (SB) on-hand straight from SAP into demand planning — no CSV needed.</p>
+    </div>
+    <form action="/uploads/sync-inventory-sap" method="post" id="sap-sync-form">
+      <button type="submit" id="sap-sync-btn"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-500">
+        {{ ui.icon("refresh-cw", "h-3.5 w-3.5") }}
+        Sync inventory from SAP
+      </button>
+    </form>
+  </header>
+  <div class="grid grid-cols-1 gap-px bg-slate-200 sm:grid-cols-2">
+    {# Last sync status #}
+    <div class="bg-white px-6 py-4">
+      <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Last sync</div>
+      {% if last_sap_sync %}
+      <div class="mt-1 flex items-center gap-2">
+        <span class="rounded px-2 py-0.5 text-xs
+          {% if last_sap_sync.status.value == 'completed' %}bg-emerald-50 text-emerald-700
+          {% elif last_sap_sync.status.value == 'failed' %}bg-rose-50 text-rose-700
+          {% else %}bg-slate-100 text-slate-600{% endif %}">{{ last_sap_sync.status.value }}</span>
+        <span class="text-sm text-slate-700">{{ last_sap_sync.uploaded_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+      </div>
+      <p class="mt-1 text-xs text-slate-500">
+        {{ "{:,}".format(last_sap_sync.rows_imported) }} SKUs on hand
+        {%- if last_sap_sync.rows_skipped %}, {{ last_sap_sync.rows_skipped }} skipped{% endif %}
+      </p>
+      {% else %}
+      <p class="mt-1 text-sm text-slate-500">Never synced yet — click the button to pull now.</p>
+      {% endif %}
+    </div>
+
+    {# Schedule editor #}
+    <div class="bg-white px-6 py-4">
+      <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Auto-sync schedule</div>
+      <form action="/uploads/inventory-sync-settings" method="post" class="mt-2 space-y-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="enabled" value="1" {% if shop.inventory_sync_enabled %}checked{% endif %}
+                   class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500">
+            Enabled
+          </label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+            at
+            <input type="time" name="sync_time" value="{{ '%02d:%02d'|format(shop.inventory_sync_hour, shop.inventory_sync_minute) }}"
+                   class="rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <span class="text-xs text-slate-400">{{ shop.timezone }}</span>
+          </label>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          {% for d in valid_days %}
+          <label class="cursor-pointer">
+            <input type="checkbox" name="days" value="{{ d }}" class="peer sr-only" {% if d in sync_days %}checked{% endif %}>
+            <span class="inline-block rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition peer-checked:border-sky-500 peer-checked:bg-sky-50 peer-checked:text-sky-700 hover:bg-slate-50">
+              {{ day_labels[d] }}
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+          Save schedule
+        </button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Disable the SAP sync button + show progress text on submit (sync is quick;
+  // the page redirects back on completion).
+  (function () {
+    var form = document.getElementById("sap-sync-form");
+    if (!form) return;
+    form.addEventListener("submit", function () {
+      var btn = document.getElementById("sap-sync-btn");
+      btn.disabled = true;
+      btn.classList.add("cursor-wait", "opacity-75");
+      btn.textContent = "Syncing…";
+    });
+  })();
+</script>
+{% endif %}
+
 <form id="upload-form" action="/uploads" method="post" enctype="multipart/form-data"
       class="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="border-b border-slate-200 px-6 py-3">

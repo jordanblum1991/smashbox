@@ -15,6 +15,14 @@ openpyxl>=3.1
 xlsxwriter>=3.2
 python-dateutil>=2.9
 
+# Outbound HTTP for the SAP inventory feed + scheduled auto-sync.
+# httpx is the client (also used by the test suite's TestClient); apscheduler
+# runs the in-process weekday cron; tzdata ships the IANA zone database so
+# ZoneInfo("America/Los_Angeles") resolves on the slim Docker image.
+httpx>=0.28
+apscheduler>=3.10,<4
+tzdata>=2024.1
+
 # PDF generation (invoices). Upper-bounded against major version bumps
 # because invoices are customer-visible documents and rendering behavior
 # needs to stay stable. Requires system libs: libpango, libcairo,
@@ -28,4 +36,3 @@ itsdangerous>=2.2          # Starlette SessionMiddleware uses this for signing
 # dev
 pytest>=8.3
 pytest-cov>=6.0
-httpx>=0.28

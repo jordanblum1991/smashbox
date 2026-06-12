@@ -1,11 +1,21 @@
-# Fly.io app config. Single-machine deployment with a persistent volume for
-# the SQLite DB + uploaded files + Excel exports. Suitable for small finance
-# team usage; revisit (and add Postgres + multi-instance) when usage grows.
+# Fly.io app config. Single-machine deployment. The app DB is Fly Managed
+# Postgres (since the 2026-06 cutover — see CLAUDE.md); the persistent volume
+# now holds only uploaded files + Excel exports + the legacy SQLite rollback.
+# Suitable for small finance-team usage; revisit multi-instance if usage grows.
 
 app = "smashbox"
 primary_region = "lax"  # Los Angeles
 
 [build]
+
+# Run Alembic migrations before each release goes live. Runs in a temporary
+# machine with the app's secrets (incl. DATABASE_URL → Postgres); a failed
+# migration aborts the deploy so bad schema never reaches users. NOTE: the
+# Postgres DB must be stamped at the baseline revision once before the first
+# release_command deploy (`alembic stamp 07c4ee33b7fa`), or upgrade-from-zero
+# would try to re-create the already-existing tables.
+[deploy]
+  release_command = "alembic upgrade head"
 
 [env]
   PORT = "8000"
