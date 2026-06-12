@@ -166,9 +166,16 @@
   {% endif %}
 
   {% for inv in invoices %}
+  {# Collapsible card: paid invoices start collapsed (they're done — save space);
+     open invoices start expanded but can be collapsed. Toggle via the header. #}
   <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-    <header class="flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-200 px-4 py-2.5">
-      <div class="flex items-center gap-2.5">
+    <div class="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5">
+      <button type="button" data-inv-toggle="{{ inv.id }}"
+              aria-expanded="{{ 'false' if inv.status == 'paid' else 'true' }}"
+              class="flex min-w-0 items-center gap-2.5 text-left">
+        <span data-chev class="shrink-0 text-slate-400 transition-transform {% if inv.status != 'paid' %}rotate-180{% endif %}">
+          {{ ui.icon("chevron-down", "h-4 w-4") }}
+        </span>
         <span class="text-base font-semibold text-slate-900">{{ inv.number }}</span>
         <span class="text-xs text-slate-500">{{ inv.invoice_date.strftime("%b %d, %Y") }}{% if inv.due_date %} · due {{ inv.due_date.strftime("%b %d, %Y") }}{% endif %}</span>
         {% if inv.is_overdue %}
@@ -179,8 +186,11 @@
         {% else %}
         <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-amber-700">Open</span>
         {% endif %}
-      </div>
-      <div class="flex items-center gap-2">
+      </button>
+      <div class="flex items-center gap-3">
+        <span class="hidden text-xs text-slate-500 sm:inline">Net owed
+          <span class="ml-1 text-sm font-semibold tabular-nums {{ 'text-rose-600' if inv.net_owed < 0 else 'text-slate-900' }}">{{ inv.net_owed | money }}</span>
+        </span>
         <form action="/admin/product-invoices/{{ inv.id }}/status" method="post" class="inline">
           <input type="hidden" name="status" value="{{ 'open' if inv.status == 'paid' else 'paid' }}">
           <button type="submit"
@@ -194,8 +204,9 @@
                   class="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">Delete</button>
         </form>
       </div>
-    </header>
+    </div>
 
+    <div data-inv-body="{{ inv.id }}" class="border-t border-slate-200"{% if inv.status == "paid" %} hidden{% endif %}>
     <div class="grid grid-cols-2 gap-3 border-b border-slate-100 px-4 py-2.5 text-sm md:grid-cols-4">
       <div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount</div>
         <div class="mt-0.5 tabular-nums text-slate-900">{{ inv.amount | money }}</div></div>
@@ -363,6 +374,27 @@
                 class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Add payment</button>
       </form>
     </div>
+    </div>{# /data-inv-body #}
   </div>
   {% endfor %}
 </section>
+
+<script>
+  // Collapse / expand product-invoice cards. Paid cards render collapsed
+  // (hidden body); clicking the header toggles. Form buttons keep working
+  // because they're outside the toggle button.
+  (function () {
+    document.querySelectorAll("[data-inv-toggle]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-inv-toggle");
+        var body = document.querySelector('[data-inv-body="' + id + '"]');
+        if (!body) return;
+        var wasHidden = body.hasAttribute("hidden");
+        if (wasHidden) body.removeAttribute("hidden"); else body.setAttribute("hidden", "");
+        btn.setAttribute("aria-expanded", wasHidden ? "true" : "false");
+        var chev = btn.querySelector("[data-chev]");
+        if (chev) chev.classList.toggle("rotate-180", wasHidden);
+      });
+    });
+  })();
+</script>
