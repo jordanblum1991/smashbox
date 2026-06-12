@@ -68,37 +68,46 @@ STMT_COL = {
 
 class TikTokPayoutsImporter(BaseImporter):
     def run(self, path: Path, db: Session, batch: ImportBatch) -> ImportResult:
-        result = ImportResult()
-
         try:
             payments_df = pd.read_excel(path, sheet_name=PAYMENTS_SHEET, dtype=str)
         except ValueError as exc:
             raise ValueError(f"could not read Payments sheet: {exc}") from exc
-
-        missing = [c for c in (PAY_COL["payment_id"], PAY_COL["amount"]) if c not in payments_df.columns]
-        if missing:
-            raise ValueError(f"Payments sheet missing required columns: {missing}")
-
-        # Statements sheet is optional — without it we still get the cash-side
-        # row, just no gross/period detail.
-        stmt_rollup: dict[str, dict] = {}
         try:
             stmt_df = pd.read_excel(path, sheet_name=STATEMENTS_SHEET, dtype=str)
-            stmt_rollup = _rollup_statements(stmt_df)
+        except Exception:  # noqa: BLE001 — Statements sheet is optional
+            stmt_df = None
+        return import_dataframes(payments_df, stmt_df, db, batch)
+
+
+def import_dataframes(
+    payments_df: pd.DataFrame, stmt_df: "pd.DataFrame | None",
+    db: Session, batch: ImportBatch,
+) -> ImportResult:
+    """In-memory ingestion seam. `payments_df` = the Payments-sheet rows (cash
+    side, columns per PAY_COL); `stmt_df` = the Statements-sheet rows (revenue /
+    period detail per STMT_COL, or None when absent — the cash row still imports,
+    just without gross/period). The file importer reads the workbook's two sheets;
+    a future TikTok API client builds the same frames from the payouts JSON and
+    calls this directly. Idempotent upsert on payout_id."""
+    result = ImportResult()
+
+    missing = [c for c in (PAY_COL["payment_id"], PAY_COL["amount"]) if c not in payments_df.columns]
+    if missing:
+        raise ValueError(f"Payments sheet missing required columns: {missing}")
+
+    stmt_rollup = _rollup_statements(stmt_df) if stmt_df is not None else {}
+
+    for _, row in payments_df.iterrows():
+        pid = _str(row.get(PAY_COL["payment_id"]))
+        if not pid:
+            continue
+        try:
+            _upsert_payout(db, pid, row, stmt_rollup.get(pid), batch)
+            result.rows_imported += 1
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"(statements not read: {exc})")
+            result.skip(f"payout {pid}: {exc}")
 
-        for _, row in payments_df.iterrows():
-            pid = _str(row.get(PAY_COL["payment_id"]))
-            if not pid:
-                continue
-            try:
-                _upsert_payout(db, pid, row, stmt_rollup.get(pid), batch)
-                result.rows_imported += 1
-            except Exception as exc:  # noqa: BLE001
-                result.skip(f"payout {pid}: {exc}")
-
-        return result
+    return result
 
 
 def _rollup_statements(df: pd.DataFrame) -> dict[str, dict]:

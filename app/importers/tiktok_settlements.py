@@ -108,71 +108,82 @@ ADJ_COL = {
 
 class TikTokSettlementsImporter(BaseImporter):
     def run(self, path: Path, db: Session, batch: ImportBatch) -> ImportResult:
-        result = ImportResult()
-
         try:
             orders_df = pd.read_excel(
                 path, sheet_name="Orders", header=ORDERS_HEADER_ROW, dtype=str
             )
         except ValueError as exc:
             raise ValueError(f"could not read Orders sheet: {exc}") from exc
-
-        # The settlement file has one row per (order, line). Aggregate up to
-        # (order_id, linked_statement_id) so the natural-key uniqueness holds
-        # and the money columns aren't silently overwritten line-by-line.
-        affected_order_ids: set[str] = set()
-        for (order_id, statement_id), group in orders_df.groupby(
-            [COL["order_id"], COL["linked_statement_id"]], dropna=False, sort=False
-        ):
-            oid = _str(order_id)
-            if not oid:
-                continue
-            try:
-                _upsert_settlement(db, oid, group, batch)
-                affected_order_ids.add(oid)
-                result.rows_imported += 1
-            except Exception as exc:  # noqa: BLE001
-                result.skip(f"settlement order {oid}: {exc}")
-
-        # Back-fill Order.* columns AFTER all settlements have been upserted,
-        # not row-by-row. An order can appear in multiple statements (original
-        # sale + refund), and the per-statement back-fill was last-write-wins
-        # — non-deterministic and lossy. Sum across all settlements instead.
-        db.flush()
-        orphan_ids: set[str] = set()
-        for oid in affected_order_ids:
-            if not _backfill_order(db, oid):
-                orphan_ids.add(oid)
-
-        if orphan_ids:
-            sample = ", ".join(sorted(orphan_ids)[:3])
-            more = (
-                f" (+ {len(orphan_ids) - 3} more)" if len(orphan_ids) > 3 else ""
-            )
-            result.errors.append(
-                f"orphans: {len(orphan_ids)} settlement order{'' if len(orphan_ids) == 1 else 's'} "
-                f"with no matching row in the orders file — e.g. {sample}{more}. "
-                f"See /reports/settlement-only-orders."
-            )
-
-        # Adjustments are optional — sheet may be empty.
         try:
             adj_df = pd.read_excel(
                 path, sheet_name="Adjustment", header=ADJUSTMENT_HEADER_ROW, dtype=str
             )
-            for _, row in adj_df.iterrows():
-                aid = _str(row.get(ADJ_COL["adjustment_id"]))
-                if not aid:
-                    continue
-                try:
-                    _upsert_adjustment(db, aid, row, batch)
-                    result.rows_imported += 1
-                except Exception as exc:  # noqa: BLE001
-                    result.skip(f"adjustment {aid}: {exc}")
-        except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"(adjustments not read: {exc})")
+        except Exception:  # noqa: BLE001 — sheet may be absent/empty
+            adj_df = None
+        return import_dataframes(orders_df, adj_df, db, batch)
 
-        return result
+
+def import_dataframes(
+    orders_df: pd.DataFrame, adj_df: "pd.DataFrame | None",
+    db: Session, batch: ImportBatch,
+) -> ImportResult:
+    """In-memory ingestion seam. `orders_df` holds the settlement Orders-sheet rows
+    (one per order line, columns per COL); `adj_df` the Adjustment-sheet rows
+    (columns per ADJ_COL, or None when there are none). The file importer reads the
+    workbook's two sheets into these frames; a future TikTok API client builds the
+    same frames from the settlement + adjustment JSON and calls this directly — one
+    path, idempotent on the natural keys (order+statement; adjustment id+type+time)."""
+    result = ImportResult()
+
+    # The settlement file has one row per (order, line). Aggregate up to
+    # (order_id, linked_statement_id) so the natural-key uniqueness holds
+    # and the money columns aren't silently overwritten line-by-line.
+    affected_order_ids: set[str] = set()
+    for (order_id, statement_id), group in orders_df.groupby(
+        [COL["order_id"], COL["linked_statement_id"]], dropna=False, sort=False
+    ):
+        oid = _str(order_id)
+        if not oid:
+            continue
+        try:
+            _upsert_settlement(db, oid, group, batch)
+            affected_order_ids.add(oid)
+            result.rows_imported += 1
+        except Exception as exc:  # noqa: BLE001
+            result.skip(f"settlement order {oid}: {exc}")
+
+    # Back-fill Order.* columns AFTER all settlements have been upserted, not
+    # row-by-row. An order can appear in multiple statements (original sale +
+    # refund), and per-statement back-fill was last-write-wins — non-deterministic
+    # and lossy. Sum across all settlements instead.
+    db.flush()
+    orphan_ids: set[str] = set()
+    for oid in affected_order_ids:
+        if not _backfill_order(db, oid):
+            orphan_ids.add(oid)
+
+    if orphan_ids:
+        sample = ", ".join(sorted(orphan_ids)[:3])
+        more = f" (+ {len(orphan_ids) - 3} more)" if len(orphan_ids) > 3 else ""
+        result.errors.append(
+            f"orphans: {len(orphan_ids)} settlement order{'' if len(orphan_ids) == 1 else 's'} "
+            f"with no matching row in the orders file — e.g. {sample}{more}. "
+            f"See /reports/settlement-only-orders."
+        )
+
+    # Adjustments are optional.
+    if adj_df is not None:
+        for _, row in adj_df.iterrows():
+            aid = _str(row.get(ADJ_COL["adjustment_id"]))
+            if not aid:
+                continue
+            try:
+                _upsert_adjustment(db, aid, row, batch)
+                result.rows_imported += 1
+            except Exception as exc:  # noqa: BLE001
+                result.skip(f"adjustment {aid}: {exc}")
+
+    return result
 
 
 def _settlement_payload(order_id: str, group: pd.DataFrame, batch: ImportBatch) -> dict:
