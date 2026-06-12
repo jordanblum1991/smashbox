@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 
 import pandas as pd
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -57,6 +59,19 @@ def fetch_sap_inventory(url: str) -> list[dict]:
     if not isinstance(data, list):
         raise ValueError(f"SAP feed returned {type(data).__name__}, expected a JSON list")
     return data
+
+
+def last_synced_at(db: Session, model) -> datetime | None:
+    """When inventory of this kind was last refreshed: the completion time of the
+    most-recent import that wrote a row to `model` (InventorySnapshot = sellable,
+    SampleInventorySnapshot = sample). Full UTC-naive timestamp — the snapshot's
+    own captured_at is truncated to date, so this is the precise 'last updated'
+    moment. Falls back to uploaded_at when completed_at is null."""
+    return db.execute(
+        select(func.max(func.coalesce(ImportBatch.completed_at, ImportBatch.uploaded_at)))
+        .select_from(model)
+        .join(ImportBatch, ImportBatch.id == model.import_batch_id)
+    ).scalar()
 
 
 def _warehouse_frame(rows: list[dict], warehouse: str) -> pd.DataFrame:

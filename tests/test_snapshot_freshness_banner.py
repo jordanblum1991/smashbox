@@ -21,6 +21,7 @@ def _mk(age: int | None) -> DemandPlanningView:
         latest_snapshot_at=None,
         snapshot_is_stale=False,
         snapshot_age_days=age,
+        inventory_synced_at=None,
         safety_stock_pct=Decimal("0.10"),
         cover_days=45,
         overstocked_days=180,

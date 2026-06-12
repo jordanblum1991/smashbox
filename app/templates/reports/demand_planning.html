@@ -42,7 +42,9 @@
 {% call ui.page_header(
   eyebrow="Operations",
   title="Demand Planning",
-  subtitle="Per-SKU replenishment recommendations from trailing sales velocity, current on-hand inventory, and your procurement settings.",
+  subtitle="Per-SKU replenishment recommendations from trailing sales velocity, current on-hand inventory, and your procurement settings." ~ (
+    " · Inventory last updated " ~ v.inventory_synced_at.strftime("%b %d, %Y · %I:%M %p %Z")
+    if v.inventory_synced_at else ""),
   accent_bar=true,
 ) %}
   <form method="get" action="/reports/demand-planning" class="flex flex-wrap items-end gap-2">

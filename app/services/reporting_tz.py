@@ -84,3 +84,11 @@ def now_local() -> datetime:
     so they roll at shop-local midnight rather than server/UTC midnight. Pairs
     with `today_local()` (which returns just the date)."""
     return datetime.now(SHOP_TZ).replace(tzinfo=None)
+
+
+def utc_to_shop_local(dt: datetime) -> datetime:
+    """A UTC-naive timestamp (e.g. `ImportBatch.completed_at`) as a shop-local
+    AWARE datetime, for displaying 'last synced' times in the shop's timezone
+    (with a %Z label) instead of UTC. Aware on purpose so strftime("%Z") renders
+    PDT/PST."""
+    return dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(SHOP_TZ)

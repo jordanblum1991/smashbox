@@ -6,7 +6,9 @@
 {% call ui.page_header(
   eyebrow="Creator Sample Module",
   title="Sample Inventory",
-  subtitle="Current on-hand balance per SKU · as of " ~ view.as_of.strftime("%Y-%m-%d %H:%M"),
+  subtitle="Sample-pool (SBS) on-hand per SKU" ~ (
+    " · last updated " ~ view.last_synced_at.strftime("%b %d, %Y · %I:%M %p %Z")
+    if view.last_synced_at else " · not yet synced"),
   accent_bar=true,
 ) %}
   <button onclick="window.print()"

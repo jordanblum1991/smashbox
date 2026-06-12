@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from app.models.bundle import Bundle
 from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.sku import Sku
-from app.services.reporting_tz import now_local
+from app.services.inventory_sync import last_synced_at
+from app.services.reporting_tz import now_local, utc_to_shop_local
 from app.services.sku_alias import load_alias_map
 
 
@@ -74,7 +75,8 @@ class SampleInventoryView:
     rows: list[SampleOnHandRow]  # mapped rows sorted by sku_code asc, unmapped last
     total_on_hand_units: int     # headline KPI: sum of all on_hand_units
     sku_count: int               # distinct SKUs with positive stock
-    as_of: datetime              # snapshot timestamp
+    as_of: datetime              # snapshot date (captured_at)
+    last_synced_at: datetime | None  # shop-local time of the last SBS sync, or None
 
 
 def compute_sample_inventory_view(
@@ -93,6 +95,8 @@ def compute_sample_inventory_view(
     """
     alias_map = load_alias_map(db)
     on_hand, latest_at = _latest_sample_on_hand(db, alias_map=alias_map)
+    synced = last_synced_at(db, SampleInventorySnapshot)
+    synced_local = utc_to_shop_local(synced) if synced else None
 
     if not on_hand:
         return SampleInventoryView(
@@ -100,6 +104,7 @@ def compute_sample_inventory_view(
             total_on_hand_units=0,
             sku_count=0,
             as_of=latest_at or now_local(),
+            last_synced_at=synced_local,
         )
 
     canonical_skus = list(on_hand.keys())
@@ -168,4 +173,5 @@ def compute_sample_inventory_view(
         total_on_hand_units=sum(on_hand.values()),
         sku_count=len(on_hand),
         as_of=latest_at or now_local(),
+        last_synced_at=synced_local,
     )

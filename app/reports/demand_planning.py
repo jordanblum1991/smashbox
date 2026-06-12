@@ -26,7 +26,8 @@ from app.models.inventory_snapshot import InventorySnapshot
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
 from app.services.demand.bundle_expansion import bundle_component_breakdown
-from app.services.reporting_tz import now_local
+from app.services.inventory_sync import last_synced_at
+from app.services.reporting_tz import now_local, utc_to_shop_local
 from app.services.demand.replenishment import (
     STATUS_PRIORITY,
     ReplenishmentInputs,
@@ -109,6 +110,7 @@ class DemandPlanningView:
     latest_snapshot_at: datetime | None
     snapshot_is_stale: bool       # True when latest snapshot is > 10 days old
     snapshot_age_days: int | None
+    inventory_synced_at: datetime | None  # shop-local time of the last SB sync
 
     # The settings actually used to compute this view (after query-string
     # overrides). Surfaced so the UI can echo them back.
@@ -285,6 +287,8 @@ def compute_demand_planning_view(
 
     # On-hand per inventory snapshot SKU (alias-collapsed to canonical).
     on_hand_by_sku, latest_snapshot_at = _latest_on_hand_per_sku(db, alias_map=alias_map)
+    _synced = last_synced_at(db, InventorySnapshot)
+    inventory_synced_at = utc_to_shop_local(_synced) if _synced else None
 
     # Union of all SKUs we have ANY signal for. Skip empties.
     all_skus = set(velocities) | set(on_hand_by_sku)
@@ -295,6 +299,7 @@ def compute_demand_planning_view(
             latest_snapshot_at=None,
             snapshot_is_stale=False,
             snapshot_age_days=None,
+            inventory_synced_at=inventory_synced_at,
             safety_stock_pct=safety, cover_days=cover, overstocked_days=overstocked,
             service_level=effective_global_service_level,
             investment_total=Decimal("0"),
@@ -415,6 +420,7 @@ def compute_demand_planning_view(
         latest_snapshot_at=latest_snapshot_at,
         snapshot_is_stale=snapshot_is_stale,
         snapshot_age_days=snapshot_age_days,
+        inventory_synced_at=inventory_synced_at,
         safety_stock_pct=safety, cover_days=cover, overstocked_days=overstocked,
         service_level=effective_global_service_level,
         investment_total=investment_total,
