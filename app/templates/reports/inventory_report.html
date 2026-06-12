@@ -58,6 +58,13 @@
         <option value="sellable">Has sellable stock</option>
         <option value="sample">Has sample stock</option>
       </select>
+      <select id="inv-pagesize" title="SKUs shown per page"
+              class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <option value="25">25 / page</option>
+        <option value="50" selected>50 / page</option>
+        <option value="100">100 / page</option>
+        <option value="all">Show all</option>
+      </select>
     </div>
   </header>
   <div class="overflow-x-auto">
@@ -122,11 +129,24 @@
     </table>
   </div>
   <p id="inv-empty" class="hidden px-6 py-8 text-center text-sm text-slate-400">No SKUs match your search / filter.</p>
+  {# Pagination — limits how many SKUs show at once. Hidden on print (the print
+     view lists every row). #}
+  <div id="inv-pager" class="hidden items-center justify-between gap-3 border-t border-slate-200 px-6 py-3 text-sm print:hidden">
+    <span id="inv-pageinfo" class="text-slate-500"></span>
+    <div class="flex items-center gap-1.5">
+      <button id="inv-prev" type="button"
+              class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Prev</button>
+      <span id="inv-pagelabel" class="px-1 text-slate-600"></span>
+      <button id="inv-next" type="button"
+              class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Next</button>
+    </div>
+  </div>
 </section>
 
 <script>
-  // Client-side sort + filter for the inventory table. The full set is rendered
-  // server-side; we only reorder / hide rows here (instant, print-friendly).
+  // Client-side sort + filter + pagination for the inventory table. The full set
+  // is rendered server-side; we reorder / hide rows here (instant, print-friendly).
+  // Footer totals always reflect the full filtered set, not just the current page.
   (function () {
     var table = document.getElementById("inv-table");
     if (!table) return;
@@ -135,12 +155,19 @@
     if (!rows.length) return;
     var search = document.getElementById("inv-search");
     var stock = document.getElementById("inv-stock");
+    var pageSizeSel = document.getElementById("inv-pagesize");
     var count = document.getElementById("inv-count");
     var empty = document.getElementById("inv-empty");
-    var sortKey = null, sortDir = 1;
+    var pager = document.getElementById("inv-pager");
+    var pageInfo = document.getElementById("inv-pageinfo");
+    var pageLabel = document.getElementById("inv-pagelabel");
+    var prevBtn = document.getElementById("inv-prev");
+    var nextBtn = document.getElementById("inv-next");
+    var sortKey = null, sortDir = 1, page = 1;
 
     function num(r, k) { return parseFloat(r.getAttribute("data-" + k)) || 0; }
     function money(n) { return "$" + n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+    function pageSize() { var v = pageSizeSel.value; return v === "all" ? Infinity : parseInt(v, 10); }
 
     function matches(r) {
       var q = (search.value || "").trim().toLowerCase();
@@ -157,25 +184,54 @@
       return true;
     }
 
-    function apply() {
-      var shown = 0, tSell = 0, tSamp = 0, tTot = 0, tVal = 0;
-      rows.forEach(function (r) {
-        if (matches(r)) {
-          r.style.display = "";
-          shown++; tSell += num(r, "sellable"); tSamp += num(r, "sample");
-          tTot += num(r, "total"); tVal += num(r, "value");
-        } else {
-          r.style.display = "none";
-        }
+    function render() {
+      var matching = rows.filter(matches);
+      var total = matching.length, filtered = total !== rows.length;
+
+      // Footer = full filtered set (independent of page).
+      var tSell = 0, tSamp = 0, tTot = 0, tVal = 0;
+      matching.forEach(function (r) {
+        tSell += num(r, "sellable"); tSamp += num(r, "sample");
+        tTot += num(r, "total"); tVal += num(r, "value");
       });
-      var filtered = shown !== rows.length;
-      count.textContent = filtered ? "· showing " + shown + " of " + rows.length : "";
       document.getElementById("foot-sellable").textContent = tSell.toLocaleString();
       document.getElementById("foot-sample").textContent = tSamp.toLocaleString();
       document.getElementById("foot-total").textContent = tTot.toLocaleString();
       document.getElementById("foot-value").textContent = money(tVal);
       document.getElementById("foot-label").textContent = filtered ? "Total (filtered)" : "Total";
-      empty.classList.toggle("hidden", shown !== 0);
+
+      // Page slice.
+      var size = pageSize();
+      var totalPages = size === Infinity ? 1 : Math.max(1, Math.ceil(total / size));
+      if (page > totalPages) page = totalPages;
+      if (page < 1) page = 1;
+      var start = size === Infinity ? 0 : (page - 1) * size;
+      var end = size === Infinity ? total : Math.min(start + size, total);
+
+      rows.forEach(function (r) { r.style.display = "none"; });
+      for (var i = start; i < end; i++) matching[i].style.display = "";
+
+      empty.classList.toggle("hidden", total !== 0);
+
+      if (total === 0) {
+        count.textContent = "";
+        pager.classList.add("hidden"); pager.classList.remove("flex");
+        return;
+      }
+      count.textContent = "· " + (start + 1) + "–" + end + " of " + total + (filtered ? " (filtered)" : "");
+      var showPager = size !== Infinity;
+      pager.classList.toggle("hidden", !showPager);
+      pager.classList.toggle("flex", showPager);
+      pageInfo.textContent = "Showing " + (start + 1) + "–" + end + " of " + total + " SKUs";
+      pageLabel.textContent = "Page " + page + " of " + totalPages;
+      setBtn(prevBtn, page <= 1);
+      setBtn(nextBtn, page >= totalPages);
+    }
+
+    function setBtn(btn, disabled) {
+      btn.disabled = disabled;
+      btn.style.opacity = disabled ? "0.4" : "";
+      btn.style.cursor = disabled ? "not-allowed" : "pointer";
     }
 
     function sortBy(key) {
@@ -191,14 +247,26 @@
         var ind = th.querySelector(".sort-ind");
         if (ind) ind.textContent = th.getAttribute("data-key") === key ? (sortDir > 0 ? "▲" : "▼") : "";
       });
+      page = 1; render();
     }
 
-    search.addEventListener("input", apply);
-    stock.addEventListener("change", apply);
+    search.addEventListener("input", function () { page = 1; render(); });
+    stock.addEventListener("change", function () { page = 1; render(); });
+    pageSizeSel.addEventListener("change", function () { page = 1; render(); });
+    prevBtn.addEventListener("click", function () { if (page > 1) { page--; render(); } });
+    nextBtn.addEventListener("click", function () { page++; render(); });
     table.querySelectorAll("th[data-key]").forEach(function (th) {
       th.style.cursor = "pointer";
       th.addEventListener("click", function () { sortBy(th.getAttribute("data-key")); });
     });
+
+    // Print every filtered row (ignore the page limit), then restore the page.
+    window.addEventListener("beforeprint", function () {
+      rows.forEach(function (r) { r.style.display = matches(r) ? "" : "none"; });
+    });
+    window.addEventListener("afterprint", render);
+
+    render();  // initial paint applies the default page size
   })();
 </script>
 {% endblock %}
