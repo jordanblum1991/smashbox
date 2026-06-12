@@ -329,12 +329,14 @@ def recon_health_view(
     active_tab = "recon" if tab == "recon" else "data-health"
     ctx: dict = {"active_tab": active_tab}
     if active_tab == "recon":
+        from app.reports.coverage_gaps import compute_order_coverage
         y, m = _ym(year, month)
         ctx.update({
             "report": reconcile_month(db, y, m),
             "monthly_recon": yearly_sales_reconciliation(db, y),
             "daily_recon": daily_sales_reconciliation(db, y, m),
             "gmv_recon": gmv_tie_out(db, y),
+            "coverage": compute_order_coverage(db),
         })
     else:
         from app.reports.missing_cogs import find_missing_cogs

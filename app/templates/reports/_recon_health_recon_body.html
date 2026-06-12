@@ -12,6 +12,34 @@
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
 
+{# Order-coverage gaps — days with no orders inside the active range, which
+   usually means a missing import (or, once the API is live, a missed sync). #}
+{% if coverage is defined and coverage.first_day %}
+<section class="mb-6 rounded-xl border bg-white p-5 shadow-sm {{ 'border-amber-200' if coverage.gaps else 'border-slate-200' }}">
+  <div class="mb-2 flex items-baseline justify-between">
+    <h2 class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Order coverage</h2>
+    <span class="text-xs text-slate-400">{{ coverage.first_day.strftime("%b %d, %Y") }} – {{ coverage.last_day.strftime("%b %d, %Y") }}</span>
+  </div>
+  {% if not coverage.gaps %}
+  <p class="text-sm text-emerald-700">✓ Every day in the active range has at least one order — no gaps.</p>
+  {% else %}
+  <p class="text-sm text-amber-800">
+    <span class="font-semibold">{{ coverage.missing_days }}</span> order-free day{{ "" if coverage.missing_days == 1 else "s" }}
+    across <span class="font-semibold">{{ coverage.gaps | length }}</span> gap{{ "" if (coverage.gaps | length) == 1 else "s" }} —
+    likely a missing import for these dates:
+  </p>
+  <ul class="mt-2 flex flex-wrap gap-1.5">
+    {% for g in coverage.gaps[:24] %}
+    <li class="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200">
+      {% if g.days == 1 %}{{ g.start.strftime("%b %d") }}{% else %}{{ g.start.strftime("%b %d") }}–{{ g.end.strftime("%b %d") }} ({{ g.days }}d){% endif %}
+    </li>
+    {% endfor %}
+    {% if coverage.gaps | length > 24 %}<li class="px-2 py-0.5 text-xs text-slate-500">+ {{ (coverage.gaps | length) - 24 }} more</li>{% endif %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
 <!-- Sales reconciliation — TikTok Seller Center "Sales" tile vs our Net Customer Sales -->
 {% set sr = report.sales %}
 <section class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
