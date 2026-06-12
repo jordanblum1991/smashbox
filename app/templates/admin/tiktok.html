@@ -58,4 +58,49 @@
     {% endif %}
   </div>
 </section>
+
+{# Per-stream sync status + manual run #}
+<section class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-center justify-between border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Data sync</h2>
+      <p class="mt-0.5 text-xs text-slate-500">Orders, settlements, and payouts — incremental, watermarked per stream.</p>
+    </div>
+    <form action="/admin/tiktok/sync" method="post">
+      <button type="submit"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
+        {{ ui.icon("refresh-cw", "h-3.5 w-3.5") }} Sync now
+      </button>
+    </form>
+  </header>
+  <table class="min-w-full text-sm">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-6 py-2">Stream</th>
+        <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2">Synced through</th>
+        <th class="px-4 py-2">Last run</th>
+        <th class="px-4 py-2 text-right">Rows</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for s in sync_states %}
+      <tr>
+        <td class="px-6 py-2.5 font-medium capitalize text-slate-900">{{ s.stream }}</td>
+        <td class="px-4 py-2.5">
+          <span class="rounded-full px-2 py-0.5 text-xs font-semibold
+            {% if s.last_status == 'ok' %}bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200
+            {% elif s.last_status == 'error' %}bg-rose-50 text-rose-700 ring-1 ring-rose-200
+            {% elif s.last_status == 'pending' %}bg-amber-50 text-amber-700 ring-1 ring-amber-200
+            {% else %}bg-slate-100 text-slate-600{% endif %}">{{ s.last_status }}</span>
+          {% if s.last_message %}<span class="ml-2 text-xs text-slate-400">{{ s.last_message }}</span>{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-slate-600">{{ s.synced_through.strftime("%Y-%m-%d %H:%M") if s.synced_through else "—" }}</td>
+        <td class="px-4 py-2.5 text-slate-600">{{ s.last_run_at.strftime("%Y-%m-%d %H:%M") if s.last_run_at else "—" }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(s.rows_last_run) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
 {% endblock %}

@@ -13,10 +13,12 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from starlette.concurrency import run_in_threadpool
+
 from app.auth import require_admin
 from app.config import settings
 from app.db import get_db
-from app.services import tiktok_api
+from app.services import tiktok_api, tiktok_sync
 from app.templating import templates
 
 router = APIRouter(tags=["tiktok"])
@@ -31,8 +33,20 @@ def tiktok_status(request: Request, db: Session = Depends(get_db),
     return templates.TemplateResponse(
         request, "admin/tiktok.html",
         {"cred": cred, "configured": settings.tiktok_oauth_enabled,
+         "sync_states": tiktok_sync.all_states(db),
          "error": error, "notice": notice},
     )
+
+
+@router.post("/admin/tiktok/sync", dependencies=[Depends(require_admin)])
+async def tiktok_sync_now(db: Session = Depends(get_db)):
+    """Manual 'Sync now'. Runs off the event loop; outcomes are recorded per
+    stream on the status page (no-op-but-tracked until the connection is live)."""
+    summary = await run_in_threadpool(tiktok_sync.run_sync, db, source="manual")
+    pending = sum(1 for v in summary.values() if v == "pending")
+    if pending == len(summary):
+        return _back(notice="Sync ran — streams are pending until the TikTok connection is live.")
+    return _back(notice="Sync complete: " + ", ".join(f"{k}={v}" for k, v in summary.items()))
 
 
 @router.get("/auth/tiktok/authorize")
