@@ -237,11 +237,12 @@ async def attach_data_health(request: Request, call_next):
     rendering the nav must never depend on the diagnostic queries succeeding."""
     request.state.data_health = {"unmapped": 0, "orphans": 0, "policy_violations": 0}
     request.state.overdue_ap = {"count": 0, "total": 0}
+    request.state.payables_due_soon = {"count": 0, "total": 0, "within_days": 14}
     # /healthz is a DB-free liveness probe — never run the diagnostic queries for
     # it, or a locked/slow DB would hang the probe and trigger a needless restart.
     if not request.url.path.startswith(("/static", "/healthz")):
         try:
-            from app.reports.overdue_ap import compute_overdue_ap
+            from app.reports.overdue_ap import compute_due_soon_ap, compute_overdue_ap
             from app.reports.policy_violations import count_policy_violations
             from app.reports.settlement_only_orders import count_settlement_only_orders
             from app.reports.unmapped_skus import count_unmapped_skus
@@ -252,6 +253,7 @@ async def attach_data_health(request: Request, call_next):
                     "policy_violations": count_policy_violations(db),
                 }
                 request.state.overdue_ap = compute_overdue_ap(db)
+                request.state.payables_due_soon = compute_due_soon_ap(db)
         except Exception:
             pass
     return await call_next(request)

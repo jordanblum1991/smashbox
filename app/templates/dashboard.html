@@ -89,13 +89,21 @@
 {% endcall %}
 {% endif %}
 
-{# Overdue accounts payable — product (Smashbox) invoices past due with a balance. #}
+{# Payables reminders — overdue (past due) and the proactive due-soon nudge. #}
 {% set oap = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0, "total": 0} %}
 {% if oap.count > 0 %}
-{% call ui.banner(tone="warn", compact=true,
+{% call ui.banner(tone="error", compact=true,
                   title="Overdue payables: " ~ oap.count ~ (" invoice" if oap.count == 1 else " invoices"),
-                  action_label="Review", action_href="/admin/invoices?tab=product") %}
+                  action_label="Review aging", action_href="/admin/product-invoices/aging") %}
   {{ oap.total | money }} past due to Smashbox.
+{% endcall %}
+{% endif %}
+{% set due_soon = request.state.payables_due_soon if request.state is defined and request.state.payables_due_soon is defined else {"count": 0, "total": 0, "within_days": 14} %}
+{% if due_soon.count > 0 %}
+{% call ui.banner(tone="warn", compact=true,
+                  title="Payables due soon: " ~ due_soon.count ~ (" invoice" if due_soon.count == 1 else " invoices"),
+                  action_label="Review aging", action_href="/admin/product-invoices/aging") %}
+  {{ due_soon.total | money }} due within {{ due_soon.within_days }} days.
 {% endcall %}
 {% endif %}
 
