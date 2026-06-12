@@ -167,11 +167,28 @@ def _validate_invoice_form(
 # Routes
 # ---------------------------------------------------------------------------
 
+def _filter_invoices(invoices: list, status: str, hide_paid: bool) -> list:
+    """Apply the status filter + 'hide paid' toggle to an invoice list. `status`
+    is "" (all) / a stored status / the computed "overdue"; both filters AND
+    together. Pure list filtering so summary totals (computed on the full set)
+    are unaffected."""
+    out = invoices
+    if hide_paid:
+        out = [i for i in out if i.status != "paid"]
+    if status == "overdue":
+        out = [i for i in out if getattr(i, "is_overdue", False)]
+    elif status:
+        out = [i for i in out if i.status == status]
+    return out
+
+
 @router.get("/admin/invoices", dependencies=[Depends(require_admin)])
 def invoices_hub(
     request: Request,
     db: Session = Depends(get_db),
     tab: str = "vendor",
+    status: str = "",
+    hide_paid: int = 0,
     error: str | None = None,
     notice: str | None = None,
 ) -> Response:
@@ -179,9 +196,14 @@ def invoices_hub(
     Outlandish bills Smashbox) and Product invoices (inbound — the AP ledger) as
     two server-rendered tabs under one menu item. Each tab renders its existing
     page body on a full page load, so all inline forms / PDF / statement links
-    keep working. `tab` selects the panel."""
+    keep working. `tab` selects the panel; `status` + `hide_paid` filter the list
+    (summary totals stay on the full set)."""
     active_tab = "product" if tab == "product" else "vendor"
-    ctx: dict = {"active_tab": active_tab, "error": error, "notice": notice}
+    hide_paid_b = bool(hide_paid)
+    ctx: dict = {
+        "active_tab": active_tab, "error": error, "notice": notice,
+        "filter_status": status, "hide_paid": hide_paid_b,
+    }
     if active_tab == "product":
         # Lazy import avoids any import-order coupling between the two routers.
         from app.routers.purchase_invoices import product_context
@@ -190,6 +212,8 @@ def invoices_hub(
         ctx["invoices"] = db.execute(
             select(Invoice).order_by(Invoice.created_at.desc())
         ).scalars().all()
+    ctx["total_count"] = len(ctx["invoices"])
+    ctx["invoices"] = _filter_invoices(ctx["invoices"], status, hide_paid_b)
     return templates.TemplateResponse(request, "admin/invoices_hub.html", ctx)
 
 

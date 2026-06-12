@@ -126,12 +126,42 @@
   </form>
 </section>
 
+{# Status filter + hide-paid toggle. Server-rendered (GET reload). Filters only
+   the list below; the summary tiles above stay on the full set. #}
+<form method="get" action="/admin/invoices" class="mb-3 flex flex-wrap items-center gap-3 print:hidden">
+  <input type="hidden" name="tab" value="product">
+  <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+    <span class="font-medium">Status</span>
+    <select name="status" onchange="this.form.submit()"
+            class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      <option value="" {% if not filter_status %}selected{% endif %}>All statuses</option>
+      <option value="open" {% if filter_status == 'open' %}selected{% endif %}>Open</option>
+      <option value="overdue" {% if filter_status == 'overdue' %}selected{% endif %}>Overdue</option>
+      <option value="paid" {% if filter_status == 'paid' %}selected{% endif %}>Paid</option>
+    </select>
+  </label>
+  <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+    <input type="checkbox" name="hide_paid" value="1" onchange="this.form.submit()" {% if hide_paid %}checked{% endif %}
+           class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+    Hide paid
+  </label>
+  <span class="text-xs text-slate-500">{% if filter_status or hide_paid %}{{ invoices | length }} of {{ total_count }} shown{% endif %}</span>
+  {% if filter_status or hide_paid %}
+  <a href="/admin/invoices?tab=product" class="text-xs font-medium text-sky-700 hover:text-sky-900">Clear</a>
+  {% endif %}
+</form>
+
 {# Invoice list (on-screen cards; the print-only table above covers print) #}
 <section class="space-y-3 print:hidden">
   {% if invoices | length == 0 %}
   <div class="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-center shadow-sm">
+    {% if filter_status or hide_paid %}
+    <p class="text-sm text-slate-700">No invoices match this filter.</p>
+    <p class="mt-1 text-xs text-slate-500"><a href="/admin/invoices?tab=product" class="text-sky-700 hover:underline">Clear the filter</a> to see all invoices.</p>
+    {% else %}
     <p class="text-sm text-slate-700">No invoices logged yet.</p>
     <p class="mt-1 text-xs text-slate-500">Add one with the form above.</p>
+    {% endif %}
   </div>
   {% endif %}
 

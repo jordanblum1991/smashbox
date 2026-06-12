@@ -28,17 +28,47 @@
 </div>
 {% endif %}
 
+{# Status filter + hide-paid toggle. Server-rendered (GET reload). #}
+<form method="get" action="/admin/invoices" class="mb-4 flex flex-wrap items-center gap-3 print:hidden">
+  <input type="hidden" name="tab" value="vendor">
+  <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+    <span class="font-medium">Status</span>
+    <select name="status" onchange="this.form.submit()"
+            class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      <option value="" {% if not filter_status %}selected{% endif %}>All statuses</option>
+      <option value="issued" {% if filter_status == 'issued' %}selected{% endif %}>Issued</option>
+      <option value="paid" {% if filter_status == 'paid' %}selected{% endif %}>Paid</option>
+    </select>
+  </label>
+  <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+    <input type="checkbox" name="hide_paid" value="1" onchange="this.form.submit()" {% if hide_paid %}checked{% endif %}
+           class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+    Hide paid
+  </label>
+  {% if filter_status or hide_paid %}
+  <a href="/admin/invoices?tab=vendor" class="text-xs font-medium text-sky-700 hover:text-sky-900">Clear</a>
+  {% endif %}
+</form>
+
 <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="border-b border-slate-200 px-5 py-3">
     <h2 class="text-sm font-semibold text-slate-900">
-      All invoices <span class="ml-2 text-xs font-normal text-slate-500">{{ invoices | length }} entr{{ "y" if invoices | length == 1 else "ies" }}</span>
+      All invoices
+      <span class="ml-2 text-xs font-normal text-slate-500">
+        {% if filter_status or hide_paid %}{{ invoices | length }} of {{ total_count }}{% else %}{{ invoices | length }} entr{{ "y" if invoices | length == 1 else "ies" }}{% endif %}
+      </span>
     </h2>
   </header>
 
   {% if invoices | length == 0 %}
   <div class="px-5 py-10 text-center">
+    {% if filter_status or hide_paid %}
+    <p class="text-sm text-slate-700">No invoices match this filter.</p>
+    <p class="mt-1 text-xs text-slate-500"><a href="/admin/invoices?tab=vendor" class="text-sky-700 hover:underline">Clear the filter</a> to see all invoices.</p>
+    {% else %}
     <p class="text-sm text-slate-700">No invoices yet.</p>
     <p class="mt-1 text-xs text-slate-500">Use “+ Create invoice” above to issue the first one.</p>
+    {% endif %}
   </div>
   {% else %}
   <table class="w-full text-sm">
