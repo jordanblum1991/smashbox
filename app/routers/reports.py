@@ -337,10 +337,12 @@ def recon_health_view(
             "gmv_recon": gmv_tie_out(db, y),
         })
     else:
+        from app.reports.missing_cogs import find_missing_cogs
         ctx.update({
             "unmapped_rows": [_unmapped_view(r) for r in find_unmapped_skus(db)],
             "orphan_rows": [_orphan_view(r) for r in find_settlement_only_orders(db)],
             "violations": all_policy_violations(db, only_unacknowledged=True),
+            "missing_cogs_rows": find_missing_cogs(db),
         })
     return templates.TemplateResponse(request, "reports/recon_health.html", ctx)
 

@@ -14,13 +14,15 @@
 {% set n_unmapped = unmapped_rows | length %}
 {% set n_orphans = orphan_rows | length %}
 {% set n_violations = violations | length %}
+{% set n_missing_cogs = (missing_cogs_rows | length) if missing_cogs_rows is defined else 0 %}
 
 {# Summary strip #}
-<section class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+<section class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
   {% for label, n, anchor in [
     ("Unmapped SKUs", n_unmapped, "#unmapped"),
     ("Orphan Orders", n_orphans, "#orphans"),
     ("Policy Violations", n_violations, "#violations"),
+    ("Missing COGS", n_missing_cogs, "#missing-cogs"),
   ] %}
   <a href="{{ anchor }}" class="rounded-xl border bg-white p-5 shadow-sm transition hover:shadow {{ 'border-rose-200' if n else 'border-slate-200' }}">
     <div class="text-[11px] font-medium uppercase tracking-wider text-slate-500">{{ label }}</div>
@@ -153,6 +155,41 @@
                       class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Acknowledge</button>
             </form>
           </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+{# ---- Missing COGS ---- #}
+<section id="missing-cogs" class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Missing COGS <span class="ml-1 text-sm font-normal text-slate-500">({{ n_missing_cogs }})</span></h2>
+    <a href="/admin/skus" class="text-xs font-medium text-sky-700 hover:text-sky-900">Edit in Manage SKUs →</a>
+  </header>
+  {% if n_missing_cogs == 0 %}
+  <div class="px-6 py-5 text-sm text-emerald-700">✓ Every in-play SKU (on-hand or sold) has a unit cost.</div>
+  {% else %}
+  <p class="border-b border-slate-100 px-6 py-2 text-xs text-slate-500">These SKUs have stock or sales but a $0 cost — they undervalue inventory and break margin. Set a unit cost in Manage SKUs.</p>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">SKU</th>
+          <th class="px-4 py-2.5">Product</th>
+          <th class="px-4 py-2.5 text-right">On hand</th>
+          <th class="px-4 py-2.5 text-right">Units sold</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in missing_cogs_rows %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900">{{ r.sku_code }}</td>
+          <td class="px-4 py-2.5 text-slate-700">{% if r.name %}{{ r.name | strip_size | title_case }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ "{:,}".format(r.on_hand) }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(r.units_sold) }}</td>
         </tr>
         {% endfor %}
       </tbody>

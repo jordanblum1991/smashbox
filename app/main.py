@@ -270,7 +270,7 @@ async def attach_data_health(request: Request, call_next):
     """Compute the Data Health counts once per request so nav.html can show
     a red-flag badge on the Data Health dropdown. Failures are swallowed —
     rendering the nav must never depend on the diagnostic queries succeeding."""
-    request.state.data_health = {"unmapped": 0, "orphans": 0, "policy_violations": 0}
+    request.state.data_health = {"unmapped": 0, "orphans": 0, "policy_violations": 0, "missing_cogs": 0}
     request.state.overdue_ap = {"count": 0, "total": 0}
     request.state.payables_due_soon = {"count": 0, "total": 0, "within_days": 14}
     request.state.inventory_alerts = {"count": 0, "out_of_stock": 0, "at_risk": 0, "reorder_now": 0}
@@ -280,6 +280,7 @@ async def attach_data_health(request: Request, call_next):
         try:
             from app.reports.inventory_alerts import get_inventory_alert_summary
             from app.reports.overdue_ap import compute_due_soon_ap, compute_overdue_ap
+            from app.reports.missing_cogs import count_missing_cogs
             from app.reports.policy_violations import count_policy_violations
             from app.reports.settlement_only_orders import count_settlement_only_orders
             from app.reports.unmapped_skus import count_unmapped_skus
@@ -288,6 +289,7 @@ async def attach_data_health(request: Request, call_next):
                     "unmapped": count_unmapped_skus(db),
                     "orphans": count_settlement_only_orders(db),
                     "policy_violations": count_policy_violations(db),
+                    "missing_cogs": count_missing_cogs(db),
                 }
                 request.state.overdue_ap = compute_overdue_ap(db)
                 request.state.payables_due_soon = compute_due_soon_ap(db)

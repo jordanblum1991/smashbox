@@ -23,8 +23,8 @@
         ("/admin/purchase-orders", "Purchase Orders"),
         ("/reports/sample-inventory", "Sample Inventory"),
       ] %}
-      {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0} %}
-      {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations %}
+      {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0, "missing_cogs": 0} %}
+      {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations + (dh.missing_cogs if dh.missing_cogs is defined else 0) %}
       {% set overdue_ap = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0, "total": 0} %}
       {% set inv_alerts = request.state.inventory_alerts if request.state is defined and request.state.inventory_alerts is defined else {"count": 0} %}
       {% for href, label in primary_links_left %}
