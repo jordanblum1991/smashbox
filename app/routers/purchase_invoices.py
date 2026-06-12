@@ -184,7 +184,10 @@ def product_invoices_aging_csv(db: Session = Depends(get_db)) -> Response:
     aging = compute_ap_aging(db)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Number", "Invoice Date", "Due Date", "Net Owed", "Days Past Due", "Bucket"])
+    w.writerow([
+        "Number", "Invoice Date", "Due Date", "Net Owed",
+        "Days Past Due", "Days Until Due", "Bucket",
+    ])
     for a in aging.invoices:
         w.writerow([
             a.number,
@@ -192,6 +195,7 @@ def product_invoices_aging_csv(db: Session = Depends(get_db)) -> Response:
             a.due_date.isoformat() if a.due_date else "",
             f"{a.net_owed:.2f}",
             a.days_past_due,
+            a.days_until_due if a.days_until_due is not None else "",
             a.bucket,
         ])
     return Response(

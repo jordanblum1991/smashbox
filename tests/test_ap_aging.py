@@ -68,6 +68,11 @@ def test_compute_ap_aging_buckets():
     assert len(ag.invoices) == 5
     # sorted most-overdue first
     assert ag.invoices[0].number == "B4"
+    # days_until_due: set for not-yet-due, None once overdue
+    cur = next(a for a in ag.invoices if a.number == "CUR")
+    assert cur.days_past_due == -10 and cur.days_until_due == 10
+    b4 = next(a for a in ag.invoices if a.number == "B4")
+    assert b4.days_until_due is None
 
 
 def test_aging_page_renders(client: TestClient):
@@ -89,7 +94,12 @@ def test_aging_csv(client: TestClient):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     rows = list(csv.reader(io.StringIO(r.text)))
-    assert rows[0] == ["Number", "Invoice Date", "Due Date", "Net Owed", "Days Past Due", "Bucket"]
+    assert rows[0] == [
+        "Number", "Invoice Date", "Due Date", "Net Owed",
+        "Days Past Due", "Days Until Due", "Bucket",
+    ]
     row = next(r for r in rows[1:] if r[0] == "OD-AGE")
-    assert row[3] == "321.00"
-    assert row[5] == "31-60"
+    assert row[3] == "321.00"          # net owed
+    assert row[4] == "45"              # days past due
+    assert row[5] == ""                # days until due (blank — already overdue)
+    assert row[6] == "31-60"           # bucket

@@ -40,6 +40,12 @@ class AgingInvoice:
     days_past_due: int          # <= 0 means not yet due
     bucket: str
 
+    @property
+    def days_until_due(self) -> int | None:
+        """Days remaining until the due date for a not-yet-due invoice
+        (0 = due today). None once it's past due — `days_past_due` covers that."""
+        return None if self.days_past_due > 0 else -self.days_past_due
+
 
 @dataclass
 class AgingBucket:
