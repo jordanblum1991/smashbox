@@ -10,17 +10,17 @@ Safety guards:
 - The last active admin cannot be deactivated or demoted (system-wide
   lockout). Enforced at the route level.
 
-We intentionally do NOT support hard delete — users are deactivated. This
-preserves audit trails (e.g. `policy_violation_acknowledged_at` rows that
-point at the user implicitly via the batch.import_batch_id chain) and avoids
-FK churn.
+Hard delete IS supported (admin-only, guarded): you can't delete yourself or the
+last active admin, and the one nullable FK into `users` (SkuAlias.created_by_user_id,
+audit-only) is set NULL first so the delete never errors. Deactivate is still the
+softer option for keeping an account on record.
 """
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth import hash_password, require_admin
@@ -28,6 +28,7 @@ from app.config import SERVICE_LEVEL_Z_TABLE
 from app.db import get_db
 from app.models.bundle import Bundle, BundleComponent
 from app.models.sku import Sku
+from app.models.sku_alias import SkuAlias
 from app.models.user import User, UserRole
 from app.services.sku_resolver import resolve_all_order_lines
 from app.templating import extract_size, strip_size, templates, title_case
@@ -164,6 +165,44 @@ def reset_password(
     target.password_hash = hash_password(new_password)
     db.commit()
     return _back(request, notice=f"Reset password for {target.email}.")
+
+
+@router.post("/users/{user_id}/delete", dependencies=[Depends(require_admin)])
+def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
+    """Permanently delete a user. Guarded against self-lockout and removing the
+    last active admin. Nulls the one nullable FK into users (SkuAlias audit
+    column) so the delete doesn't hit a constraint."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    current = getattr(request.state, "user", None)
+    if current and current.id == target.id:
+        return _back(request, error="You cannot delete your own account.")
+
+    # Last-active-admin guard — don't let an admin delete the final way in.
+    if target.role == UserRole.ADMIN and target.is_active:
+        active_admins = db.execute(
+            select(func.count(User.id))
+            .where(User.role == UserRole.ADMIN)
+            .where(User.is_active.is_(True))
+        ).scalar() or 0
+        if active_admins <= 1:
+            return _back(request, error=(
+                "Cannot delete the last active admin. "
+                "Promote or add another admin first."
+            ))
+
+    # Detach the audit-only FK reference, then hard-delete.
+    db.execute(
+        update(SkuAlias)
+        .where(SkuAlias.created_by_user_id == target.id)
+        .values(created_by_user_id=None)
+    )
+    email = target.email
+    db.delete(target)
+    db.commit()
+    return _back(request, notice=f"Deleted user {email}.")
 
 
 def _back(request: Request, *, error: str | None = None, notice: str | None = None) -> RedirectResponse:

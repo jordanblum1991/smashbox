@@ -198,6 +198,23 @@
               </p>
             </form>
           </div>
+
+          {% if not is_self %}
+          {# Danger zone — permanent delete (self-delete is blocked server-side too). #}
+          <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-rose-100 pt-4">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-rose-600">Danger zone</div>
+              <p class="mt-1 text-[11px] text-slate-500">Permanently delete this account — can't be undone. Deactivate instead if you may need it later.</p>
+            </div>
+            <form action="/admin/users/{{ u.id }}/delete" method="post"
+                  onsubmit="return confirm('Permanently delete {{ u.email }}? This cannot be undone.');">
+              <button type="submit"
+                      class="shrink-0 rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100">
+                Delete user
+              </button>
+            </form>
+          </div>
+          {% endif %}
         </div>
       </details>
       {% endfor %}
