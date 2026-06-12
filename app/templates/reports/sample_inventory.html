@@ -6,14 +6,19 @@
 {% call ui.page_header(
   eyebrow="Creator Sample Module",
   title="Sample Inventory",
-  subtitle="Sample-pool (SBS) on-hand per SKU" ~ (
-    " · last updated " ~ view.last_synced_at.strftime("%b %d, %Y · %I:%M %p %Z")
-    if view.last_synced_at else " · not yet synced"),
+  subtitle="Sample-pool (SBS) on-hand per SKU.",
   accent_bar=true,
 ) %}
   <button onclick="window.print()"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
+
+{% if view.last_synced_at %}
+<p class="-mt-3 mb-6 inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-3 py-1 text-sm font-semibold text-sky-700 ring-1 ring-sky-200">
+  {{ ui.icon("refresh-cw", "h-3.5 w-3.5") }}
+  Last updated {{ view.last_synced_at.strftime("%b %d, %Y · %I:%M %p %Z") }}
+</p>
+{% endif %}
 
 <!-- Headline KPIs -->
 <section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
