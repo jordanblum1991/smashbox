@@ -97,48 +97,61 @@ HEADER_MAP = {
 
 class TikTokOrdersImporter(BaseImporter):
     def run(self, path: Path, db: Session, batch: ImportBatch) -> ImportResult:
-        result = ImportResult()
-        df = _read_any(path)
-        df = _validate_headers(df)
+        return import_dataframe(_read_any(path), db, batch)
 
-        new_count = 0
-        updated_count = 0
 
-        for tiktok_order_id, group in df.groupby(HEADER_MAP["tiktok_order_id"], sort=False):
-            try:
-                clean_id = str(tiktok_order_id).strip().rstrip("\t").strip()
-                fresh = _build_order(clean_id, group, batch)
-                existing = db.execute(
-                    select(Order).where(Order.tiktok_order_id == clean_id)
-                ).scalar_one_or_none()
-                final = _persist_upsert(db, existing, fresh, batch)
-                result.rows_imported += 1
-                if existing is None:
-                    new_count += 1
-                else:
-                    updated_count += 1
-                if final.discount_policy_violation:
-                    for line in final.lines:
-                        if not line.discount_policy_violation:
-                            continue
-                        pct = (
-                            (line.seller_funded_discount / line.gross_sales) * 100
-                            if line.gross_sales > 0 else "n/a"
-                        )
-                        result.errors.append(
-                            f"policy: order {clean_id} sku {line.sku}: seller-funded "
-                            f"{line.seller_funded_discount} on MSRP {line.gross_sales} "
-                            f"({pct}%) exceeds {settings.seller_funded_policy_cap_pct * 100}% cap"
-                        )
-            except Exception as exc:  # noqa: BLE001
-                result.skip(f"order {tiktok_order_id}: {exc}")
+def import_dataframe(df: pd.DataFrame, db: Session, batch: ImportBatch) -> ImportResult:
+    """In-memory ingestion seam. Takes a DataFrame whose columns are named per
+    HEADER_MAP's TikTok-export headers (one row per order line), validates,
+    groups by Order ID, and upserts Orders idempotently on `tiktok_order_id`.
 
-        if updated_count > 0:
-            result.errors.append(
-                f"info: {new_count} new orders inserted, {updated_count} existing orders updated "
-                f"(settlement back-fills preserved)"
-            )
-        return result
+    Both ingestion paths share this: the file importer (`run`) reads a CSV/XLSX
+    into this shape, and a future TikTok API client maps the orders JSON into the
+    same columns and calls this directly — so the seller-funded split, sample
+    detection, and settlement-preserving upsert live in exactly ONE place.
+    Re-ingesting overlapping data (a scheduled API re-pull) is therefore safe.
+    """
+    result = ImportResult()
+    df = _validate_headers(df)
+
+    new_count = 0
+    updated_count = 0
+
+    for tiktok_order_id, group in df.groupby(HEADER_MAP["tiktok_order_id"], sort=False):
+        try:
+            clean_id = str(tiktok_order_id).strip().rstrip("\t").strip()
+            fresh = _build_order(clean_id, group, batch)
+            existing = db.execute(
+                select(Order).where(Order.tiktok_order_id == clean_id)
+            ).scalar_one_or_none()
+            final = _persist_upsert(db, existing, fresh, batch)
+            result.rows_imported += 1
+            if existing is None:
+                new_count += 1
+            else:
+                updated_count += 1
+            if final.discount_policy_violation:
+                for line in final.lines:
+                    if not line.discount_policy_violation:
+                        continue
+                    pct = (
+                        (line.seller_funded_discount / line.gross_sales) * 100
+                        if line.gross_sales > 0 else "n/a"
+                    )
+                    result.errors.append(
+                        f"policy: order {clean_id} sku {line.sku}: seller-funded "
+                        f"{line.seller_funded_discount} on MSRP {line.gross_sales} "
+                        f"({pct}%) exceeds {settings.seller_funded_policy_cap_pct * 100}% cap"
+                    )
+        except Exception as exc:  # noqa: BLE001
+            result.skip(f"order {tiktok_order_id}: {exc}")
+
+    if updated_count > 0:
+        result.errors.append(
+            f"info: {new_count} new orders inserted, {updated_count} existing orders updated "
+            f"(settlement back-fills preserved)"
+        )
+    return result
 
 
 def _persist_upsert(
