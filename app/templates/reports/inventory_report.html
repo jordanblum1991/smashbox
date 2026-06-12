@@ -9,6 +9,11 @@
   subtitle="Complete on-hand by SKU — sellable (SB) and sample (SBS).",
   accent_bar=true,
 ) %}
+  <a href="/uploads#inventory-sync"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3.5 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-100">
+    {{ ui.icon("refresh-cw", "h-3.5 w-3.5") }}
+    Update inventory sync
+  </a>
   <a href="/export/inventory.csv" download
      class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
     {{ ui.icon("download", "h-3.5 w-3.5") }}
@@ -34,24 +39,47 @@
 </section>
 
 <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-  <header class="border-b border-slate-200 px-6 py-3">
-    <h2 class="text-base font-semibold text-slate-900">On-Hand by SKU</h2>
-    <p class="mt-0.5 text-xs text-slate-500">From the latest SAP sync. Includes out-of-stock SKUs for a complete picture.</p>
+  <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">On-Hand by SKU</h2>
+      <p class="mt-0.5 text-xs text-slate-500">From the latest SAP sync. Click a column to sort.
+        <span id="inv-count" class="font-medium text-slate-600"></span></p>
+    </div>
+    {# Search + stock filter (client-side; instant, no reload). #}
+    <div class="flex flex-wrap items-center gap-2 print:hidden">
+      <input id="inv-search" type="search" placeholder="Search SKU or name…"
+             class="w-48 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+      <select id="inv-stock"
+              class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <option value="all">All SKUs</option>
+        <option value="instock">In stock (total &gt; 0)</option>
+        <option value="outofstock">Out of stock</option>
+        <option value="sellable">Has sellable stock</option>
+        <option value="sample">Has sample stock</option>
+      </select>
+    </div>
   </header>
   <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
+    <table id="inv-table" class="min-w-full text-sm">
       <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         <tr>
-          <th class="px-4 py-2">SKU</th>
-          <th class="px-4 py-2">Product Name</th>
-          <th class="px-4 py-2 text-right">Sellable</th>
-          <th class="px-4 py-2 text-right">Sample</th>
-          <th class="px-4 py-2 text-right">Total</th>
+          <th data-key="sku" class="select-none px-4 py-2 hover:text-slate-700">SKU <span class="sort-ind"></span></th>
+          <th data-key="name" class="select-none px-4 py-2 hover:text-slate-700">Product Name <span class="sort-ind"></span></th>
+          <th data-key="sellable" class="select-none px-4 py-2 text-right hover:text-slate-700">Sellable <span class="sort-ind"></span></th>
+          <th data-key="sample" class="select-none px-4 py-2 text-right hover:text-slate-700">Sample <span class="sort-ind"></span></th>
+          <th data-key="total" class="select-none px-4 py-2 text-right hover:text-slate-700">Total <span class="sort-ind"></span></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100">
         {% for r in view.rows %}
-        <tr class="{% if r.total_on_hand == 0 %}text-slate-400{% endif %}">
+        <tr data-row
+            data-sku="{{ r.sku_code or r.canonical_sku }}"
+            data-name="{{ (r.name or '') }}"
+            data-canon="{{ r.canonical_sku }}"
+            data-sellable="{{ r.sellable_on_hand }}"
+            data-sample="{{ r.sample_on_hand }}"
+            data-total="{{ r.total_on_hand }}"
+            class="{% if r.total_on_hand == 0 %}text-slate-400{% endif %}">
           <td class="px-4 py-2">
             {% if r.sku_code %}
               <span class="font-medium {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ r.sku_code }}</span>
@@ -79,14 +107,90 @@
       {% if view.rows %}
       <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 font-semibold">
         <tr>
-          <td class="px-4 py-2" colspan="2">Total</td>
-          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
-          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
-          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_units) }}</td>
+          <td class="px-4 py-2" colspan="2"><span id="foot-label">Total</span></td>
+          <td id="foot-sellable" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
+          <td id="foot-sample" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
+          <td id="foot-total" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_units) }}</td>
         </tr>
       </tfoot>
       {% endif %}
     </table>
   </div>
+  <p id="inv-empty" class="hidden px-6 py-8 text-center text-sm text-slate-400">No SKUs match your search / filter.</p>
 </section>
+
+<script>
+  // Client-side sort + filter for the inventory table. The full set is rendered
+  // server-side; we only reorder / hide rows here (instant, print-friendly).
+  (function () {
+    var table = document.getElementById("inv-table");
+    if (!table) return;
+    var tbody = table.querySelector("tbody");
+    var rows = Array.prototype.slice.call(tbody.querySelectorAll("tr[data-row]"));
+    if (!rows.length) return;
+    var search = document.getElementById("inv-search");
+    var stock = document.getElementById("inv-stock");
+    var count = document.getElementById("inv-count");
+    var empty = document.getElementById("inv-empty");
+    var sortKey = null, sortDir = 1;
+
+    function num(r, k) { return parseInt(r.getAttribute("data-" + k), 10) || 0; }
+
+    function matches(r) {
+      var q = (search.value || "").trim().toLowerCase();
+      if (q) {
+        var hay = (r.getAttribute("data-sku") + " " + r.getAttribute("data-name") +
+                   " " + r.getAttribute("data-canon")).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      var f = stock.value, total = num(r, "total"), sell = num(r, "sellable"), samp = num(r, "sample");
+      if (f === "instock" && total <= 0) return false;
+      if (f === "outofstock" && total > 0) return false;
+      if (f === "sellable" && sell <= 0) return false;
+      if (f === "sample" && samp <= 0) return false;
+      return true;
+    }
+
+    function apply() {
+      var shown = 0, tSell = 0, tSamp = 0, tTot = 0;
+      rows.forEach(function (r) {
+        if (matches(r)) {
+          r.style.display = "";
+          shown++; tSell += num(r, "sellable"); tSamp += num(r, "sample"); tTot += num(r, "total");
+        } else {
+          r.style.display = "none";
+        }
+      });
+      var filtered = shown !== rows.length;
+      count.textContent = filtered ? "· showing " + shown + " of " + rows.length : "";
+      document.getElementById("foot-sellable").textContent = tSell.toLocaleString();
+      document.getElementById("foot-sample").textContent = tSamp.toLocaleString();
+      document.getElementById("foot-total").textContent = tTot.toLocaleString();
+      document.getElementById("foot-label").textContent = filtered ? "Total (filtered)" : "Total";
+      empty.classList.toggle("hidden", shown !== 0);
+    }
+
+    function sortBy(key) {
+      if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = 1; }
+      var numeric = (key === "sellable" || key === "sample" || key === "total");
+      rows.sort(function (a, b) {
+        if (numeric) return (num(a, key) - num(b, key)) * sortDir;
+        return (a.getAttribute("data-" + key) || "").localeCompare(
+                b.getAttribute("data-" + key) || "") * sortDir;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      table.querySelectorAll("th[data-key]").forEach(function (th) {
+        var ind = th.querySelector(".sort-ind");
+        if (ind) ind.textContent = th.getAttribute("data-key") === key ? (sortDir > 0 ? "▲" : "▼") : "";
+      });
+    }
+
+    search.addEventListener("input", apply);
+    stock.addEventListener("change", apply);
+    table.querySelectorAll("th[data-key]").forEach(function (th) {
+      th.style.cursor = "pointer";
+      th.addEventListener("click", function () { sortBy(th.getAttribute("data-key")); });
+    });
+  })();
+</script>
 {% endblock %}

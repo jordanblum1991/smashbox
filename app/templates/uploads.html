@@ -41,7 +41,7 @@
 {% if shop %}
 {% set sync_days = shop.inventory_sync_days.split(",") %}
 {% set day_labels = {"mon":"Mon","tue":"Tue","wed":"Wed","thu":"Thu","fri":"Fri","sat":"Sat","sun":"Sun"} %}
-<section class="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+<section id="inventory-sync" class="mb-8 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="flex items-center justify-between border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="flex items-center gap-2 text-base font-semibold text-slate-900">
