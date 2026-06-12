@@ -29,7 +29,9 @@ pytest tests/test_seller_funded_split.py -v    # one file
 pytest -k split                                # by keyword
 ```
 
-Tables auto-create on first boot via `Base.metadata.create_all`. Switch to Alembic migrations (`alembic upgrade head`) before moving to Postgres — `alembic/` is reserved but not initialized yet.
+**Production runs on Fly Managed Postgres** (cluster `smashbox-db` / `zp2wjre645j0dn4q`, LAX) as of the SQLite→Postgres cutover (2026-06-12). The app connects through MPG's pgbouncer pooler via the `DATABASE_URL` Fly secret (`postgresql+psycopg://…@pgbouncer.<cluster>.flympg.net/fly-db`); `app/db.py` disables psycopg3 server-side prepared statements (`prepare_threshold=None`) and enables `pool_pre_ping` for pooler/idle-drop safety. **Local dev and the test suite still use SQLite** (no `DATABASE_URL`, or a temp file) — psycopg only loads for `postgresql://` URLs.
+
+Schema is managed by **Alembic** (`alembic upgrade head`) — `alembic/versions/07c4ee33b7fa_baseline_schema.py` is the baseline (all 27 tables); `tests/test_migrations.py` guards models↔migrations parity. Boot still calls `Base.metadata.create_all` (idempotent, `checkfirst`) as a belt-and-suspenders for fresh DBs, but **new model columns must now go through an Alembic revision**, not the legacy `_ensure_columns` SQLite shim in `app/main.py` (that shim only fires for missing columns and is inert on the migrated Postgres). Rollback path: prod's pre-cutover SQLite file remains at `/data/smashbox.db` — unset the `DATABASE_URL` secret to revert.
 
 ## Restart uvicorn after editing Python — don't trust `--reload` alone
 
@@ -195,8 +197,7 @@ The resolver runs automatically after `TIKTOK_ORDERS`, `SKU_MASTER`, and `BUNDLE
 
 ## What's stubbed
 
-- Alembic migrations directory.
-- Auth — none. Internal app on a private network; add only if exposed.
+- `schemas/` (Pydantic) and `services/` are mostly empty — add as APIs/orchestration stabilize.
 
 ## Things deliberately not built (yet)
 
