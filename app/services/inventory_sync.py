@@ -34,6 +34,8 @@ from app.models.import_batch import (
     ImportFileKind,
     _utc_now_naive,
 )
+from app.models.inventory_snapshot import InventorySnapshot
+from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -57,21 +59,34 @@ def fetch_sap_inventory(url: str) -> list[dict]:
     return data
 
 
+def _warehouse_frame(rows: list[dict], warehouse: str) -> pd.DataFrame:
+    """Build the normalized (sku/on_hand/captured_at) frame for one warehouse."""
+    kept = [r for r in rows if str(r.get(_WAREHOUSE, "")).strip() == warehouse]
+    return pd.DataFrame({
+        "sku": [str(r.get(_ITEMCODE, "")).strip() for r in kept],
+        "on_hand": [r.get(_ON_HAND) for r in kept],
+        "captured_at": [r.get(_DATE) for r in kept],
+    })
+
+
 def sync_inventory_from_sap(
     db: Session, *, source: str = "manual", url: str | None = None,
-    warehouse: str | None = None,
 ) -> ImportBatch:
-    """Fetch the feed, import the sellable-warehouse rows, and return the
-    ImportBatch (COMPLETED or FAILED). Never raises — failures are recorded on
-    the batch so the caller (button or scheduler) can report cleanly."""
+    """Fetch the feed and import both warehouses in one batch — SB (sellable) →
+    InventorySnapshot and SBS (sample pool) → SampleInventorySnapshot, kept in
+    separate tables. Returns the ImportBatch (COMPLETED or FAILED). Never raises:
+    failures are recorded on the batch so the caller (button or scheduler) can
+    report cleanly. `batch.rows_imported` counts the sellable rows (the primary
+    demand-planning import); the sample count is noted in the message."""
     url = url or settings.sap_inventory_url
-    warehouse = warehouse or settings.sap_inventory_warehouse
+    sellable_whs = settings.sap_inventory_warehouse
+    sample_whs = settings.sap_sample_warehouse
     ts = _utc_now_naive()
 
     batch = ImportBatch(
         kind=ImportFileKind.INVENTORY_SNAPSHOT,
         status=ImportBatchStatus.PROCESSING,
-        original_filename=f"SAP {warehouse} sync · {source} · {ts:%Y-%m-%d %H:%M}",
+        original_filename=f"SAP {sellable_whs}+{sample_whs} sync · {source} · {ts:%Y-%m-%d %H:%M}",
         stored_path="",
     )
     db.add(batch)
@@ -85,25 +100,21 @@ def sync_inventory_from_sap(
         raw_path.write_text(json.dumps(rows), encoding="utf-8")
         batch.stored_path = str(raw_path)
 
-        sellable = [r for r in rows if str(r.get(_WAREHOUSE, "")).strip() == warehouse]
-        df = pd.DataFrame({
-            "sku": [str(r.get(_ITEMCODE, "")).strip() for r in sellable],
-            "on_hand": [r.get(_ON_HAND) for r in sellable],
-            "captured_at": [r.get(_DATE) for r in sellable],
-        })
-
-        result = import_dataframe(df, db, batch)
+        sellable = import_dataframe(
+            _warehouse_frame(rows, sellable_whs), db, batch, model=InventorySnapshot)
+        sample = import_dataframe(
+            _warehouse_frame(rows, sample_whs), db, batch, model=SampleInventorySnapshot)
 
         note = (
-            f"SAP sync ({source}): {len(rows)} feed rows, "
-            f"{len(sellable)} in warehouse {warehouse}, "
-            f"{result.rows_imported} imported, {result.rows_skipped} skipped"
+            f"SAP sync ({source}): {len(rows)} feed rows · "
+            f"sellable {sellable_whs}: {sellable.rows_imported} imported · "
+            f"sample {sample_whs}: {sample.rows_imported} imported · "
+            f"{sellable.rows_skipped + sample.rows_skipped} skipped"
         )
-        batch.rows_imported = result.rows_imported
-        batch.rows_skipped = result.rows_skipped
-        batch.error_message = (
-            note + ("\n" + "\n".join(result.errors[:50]) if result.errors else "")
-        )
+        batch.rows_imported = sellable.rows_imported
+        batch.rows_skipped = sellable.rows_skipped + sample.rows_skipped
+        errors = sellable.errors + sample.errors
+        batch.error_message = note + ("\n" + "\n".join(errors[:50]) if errors else "")
         batch.status = ImportBatchStatus.COMPLETED
         batch.completed_at = _utc_now_naive()
         db.commit()

@@ -22,7 +22,7 @@
 <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="border-b border-slate-200 px-6 py-3">
     <h2 class="text-base font-semibold text-slate-900">On-Hand by SKU</h2>
-    <p class="mt-0.5 text-xs text-slate-500">Balance = receipts IN minus shipments OUT. Zero-balance SKUs omitted.</p>
+    <p class="mt-0.5 text-xs text-slate-500">From the latest SAP sample-warehouse (SBS) sync. Zero-balance SKUs omitted.</p>
   </header>
   <div class="overflow-x-auto">
     <table class="min-w-full text-sm">
@@ -30,7 +30,7 @@
         <tr>
           <th class="px-4 py-2">SKU</th>
           <th class="px-4 py-2">Product Name</th>
-          <th class="px-4 py-2">Ledger Key</th>
+          <th class="px-4 py-2">Canonical SKU</th>
           <th class="px-4 py-2 text-right">On-Hand Units</th>
         </tr>
       </thead>
@@ -55,7 +55,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="4" class="px-4 py-8 text-center text-slate-400">No sample inventory on hand. Record a receipt to add stock.</td>
+          <td colspan="4" class="px-4 py-8 text-center text-slate-400">No sample inventory on hand. Sync from SAP on the Imports page to pull SBS stock.</td>
         </tr>
         {% endfor %}
       </tbody>

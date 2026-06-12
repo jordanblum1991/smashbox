@@ -17,11 +17,12 @@ from app.db import Base, SessionLocal, engine
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.bundle import Bundle, BundleComponent
 from app.models.creator import Creator
+from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.sku import Sku
 from app.models.sku_alias import SkuAlias
 from app.reports.sample_inventory import compute_sample_inventory_view
 from app.reports.samples_by_creator import compute_samples_by_creator_view
-from app.services.sample_service import record_sample_receipt, record_sample_shipment
+from app.services.sample_service import record_sample_shipment
 
 
 @pytest.fixture(autouse=True)
@@ -43,12 +44,26 @@ def _batch(db) -> ImportBatch:
     return b
 
 
+def _snap(db, sku: str, on_hand: int, captured_at=datetime(2026, 5, 1)) -> None:
+    """Seed a sample-pool snapshot (the SAP SBS source the report now reads)."""
+    b = ImportBatch(
+        kind=ImportFileKind.INVENTORY_SNAPSHOT,
+        status=ImportBatchStatus.COMPLETED,
+        original_filename="sap.json",
+        stored_path="",
+    )
+    db.add(b)
+    db.flush()
+    db.add(SampleInventorySnapshot(
+        import_batch_id=b.id, sku=sku, on_hand=on_hand, captured_at=captured_at))
+
+
 # ---------------------------------------------------------------------------
 # 1. On-hand enrichment
 # ---------------------------------------------------------------------------
 
 def test_on_hand_mapped_sku():
-    """Receipt + shipment against a Sku row → row carries sku_code and name."""
+    """Sample snapshot against a Sku row → row carries sku_code and name."""
     with SessionLocal() as db:
         db.add(Sku(
             sku="SBX-001",
@@ -57,10 +72,7 @@ def test_on_hand_mapped_sku():
             tiktok_sku_id="SBX-001",
             unit_cogs=Decimal("5.00"),
         ))
-        record_sample_receipt(
-            db, sku="SBX-001", quantity=10,
-            received_at=datetime(2026, 5, 1), brand="smashbox",
-        )
+        _snap(db, sku="SBX-001", on_hand=10)
         db.commit()
 
     with SessionLocal() as db:
@@ -76,12 +88,9 @@ def test_on_hand_mapped_sku():
 
 
 def test_on_hand_unmapped_sku():
-    """A ledger key with no Sku or Bundle row → sku_code=None, name=None."""
+    """A snapshot key with no Sku or Bundle row → sku_code=None, name=None."""
     with SessionLocal() as db:
-        record_sample_receipt(
-            db, sku="UNKNOWN-999", quantity=4,
-            received_at=datetime(2026, 5, 1), brand="smashbox",
-        )
+        _snap(db, sku="UNKNOWN-999", on_hand=4)
         db.commit()
 
     with SessionLocal() as db:
@@ -95,7 +104,7 @@ def test_on_hand_unmapped_sku():
 
 
 def test_on_hand_bundle_sku():
-    """A ledger key matched to a Bundle row → is_bundle=True, sku_code from bundle_sku."""
+    """A snapshot key matched to a Bundle row → is_bundle=True, sku_code from bundle_sku."""
     with SessionLocal() as db:
         bundle = Bundle(
             bundle_sku="SBX-BUNDLE-1",
@@ -106,10 +115,7 @@ def test_on_hand_bundle_sku():
         db.add(bundle)
         db.flush()
         db.add(BundleComponent(bundle_id=bundle.id, component_sku="SBX-001", quantity=2))
-        record_sample_receipt(
-            db, sku="SBX-BUNDLE-1", quantity=5,
-            received_at=datetime(2026, 5, 1), brand="smashbox",
-        )
+        _snap(db, sku="SBX-BUNDLE-1", on_hand=5)
         db.commit()
 
     with SessionLocal() as db:
@@ -129,10 +135,8 @@ def test_on_hand_mapped_before_unmapped():
             sku="SBX-AAA", name="A Product", brand="smashbox",
             tiktok_sku_id="SBX-AAA", unit_cogs=Decimal("1.00"),
         ))
-        record_sample_receipt(db, sku="ORPHAN-001", quantity=3,
-                              received_at=datetime(2026, 5, 1), brand="smashbox")
-        record_sample_receipt(db, sku="SBX-AAA", quantity=7,
-                              received_at=datetime(2026, 5, 1), brand="smashbox")
+        _snap(db, sku="ORPHAN-001", on_hand=3)
+        _snap(db, sku="SBX-AAA", on_hand=7)
         db.commit()
 
     with SessionLocal() as db:
@@ -148,34 +152,22 @@ def test_on_hand_mapped_before_unmapped():
 # ---------------------------------------------------------------------------
 
 def test_inventory_alias_consolidation():
-    """Receipt under legacy code + shipment under canonical → single balance row."""
+    """A sample snapshot under a legacy alias collapses to the canonical SKU."""
     legacy = "C001"
     canonical = "SBX-C001"
 
     with SessionLocal() as db:
         db.add(Sku(sku=canonical, name="C Product", brand="smashbox",
                    tiktok_sku_id=canonical, unit_cogs=Decimal("2.00")))
-        record_sample_receipt(db, sku=legacy, quantity=8,
-                              received_at=datetime(2026, 5, 1), brand="smashbox",
-                              alias_map={})
-        db.commit()
-
-    with SessionLocal() as db:
         db.add(SkuAlias(alias_sku=legacy, canonical_sku=canonical))
-        db.commit()
-
-    with SessionLocal() as db:
-        batch = _batch(db)
-        record_sample_shipment(db, sku=canonical, quantity=3,
-                               shipped_at=datetime(2026, 5, 2), brand="smashbox",
-                               import_batch_id=batch.id)
+        _snap(db, sku=legacy, on_hand=5)
         db.commit()
 
     with SessionLocal() as db:
         view = compute_sample_inventory_view(db)
 
     assert view.sku_count == 1
-    assert view.total_on_hand_units == 5   # 8 − 3
+    assert view.total_on_hand_units == 5
     row = view.rows[0]
     assert row.canonical_sku == canonical
     assert row.sku_code == canonical

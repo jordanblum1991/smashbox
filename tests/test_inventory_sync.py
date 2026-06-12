@@ -4,6 +4,7 @@ import pytest
 
 from app.db import Base, SessionLocal, engine
 from app.models import ImportBatchStatus, InventorySnapshot
+from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.shop import Shop
 from app.services import inventory_sync
 
@@ -43,6 +44,50 @@ def test_keeps_only_sb_warehouse(monkeypatch):
         from datetime import datetime
         assert all(r.captured_at == datetime(2026, 6, 12)
                    for r in db.query(InventorySnapshot).all())
+
+
+def test_sbs_goes_to_separate_sample_table(monkeypatch):
+    monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())
+    with SessionLocal() as db:
+        batch = inventory_sync.sync_inventory_from_sap(db, source="test")
+        assert batch.status == ImportBatchStatus.COMPLETED
+
+    with SessionLocal() as db:
+        # Sellable table holds SB values; sample table holds SBS values; neither
+        # contaminates the other.
+        sellable = {r.sku: r.on_hand for r in db.query(InventorySnapshot).all()}
+        sample = {r.sku: r.on_hand for r in db.query(SampleInventorySnapshot).all()}
+        assert sellable == {"SBX-A": 364, "SBX-B": 0, "SBX-C": 98}
+        assert sample == {"SBX-A": 240, "SBX-B": 12, "SBX-C": 0}
+
+
+def test_sample_report_reads_sbs_snapshot(monkeypatch):
+    from app.reports.sample_inventory import compute_sample_inventory_view
+    monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())
+    with SessionLocal() as db:
+        inventory_sync.sync_inventory_from_sap(db, source="test")
+    with SessionLocal() as db:
+        view = compute_sample_inventory_view(db)
+        # SBX-C has 0 SBS units → dropped; SBX-A (240) + SBX-B (12) remain.
+        on_hand = {r.canonical_sku: r.on_hand_units for r in view.rows}
+        assert on_hand == {"SBX-A": 240, "SBX-B": 12}
+        assert view.total_on_hand_units == 252
+        assert view.sku_count == 2
+
+
+def test_deleting_sap_batch_clears_both_tables(monkeypatch):
+    from app.services.batch_deletion import delete_batch
+    monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())
+    with SessionLocal() as db:
+        batch = inventory_sync.sync_inventory_from_sap(db, source="test")
+        batch_id = batch.id
+    with SessionLocal() as db:
+        from app.models import ImportBatch
+        delete_batch(db, db.get(ImportBatch, batch_id))
+        db.commit()
+    with SessionLocal() as db:
+        assert db.query(InventorySnapshot).count() == 0
+        assert db.query(SampleInventorySnapshot).count() == 0
 
 
 def test_resync_same_day_is_idempotent(monkeypatch):

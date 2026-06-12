@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 from app.models.ad_spend import AdSpend
 from app.models.import_batch import ImportBatch, ImportFileKind
 from app.models.inventory_snapshot import InventorySnapshot
+from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.order import Order
 from app.models.payout import Payout
@@ -247,10 +248,16 @@ def _delete_inventory_snapshots(db: Session, batch: ImportBatch) -> DeletionResu
     snapshot transfers `import_batch_id` to the latest batch. Deleting that
     latest batch therefore removes the most recent on-hand reading for those
     SKUs — the planner falls back to the prior snapshot automatically.
+
+    A SAP sync writes BOTH sellable (InventorySnapshot) and sample
+    (SampleInventorySnapshot) rows under one batch, so clear both here.
     """
     rows = db.execute(
         select(InventorySnapshot).where(InventorySnapshot.import_batch_id == batch.id)
     ).scalars().all()
-    for r in rows:
+    sample_rows = db.execute(
+        select(SampleInventorySnapshot).where(SampleInventorySnapshot.import_batch_id == batch.id)
+    ).scalars().all()
+    for r in (*rows, *sample_rows):
         db.delete(r)
-    return DeletionResult(kind=batch.kind, rows_deleted=len(rows))
+    return DeletionResult(kind=batch.kind, rows_deleted=len(rows) + len(sample_rows))

@@ -19,6 +19,7 @@ from app.models.purchase_invoice import (
 from app.models.sample import Sample
 from app.models.sample_allowance import SampleAllowance
 from app.models.sample_inventory_movement import SampleInventoryMovement, SampleMovementType
+from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.settlement import Adjustment, Settlement
 from app.models.shop import Shop
 from app.models.sku import Sku
@@ -51,6 +52,7 @@ __all__ = [
     "Sample",
     "SampleAllowance",
     "SampleInventoryMovement",
+    "SampleInventorySnapshot",
     "SampleMovementType",
     "Settlement",
     "Shop",

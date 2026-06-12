@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     # the SB (sellable) warehouse for demand planning. Override in prod via
     # `fly secrets set SAP_INVENTORY_URL=...` if the endpoint/token rotates.
     sap_inventory_url: str = "https://api.fhiheat.com/PoKde7rmxb.php"
-    sap_inventory_warehouse: str = "SB"  # sellable warehouse code in the feed
+    sap_inventory_warehouse: str = "SB"   # sellable warehouse → InventorySnapshot
+    sap_sample_warehouse: str = "SBS"     # sample pool → SampleInventorySnapshot
 
     # Whether the in-process APScheduler runs at all. OFF by default so the test
     # suite and local dev never spawn a background scheduler; production turns it

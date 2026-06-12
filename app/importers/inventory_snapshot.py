@@ -58,14 +58,21 @@ class InventorySnapshotImporter(BaseImporter):
         return import_dataframe(df, db, batch)
 
 
-def import_dataframe(df: pd.DataFrame, db: Session, batch: ImportBatch) -> ImportResult:
+def import_dataframe(
+    df: pd.DataFrame, db: Session, batch: ImportBatch, *, model=InventorySnapshot,
+) -> ImportResult:
     """Upsert on-hand rows from an already-loaded DataFrame.
 
-    The shared core of both ingestion paths: the CSV/XLSX importer (`run`, which
+    The shared core of every ingestion path: the CSV/XLSX importer (`run`, which
     reads a file first) and the SAP API sync (`app/services/inventory_sync.py`,
     which builds the frame in memory). Columns must already be normalized to
     `sku` / `on_hand` / `captured_at` — see COL_ALIASES. Idempotent on
     (sku, captured_at): a re-run updates on_hand in place rather than appending.
+
+    `model` selects the destination table — `InventorySnapshot` (sellable, the
+    default) or `SampleInventorySnapshot` (sample pool). Both have the identical
+    sku / on_hand / captured_at / import_batch_id shape, so the upsert is shared;
+    keeping them as separate tables enforces the sample-vs-sellable separation.
     """
     result = ImportResult()
 
@@ -87,13 +94,13 @@ def import_dataframe(df: pd.DataFrame, db: Session, batch: ImportBatch) -> Impor
             continue
 
         existing = db.execute(
-            select(InventorySnapshot)
-            .where(InventorySnapshot.sku == sku)
-            .where(InventorySnapshot.captured_at == captured_at)
+            select(model)
+            .where(model.sku == sku)
+            .where(model.captured_at == captured_at)
         ).scalar_one_or_none()
 
         if existing is None:
-            db.add(InventorySnapshot(
+            db.add(model(
                 import_batch_id=batch.id,
                 sku=sku,
                 on_hand=on_hand,
