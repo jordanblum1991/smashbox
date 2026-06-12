@@ -7,6 +7,7 @@ jinja2>=3.1
 python-multipart>=0.0.18
 sqlalchemy>=2.0.36
 alembic>=1.14
+psycopg[binary]>=3.2       # Postgres driver (DATABASE_URL=postgresql+psycopg://...)
 pydantic>=2.13
 pydantic-settings>=2.6
 pandas>=3.0.0

@@ -140,10 +140,13 @@ def _bootstrap_shop_and_backfill() -> None:
         ), {"sid": smashbox.id})
         # SQLAlchemy's Enum column stores the enum NAME (e.g. "ADMIN"), not
         # the value ("admin") — use .name here, not .value.
+        # Bind the booleans as params so the driver adapts them per-dialect
+        # (psycopg -> true/false, SQLite -> 1/0); a literal `= 1` against a
+        # Postgres BOOLEAN column is a type error.
         db.execute(text(
-            "UPDATE users SET is_super_admin = 1 "
-            "WHERE role = :admin AND is_super_admin = 0"
-        ), {"admin": UserRole.ADMIN.name})
+            "UPDATE users SET is_super_admin = :yes "
+            "WHERE role = :admin AND is_super_admin = :no"
+        ), {"admin": UserRole.ADMIN.name, "yes": True, "no": False})
 
         db.commit()
 
@@ -167,12 +170,24 @@ def _backfill_ad_credit_dates() -> None:
     cols = {c["name"] for c in insp.get_columns("ad_credits")}
     if "applied_date" not in cols:
         return
+    # The date-construction SQL is dialect-specific: SQLite has printf()/date(),
+    # Postgres has make_date(). Branch so this one-time backfill runs cleanly on
+    # both. (On a migrated Postgres every row already has applied_date, so the
+    # WHERE matches nothing — but Postgres resolves printf() at parse-analyze
+    # time and would error even on zero rows, hence the branch.)
     with engine.begin() as conn:
-        conn.execute(text(
-            "UPDATE ad_credits "
-            "SET applied_date = date(printf('%04d-%02d-01', year, month)) "
-            "WHERE applied_date IS NULL"
-        ))
+        if conn.dialect.name == "sqlite":
+            conn.execute(text(
+                "UPDATE ad_credits "
+                "SET applied_date = date(printf('%04d-%02d-01', year, month)) "
+                "WHERE applied_date IS NULL"
+            ))
+        else:
+            conn.execute(text(
+                "UPDATE ad_credits "
+                "SET applied_date = make_date(year, month, 1) "
+                "WHERE applied_date IS NULL"
+            ))
 
 
 _ensure_columns()
