@@ -67,7 +67,7 @@ const gridOptions = {
     { headerName:"Settled Date", field:"settled_date", width:130, cellRenderer:p=>`<span class="num" style="text-align:left;color:var(--sbx-ink-soft)">${p.value||"—"}</span>`, sortable:true },
   ],
   defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
-  rowData:OO_ROWS, pagination:true, paginationPageSize:25, paginationPageSizeSelector:[25,50,100], suppressCellFocus:true,
+  rowData:OO_ROWS, pagination:true, paginationPageSize:25, paginationPageSizeSelector:[10,25,50,100], suppressCellFocus:true,
   onGridReady:(e)=>{ api=e.api; shown(); }, onModelUpdated:shown,
 };
 function shown(){ if(api){ const el=document.getElementById("oo-shown"); if(el) el.textContent=api.getDisplayedRowCount(); } }
