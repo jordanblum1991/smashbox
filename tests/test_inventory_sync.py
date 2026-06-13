@@ -116,6 +116,36 @@ def test_inventory_report_values_on_hand_at_cogs(monkeypatch):
         assert v.total_inventory_value == Decimal("3020.00")
 
 
+def test_inventory_report_shows_in_transit_from_placed_po(monkeypatch):
+    from decimal import Decimal
+    from app.models.sku import Sku
+    from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
+    from app.reports.inventory_report import compute_inventory_report
+    with SessionLocal() as db:
+        db.add(Sku(sku="SBX-A", name="A", brand="smashbox",
+                   tiktok_sku_id="SBX-A", unit_cogs=Decimal("5.00")))
+        db.commit()
+    monkeypatch.setattr(inventory_sync, "fetch_sap_inventory", lambda url: _feed())
+    with SessionLocal() as db:
+        inventory_sync.sync_inventory_from_sap(db, source="test")
+    # 30 units placed for SBX-A; a draft PO's 7 units must NOT count as in-transit.
+    with SessionLocal() as db:
+        placed = PurchaseOrder(number="PO-0001", supplier="S", status="placed")
+        placed.lines.append(PurchaseOrderLine(sku="SBX-A", name="A", quantity=30,
+                                              unit_cost=Decimal("5")))
+        draft = PurchaseOrder(number="PO-0002", supplier="S", status="draft")
+        draft.lines.append(PurchaseOrderLine(sku="SBX-A", name="A", quantity=7,
+                                             unit_cost=Decimal("5")))
+        db.add_all([placed, draft])
+        db.commit()
+    with SessionLocal() as db:
+        v = compute_inventory_report(db)
+        by = {r.canonical_sku: r for r in v.rows}
+        assert by["SBX-A"].in_transit == 30   # placed only, draft excluded
+        assert by["SBX-B"].in_transit == 0    # no PO
+        assert v.total_in_transit == 30
+
+
 def test_inventory_alert_summary_empty_when_no_data():
     from app.reports.inventory_alerts import (
         compute_inventory_alert_summary, get_inventory_alert_summary, _reset_cache,

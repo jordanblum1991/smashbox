@@ -77,6 +77,7 @@
           <th data-key="sellable" class="select-none px-4 py-2 text-right hover:text-slate-700">Sellable <span class="sort-ind"></span></th>
           <th data-key="sample" class="select-none px-4 py-2 text-right hover:text-slate-700">Sample <span class="sort-ind"></span></th>
           <th data-key="total" class="select-none px-4 py-2 text-right hover:text-slate-700">Total <span class="sort-ind"></span></th>
+          <th data-key="in_transit" class="select-none px-4 py-2 text-right hover:text-slate-700" title="Units on placed purchase orders, not yet received">On order <span class="sort-ind"></span></th>
           <th data-key="value" class="select-none px-4 py-2 text-right hover:text-slate-700">Value <span class="sort-ind"></span></th>
         </tr>
       </thead>
@@ -89,6 +90,7 @@
             data-sellable="{{ r.sellable_on_hand }}"
             data-sample="{{ r.sample_on_hand }}"
             data-total="{{ r.total_on_hand }}"
+            data-in_transit="{{ r.in_transit }}"
             data-value="{{ r.total_value }}"
             class="{% if r.total_on_hand == 0 %}text-slate-400{% endif %}">
           <td class="px-4 py-2">
@@ -108,11 +110,12 @@
           <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sellable_on_hand) }}</td>
           <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sample_on_hand) }}</td>
           <td class="px-4 py-2 text-right font-semibold tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ "{:,}".format(r.total_on_hand) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums {% if r.in_transit == 0 %}text-slate-300{% else %}text-sky-700{% endif %}">{{ "{:,}".format(r.in_transit) }}</td>
           <td class="px-4 py-2 text-right tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-700{% endif %}">{{ r.total_value | money }}</td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="6" class="px-4 py-8 text-center text-slate-400">No inventory yet. Sync from SAP on the Imports page.</td>
+          <td colspan="7" class="px-4 py-8 text-center text-slate-400">No inventory yet. Sync from SAP on the Imports page.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -123,6 +126,7 @@
           <td id="foot-sellable" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
           <td id="foot-sample" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
           <td id="foot-total" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_units) }}</td>
+          <td id="foot-in_transit" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_in_transit) }}</td>
           <td id="foot-value" class="px-4 py-2 text-right tabular-nums">{{ view.total_inventory_value | money }}</td>
         </tr>
       </tfoot>
@@ -190,14 +194,15 @@
       var total = matching.length, filtered = total !== rows.length;
 
       // Footer = full filtered set (independent of page).
-      var tSell = 0, tSamp = 0, tTot = 0, tVal = 0;
+      var tSell = 0, tSamp = 0, tTot = 0, tIT = 0, tVal = 0;
       matching.forEach(function (r) {
         tSell += num(r, "sellable"); tSamp += num(r, "sample");
-        tTot += num(r, "total"); tVal += num(r, "value");
+        tTot += num(r, "total"); tIT += num(r, "in_transit"); tVal += num(r, "value");
       });
       document.getElementById("foot-sellable").textContent = tSell.toLocaleString();
       document.getElementById("foot-sample").textContent = tSamp.toLocaleString();
       document.getElementById("foot-total").textContent = tTot.toLocaleString();
+      document.getElementById("foot-in_transit").textContent = tIT.toLocaleString();
       document.getElementById("foot-value").textContent = money(tVal);
       document.getElementById("foot-label").textContent = filtered ? "Total (filtered)" : "Total";
 
@@ -237,7 +242,7 @@
 
     function sortBy(key) {
       if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = 1; }
-      var numeric = (key === "sellable" || key === "sample" || key === "total" || key === "value");
+      var numeric = (key === "sellable" || key === "sample" || key === "total" || key === "in_transit" || key === "value");
       rows.sort(function (a, b) {
         if (numeric) return (num(a, key) - num(b, key)) * sortDir;
         return (a.getAttribute("data-" + key) || "").localeCompare(
