@@ -749,6 +749,8 @@ def demand_planning_view(
     if sort_key:
         _apply_planner_sort(view.rows, sort_key, sort_dir)
 
+    from app.reports.in_transit import in_transit_summary
+
     return templates.TemplateResponse(
         request,
         "reports/demand_planning.html",
@@ -759,6 +761,7 @@ def demand_planning_view(
             "sort_links": _build_sort_links(request, sort_key, sort_dir),
             "dp_rows": [_dp_row_view(r) for r in view.rows],
             "dp_pipeline": [_dp_pipeline_view(i) for i in view.pipeline.all_items_sorted],
+            "po_summary": in_transit_summary(db),
         },
     )
 

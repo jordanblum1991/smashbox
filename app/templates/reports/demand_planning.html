@@ -157,6 +157,18 @@
   })();
 </script>
 
+{# On-order roll-up — placed POs feed the "In transit" column below and suppress
+   reorder suggestions for units already on the way. Surface the totals + a link
+   so the buyer can see what's driving those numbers. #}
+{% set po = po_summary if po_summary is defined else {"open_pos": 0, "units_on_order": 0} %}
+{% if po.open_pos > 0 %}
+{% call ui.banner(tone="info", compact=true,
+                  title=po.open_pos ~ (" open purchase order" if po.open_pos == 1 else " open purchase orders"),
+                  action_label="View purchase orders", action_href="/admin/purchase-orders") %}
+  {{ "{:,}".format(po.units_on_order) }} unit{{ '' if po.units_on_order == 1 else 's' }} on order, counted as in-transit below — the planner won't re-recommend what's already coming.
+{% endcall %}
+{% endif %}
+
 {# Upcoming Purchase Pipeline — forward-looking PO calendar for the next 90 days.
    Includes both currently-overdue SKUs AND healthy SKUs projected to cross
    reorder-point within the window. Replaces eyeballing the table to figure out

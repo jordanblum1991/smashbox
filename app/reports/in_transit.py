@@ -10,7 +10,7 @@ canonical row once).
 """
 from collections import defaultdict
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
@@ -46,3 +46,20 @@ def compute_in_transit(db: Session) -> dict[str, int]:
         for ident in set(idents):
             out[ident] += int(qty or 0)
     return dict(out)
+
+
+def in_transit_summary(db: Session) -> dict:
+    """Roll-up for the planner header: how many PLACED purchase orders are open
+    and the total units on order. Sums line quantities directly (NOT
+    compute_in_transit, which replicates each qty under every SKU identifier and
+    would over-count here)."""
+    rows = db.execute(
+        select(
+            PurchaseOrder.id,
+            func.coalesce(func.sum(PurchaseOrderLine.quantity), 0),
+        )
+        .join(PurchaseOrderLine, PurchaseOrderLine.purchase_order_id == PurchaseOrder.id)
+        .where(PurchaseOrder.status == "placed")
+        .group_by(PurchaseOrder.id)
+    ).all()
+    return {"open_pos": len(rows), "units_on_order": int(sum(r[1] for r in rows))}

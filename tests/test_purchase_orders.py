@@ -178,6 +178,35 @@ def test_cannot_receive_a_draft(client):
         assert db.get(PurchaseOrder, po_id).status == "draft"  # rejected, unchanged
 
 
+def test_in_transit_summary_counts_open_pos_and_units(client):
+    from app.reports.in_transit import in_transit_summary
+
+    with SessionLocal() as db:
+        assert in_transit_summary(db) == {"open_pos": 0, "units_on_order": 0}
+
+    po_a = _placed_po_with_line(client, 8)
+    _placed_po_with_line(client, 3)
+    with SessionLocal() as db:
+        assert in_transit_summary(db) == {"open_pos": 2, "units_on_order": 11}
+
+    # Receiving one drops it out of the on-order roll-up.
+    client.post(f"/admin/purchase-orders/{po_a}/receive")
+    with SessionLocal() as db:
+        assert in_transit_summary(db) == {"open_pos": 1, "units_on_order": 3}
+
+
+def test_demand_planning_shows_on_order_banner(client):
+    r = client.get("/reports/demand-planning")
+    assert r.status_code == 200
+    assert "open purchase order" not in r.text  # nothing on order yet
+
+    _placed_po_with_line(client, 6)
+    r = client.get("/reports/demand-planning")
+    assert r.status_code == 200
+    assert "open purchase order" in r.text
+    assert "counted as in-transit below" in r.text
+
+
 def test_in_transit_feeds_demand_planning_receipts(client):
     """A placed PO's units land in the planner's expected_receipts for that SKU."""
     from app.reports.demand_planning import compute_demand_planning_view
