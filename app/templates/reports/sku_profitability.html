@@ -90,7 +90,7 @@ const gridOptions = {
   ],
   defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
   rowData:SP_ROWS,
-  pagination:true, paginationPageSize:25, paginationPageSizeSelector:[25,50,100],
+  pagination:true, paginationPageSize:25, paginationPageSizeSelector:[10,25,50,100],
   suppressCellFocus:true,
   isExternalFilterPresent:()=> ext.type!=="",
   doesExternalFilterPass:(node)=>{
