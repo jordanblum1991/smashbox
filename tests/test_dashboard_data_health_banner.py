@@ -1,8 +1,9 @@
-"""Dashboard surfaces a consolidated data-health banner (unmapped SKUs, missing
-COGS, policy violations, settlement orphans) so data-quality issues that distort
-the P&L are visible on the home page, not just on the nav badge. Also guards the
-SKU Profitability report — previously reachable only by URL — from the nav."""
+"""Dashboard surfaces a single "open items → Action Center" entry banner driven
+by the per-request action_items count, so anything needing attention is one click
+from the home page. Also guards the SKU Profitability report — previously
+reachable only by URL — from the nav."""
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,13 +20,14 @@ from app.models import (
 )
 from app.models.shop import Shop
 from app.models.sku import Sku
-from decimal import Decimal
+from app.reports.inventory_alerts import _reset_cache
 
 
 @pytest.fixture(autouse=True)
 def fresh_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    _reset_cache()
     with SessionLocal() as db:
         db.add(Shop(slug="smashbox", name="Smashbox", timezone="America/Los_Angeles"))
         # A non-empty catalog: count_unmapped_skus stays quiet until a SKU master
@@ -48,13 +50,15 @@ def test_nav_links_sku_profitability_and_page_renders(client):
     assert client.get("/reports/sku-profitability").status_code == 200
 
 
-def test_no_data_health_banner_when_clean(client):
+def test_no_action_banner_when_clean(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "Data health:" not in r.text  # no false alarm on an empty DB
+    # No open items → no entry banner (the nav link may still be present).
+    assert "Open Action Center" not in r.text
+    assert "need attention" not in r.text and "needs attention" not in r.text
 
 
-def test_data_health_banner_shows_unmapped(client):
+def test_action_banner_shows_for_open_items(client):
     with SessionLocal() as db:
         b = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS,
                         status=ImportBatchStatus.COMPLETED,
@@ -71,6 +75,6 @@ def test_data_health_banner_shows_unmapped(client):
 
     r = client.get("/")
     assert r.status_code == 200
-    assert "Data health:" in r.text
-    assert "unmapped SKU" in r.text
-    assert 'href="/reports/recon-health?tab=data-health"' in r.text
+    assert "attention" in r.text                  # "N item(s) need attention"
+    assert "Open Action Center" in r.text
+    assert 'href="/action-center"' in r.text

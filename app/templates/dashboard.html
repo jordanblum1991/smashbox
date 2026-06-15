@@ -72,6 +72,19 @@
 {% endcall %}
 {% endif %}
 
+{# Open-items entry point → the consolidated Action Center. Uses the cheap
+   per-request action_items count (no extra queries). #}
+{% set _ai = request.state.action_items if request.state is defined and request.state.action_items is defined else 0 %}
+{% if _ai > 0 %}
+{% set _oap2 = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0} %}
+{% set _inv2 = request.state.inventory_alerts if request.state is defined and request.state.inventory_alerts is defined else {"out_of_stock": 0} %}
+{% call ui.banner(tone=('error' if (_oap2.count > 0 or _inv2.out_of_stock > 0) else 'warn'), compact=true,
+                  title=_ai ~ (' item needs attention' if _ai == 1 else ' items need attention'),
+                  action_label="Open Action Center", action_href="/action-center") %}
+  Payables, inventory, and data-health items rolled up in one place.
+{% endcall %}
+{% endif %}
+
 {% if last_failed %}
 {% call ui.banner(tone="error", title="Last import failed",
                   action_label="View imports", action_href="/uploads") %}
@@ -115,24 +128,6 @@
                   title="Reorder needed: " ~ inv.count ~ (" SKU" if inv.count == 1 else " SKUs"),
                   action_label="Open Demand Planning", action_href="/reports/demand-planning") %}
   {% if inv.out_of_stock > 0 %}{{ inv.out_of_stock }} out of stock · {% endif %}{{ inv.reorder_now }} at reorder point · {{ inv.at_risk }} at risk.
-{% endcall %}
-{% endif %}
-
-{# Data-health summary — unmapped SKUs, settlement orphans, policy violations,
-   and missing COGS all quietly distort the P&L, so surface them on the home
-   page rather than only on the nav badge. One consolidated banner. #}
-{% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0, "missing_cogs": 0} %}
-{% set dh_total = dh.unmapped + dh.orphans + dh.policy_violations + (dh.missing_cogs if dh.missing_cogs is defined else 0) %}
-{% if dh_total > 0 %}
-{% call ui.banner(tone="warn", compact=true,
-                  title="Data health: " ~ dh_total ~ (" issue" if dh_total == 1 else " issues"),
-                  action_label="Open Data Health", action_href="/reports/recon-health?tab=data-health") %}
-  {% set parts = [] %}
-  {% if dh.unmapped > 0 %}{% set _ = parts.append(dh.unmapped ~ (" unmapped SKU" if dh.unmapped == 1 else " unmapped SKUs")) %}{% endif %}
-  {% if dh.missing_cogs > 0 %}{% set _ = parts.append(dh.missing_cogs ~ " missing COGS") %}{% endif %}
-  {% if dh.policy_violations > 0 %}{% set _ = parts.append(dh.policy_violations ~ (" policy violation" if dh.policy_violations == 1 else " policy violations")) %}{% endif %}
-  {% if dh.orphans > 0 %}{% set _ = parts.append(dh.orphans ~ (" settlement orphan" if dh.orphans == 1 else " settlement orphans")) %}{% endif %}
-  {{ parts | join(" · ") }} — these can distort the P&L until resolved.
 {% endcall %}
 {% endif %}
 
