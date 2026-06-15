@@ -54,6 +54,9 @@ def _fetch_stream(db: Session, stream: str, cred, since) -> int:
     if stream == "settlements":
         from app.services.tiktok_fetchers import fetch_settlements
         return fetch_settlements(db, cred, since)
+    if stream == "payouts":
+        from app.services.tiktok_fetchers import fetch_payouts
+        return fetch_payouts(db, cred, since)
     raise NotImplementedError(
         f"TikTok {stream} fetcher is wired once the app is approved and the shop is connected."
     )

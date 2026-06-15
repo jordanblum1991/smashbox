@@ -21,15 +21,20 @@ from app.models import (
     OrderType,
 )
 from app.models.settlement import Settlement
+from app.models.payout import Payout
 from app.services.tiktok_fetchers import (
     display_status,
+    fetch_payouts,
     fetch_settlements,
     orders_to_dataframe,
+    payments_to_dataframe,
     placed_at_local,
     settlement_transactions_to_dataframe,
+    statements_to_payout_dataframe,
 )
 from app.importers.tiktok_orders import import_dataframe
 from app.importers.tiktok_settlements import import_dataframes
+from app.importers.tiktok_payouts import import_dataframes as import_payout_dataframes
 
 
 @pytest.fixture(autouse=True)
@@ -228,3 +233,46 @@ def test_fetch_settlements_returns_zero_when_no_statements(monkeypatch):
     monkeypatch.setattr(tiktok_api, "iter_settlement_transactions", lambda *a, **k: iter(()))
     with SessionLocal() as db:
         assert fetch_settlements(db, object(), None) == 0
+
+
+# --- payouts ----------------------------------------------------------------
+
+def test_payout_net_gross_fees_and_date_reproduce_the_xlsx():
+    """Cash side from /payments, gross from summing the linked statements'
+    net_sales — validated exact on prod: net 2454.78, gross 3973.60, fees 1518.82."""
+    payments = [{
+        "id": "PAY1",
+        "amount": {"currency": "USD", "value": "2454.78"},
+        "create_time": 1781503456,   # -> 2026-06-14 Pacific
+        "paid_time": 0,              # unpaid -> falls back to initiation date
+        "status": "PROCESSING",
+    }]
+    statements = [
+        {"id": "S1", "payment_id": "PAY1", "statement_time": 1781200000, "net_sales_amount": "2000.00"},
+        {"id": "S2", "payment_id": "PAY1", "statement_time": 1781300000, "net_sales_amount": "1973.60"},
+        {"id": "S3", "payment_id": "OTHER", "statement_time": 1781300000, "net_sales_amount": "999.99"},
+    ]
+    with SessionLocal() as db:
+        batch = ImportBatch(kind=ImportFileKind.TIKTOK_PAYOUTS,
+                            status=ImportBatchStatus.COMPLETED,
+                            original_filename="api", stored_path="(api)")
+        db.add(batch); db.flush()
+        import_payout_dataframes(
+            payments_to_dataframe(payments),
+            statements_to_payout_dataframe(statements),
+            db, batch,
+        )
+        db.commit()
+        p = db.query(Payout).one()   # only PAY1 — OTHER has no payment row
+    assert p.payout_id == "PAY1"
+    assert p.net_amount == Decimal("2454.78")
+    assert p.gross_amount == Decimal("3973.60")   # 2000 + 1973.60 (OTHER excluded)
+    assert p.fees == Decimal("1518.82")           # gross - net
+    assert p.paid_at == datetime(2026, 6, 14)     # create_time, Pacific date
+
+
+def test_fetch_payouts_returns_zero_when_no_payments(monkeypatch):
+    from app.services import tiktok_api
+    monkeypatch.setattr(tiktok_api, "iter_payments", lambda *a, **k: iter(()))
+    with SessionLocal() as db:
+        assert fetch_payouts(db, object(), None) == 0
