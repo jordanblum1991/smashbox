@@ -34,13 +34,22 @@ def test_run_sync_pending_when_not_connected():
         assert "not connected" in states["orders"].last_message
 
 
-def test_run_sync_pending_when_connected_but_fetchers_unbuilt():
+def test_run_sync_orders_runs_settlements_payouts_pending(monkeypatch):
+    """Orders has a live fetcher now; settlements/payouts are still unbuilt and
+    record 'pending'. iter_orders is stubbed so the unit test never hits the API."""
+    from app.services import tiktok_api
+
+    monkeypatch.setattr(tiktok_api, "iter_orders", lambda *a, **k: iter(()))
+
     with SessionLocal() as db:
         db.add(TikTokCredential(access_token="a", refresh_token="r", shop_cipher="CIPHER",
                                 access_expires_at=datetime(2030, 1, 1)))  # not near expiry → no refresh
         db.commit()
     with SessionLocal() as db:
         summary = tiktok_sync.run_sync(db)
-        assert all(v == "pending" for v in summary.values())
+        assert summary["orders"] == "empty"          # connected + ran, no rows
+        assert summary["settlements"] == "pending"
+        assert summary["payouts"] == "pending"
         states = {s.stream: s for s in tiktok_sync.all_states(db)}
-        assert "fetchers are wired" in (states["orders"].last_message or "")
+        assert "fetcher is wired" in (states["settlements"].last_message or "")
+        assert states["orders"].last_run_at is not None

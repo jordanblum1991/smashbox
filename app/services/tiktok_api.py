@@ -29,6 +29,7 @@ from app.models.tiktok_credential import TikTokCredential
 AUTH_BASE = "https://auth.tiktok-shops.com"          # token get/refresh
 OPEN_API_BASE = "https://open-api.tiktokglobalshop.com"  # signed data calls
 SHOPS_PATH = "/authorization/202309/shops"
+ORDER_SEARCH_PATH = "/order/202309/orders/search"
 
 
 # ---- token exchange / refresh (these are NOT signed) -----------------------
@@ -96,6 +97,52 @@ def get_authorized_shops(access_token: str) -> list[dict]:
                   headers={"x-tts-access-token": access_token,
                            "content-type": "application/json"}, timeout=30.0)
     return _unwrap(r).get("shops", []) or []
+
+
+# ---- signed data calls + paging --------------------------------------------
+
+def _signed_send(method: str, path: str, access_token: str, *,
+                 query: dict | None = None, body_obj: dict | None = None,
+                 timeout: float = 40.0) -> dict:
+    """Sign + send a data API request, returning the unwrapped `data` payload.
+    For POST the JSON body is part of the signature (see signed_params)."""
+    import json as _json
+
+    import httpx
+
+    body = _json.dumps(body_obj, separators=(",", ":")) if body_obj is not None else ""
+    params = signed_params(path, dict(query or {}), body=body)
+    url = f"{OPEN_API_BASE}{path}"
+    headers = {"x-tts-access-token": access_token, "content-type": "application/json"}
+    if method.upper() == "GET":
+        r = httpx.get(url, params=params, headers=headers, timeout=timeout)
+    else:
+        r = httpx.request(method.upper(), url, params=params, headers=headers,
+                          content=body, timeout=timeout)
+    return _unwrap(r)
+
+
+def iter_orders(cred, *, create_time_ge: int | None = None, page_size: int = 50):
+    """Yield raw order dicts from the Order Search API, oldest-first, paging via
+    `next_page_token`. The search response already embeds line_items + payment,
+    so no per-order detail call is needed. `create_time_ge` (epoch seconds)
+    bounds the pull to orders created at/after the watermark."""
+    page_token = ""
+    while True:
+        query = {"shop_cipher": cred.shop_cipher, "page_size": page_size,
+                 "sort_field": "create_time", "sort_order": "ASC"}
+        if page_token:
+            query["page_token"] = page_token
+        body: dict = {}
+        if create_time_ge is not None:
+            body["create_time_ge"] = int(create_time_ge)
+        data = _signed_send("POST", ORDER_SEARCH_PATH, cred.access_token,
+                            query=query, body_obj=body)
+        for order in data.get("orders") or []:
+            yield order
+        page_token = data.get("next_page_token") or ""
+        if not page_token:
+            break
 
 
 # ---- credential storage ----------------------------------------------------
