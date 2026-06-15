@@ -20,12 +20,16 @@ from app.models import (
     Order,
     OrderType,
 )
+from app.models.settlement import Settlement
 from app.services.tiktok_fetchers import (
     display_status,
+    fetch_settlements,
     orders_to_dataframe,
     placed_at_local,
+    settlement_transactions_to_dataframe,
 )
 from app.importers.tiktok_orders import import_dataframe
+from app.importers.tiktok_settlements import import_dataframes
 
 
 @pytest.fixture(autouse=True)
@@ -152,3 +156,75 @@ def test_per_unit_line_items_roll_up_to_quantity():
         order = db.query(Order).one()
         assert order.gross_sales == Decimal("20.00")
         assert sum(ln.quantity for ln in order.lines) == 2
+
+
+# --- settlements ------------------------------------------------------------
+
+def _stmt_txn(**over):
+    """A (statement, transaction) pair mirroring the real Finance API shape —
+    the cracked example: fee_amount bundles affiliate, so tiktok_fees=3.50."""
+    stmt = {"id": "STMT1", "statement_time": 1781395200, "payment_id": "PAY1"}
+    txn = {
+        "order_id": "577428622655590476",
+        "order_create_time": 1781309717,
+        "fee_amount": "-7.18",                       # bundles affiliate
+        "referral_fee_amount": "-2.21",
+        "transaction_fee_amount": "0",
+        "refund_administration_fee_amount": "0",
+        "affiliate_commission_amount": "-3.68",
+        "affiliate_partner_commission_amount": "0",
+        "affiliate_ads_commission_amount": "0",
+        "shipping_fee_amount": "-4.31",
+        "shipping_cost_amount": "0",
+        "gross_sales_amount": "35",
+        "gross_sales_refund_amount": "0",
+        "seller_discount_amount": "-7",
+        "seller_discount_refund_amount": "0",
+    }
+    txn.update(over)
+    return [(stmt, txn)]
+
+
+def _ingest_settlements(pairs):
+    with SessionLocal() as db:
+        batch = ImportBatch(
+            kind=ImportFileKind.TIKTOK_SETTLEMENTS,
+            status=ImportBatchStatus.COMPLETED,
+            original_filename="api", stored_path="(api)",
+        )
+        db.add(batch)
+        db.flush()
+        import_dataframes(settlement_transactions_to_dataframe(pairs), None, db, batch)
+        db.commit()
+    with SessionLocal() as db:
+        return db.query(Settlement).all()
+
+
+def test_settlement_fee_total_subtracts_bundled_affiliate():
+    """API fee_amount bundles affiliate; the fetcher subtracts it so tiktok_fees
+    matches the importer's affiliate-excluded definition (validated: 3.50)."""
+    s = _ingest_settlements(_stmt_txn())[0]
+    assert s.tiktok_fees == Decimal("3.50")            # abs(7.18) - 3.68
+    assert s.affiliate_commission == Decimal("3.68")
+    assert s.shop_ads_cost == Decimal("0.00")
+    assert s.shipping_cost == Decimal("4.31")          # max(4.31, 0)
+    assert s.tiktok_referral_fee == Decimal("2.21")
+    # Residual (total - referral - txn - refund_admin) parked in smart-promo.
+    assert s.tiktok_smart_promo_fee == Decimal("1.29")
+    # The 8 buckets must sum to tiktok_fees by construction.
+    assert s.tiktok_referral_fee + s.tiktok_smart_promo_fee == s.tiktok_fees
+    assert s.linked_statement_id == "STMT1"
+
+
+def test_settlement_shipping_uses_max_of_the_two_shipping_fields():
+    """FBT orders report shipping in shipping_cost_amount, FBM in
+    shipping_fee_amount — max() captures whichever the order used."""
+    s = _ingest_settlements(_stmt_txn(shipping_fee_amount="0", shipping_cost_amount="-5.00"))[0]
+    assert s.shipping_cost == Decimal("5.00")
+
+
+def test_fetch_settlements_returns_zero_when_no_statements(monkeypatch):
+    from app.services import tiktok_api
+    monkeypatch.setattr(tiktok_api, "iter_settlement_transactions", lambda *a, **k: iter(()))
+    with SessionLocal() as db:
+        assert fetch_settlements(db, object(), None) == 0

@@ -30,6 +30,7 @@ AUTH_BASE = "https://auth.tiktok-shops.com"          # token get/refresh
 OPEN_API_BASE = "https://open-api.tiktokglobalshop.com"  # signed data calls
 SHOPS_PATH = "/authorization/202309/shops"
 ORDER_SEARCH_PATH = "/order/202309/orders/search"
+STATEMENTS_PATH = "/finance/202309/statements"
 
 
 # ---- token exchange / refresh (these are NOT signed) -----------------------
@@ -140,6 +141,46 @@ def iter_orders(cred, *, create_time_ge: int | None = None, page_size: int = 50)
                             query=query, body_obj=body)
         for order in data.get("orders") or []:
             yield order
+        page_token = data.get("next_page_token") or ""
+        if not page_token:
+            break
+
+
+def iter_settlement_transactions(cred, *, statement_time_ge: int | None = None,
+                                 page_size: int = 50):
+    """Yield `(statement, transaction)` pairs from the Finance API. Statements are
+    walked newest-first; iteration stops once a statement predates
+    `statement_time_ge` (epoch seconds). Each statement's per-order transactions
+    are paged via their own `next_page_token`. The transaction carries the full
+    per-order fee/shipping/affiliate breakdown."""
+    page_token = ""
+    while True:
+        query = {"shop_cipher": cred.shop_cipher, "page_size": page_size,
+                 "sort_field": "statement_time", "sort_order": "DESC"}
+        if page_token:
+            query["page_token"] = page_token
+        data = _signed_send("GET", STATEMENTS_PATH, cred.access_token, query=query)
+        statements = data.get("statements") or []
+        for stmt in statements:
+            if statement_time_ge is not None and int(stmt.get("statement_time") or 0) < statement_time_ge:
+                return
+            yield from ((stmt, txn) for txn in _iter_one_statement(cred, stmt["id"], page_size))
+        page_token = data.get("next_page_token") or ""
+        if not page_token:
+            break
+
+
+def _iter_one_statement(cred, statement_id: str, page_size: int):
+    path = f"{STATEMENTS_PATH}/{statement_id}/statement_transactions"
+    page_token = ""
+    while True:
+        query = {"shop_cipher": cred.shop_cipher, "page_size": page_size,
+                 "sort_field": "order_create_time", "sort_order": "DESC"}
+        if page_token:
+            query["page_token"] = page_token
+        data = _signed_send("GET", path, cred.access_token, query=query)
+        for txn in data.get("statement_transactions") or []:
+            yield txn
         page_token = data.get("next_page_token") or ""
         if not page_token:
             break

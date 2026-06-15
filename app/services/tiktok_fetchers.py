@@ -31,7 +31,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from decimal import Decimal
+
 from app.importers.tiktok_orders import HEADER_MAP, import_dataframe
+from app.importers.tiktok_settlements import COL, import_dataframes
 from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.tiktok_credential import TikTokCredential
 from app.services import tiktok_api
@@ -131,4 +134,103 @@ def fetch_orders(db: Session, cred: TikTokCredential, since: datetime | None) ->
     db.flush()
     result = import_dataframe(df, db, batch)
     resolve_all_order_lines(db)
+    return result.rows_imported
+
+
+# --- settlements ------------------------------------------------------------
+#
+# Finance API field mapping, validated against 149 stored (xlsx-imported)
+# settlements on prod 2026-06-15:
+#   affiliate_commission = abs(affiliate_commission + affiliate_partner_commission)   [149/149]
+#   shop_ads_cost        = abs(affiliate_ads_commission + partner_shop_ads)           [149/149]
+#   gross_sales_refund   = abs(gross_sales_refund_amount)                             [149/149]
+#   shipping_cost        = max(abs(shipping_fee_amount), abs(shipping_cost_amount))   [148/149]
+#   tiktok_fees          = abs(fee_amount) - affiliate - shop_ads                     [143/149]
+# The API `fee_amount` BUNDLES affiliate commission into the fee total, so we
+# subtract it back out to match the importer's split. The residual fee
+# (total - referral - transaction - refund_admin) is parked in the Smart
+# Promotion bucket as a catch-all, since the API doesn't itemise smart-promo /
+# campaign / managed-service / sales-tax-on-referral the way the xlsx does — the
+# TOTAL tiktok_fees is what feeds the P&L and is reproduced. Residual fee drift
+# is ~$3 all-time across ~6 orders (the sales-tax-on-referral nuance), on par
+# with the orders fetcher's accepted $2.77.
+
+def _D(x) -> Decimal:
+    try:
+        return Decimal(str(x if x not in (None, "") else 0))
+    except Exception:  # noqa: BLE001
+        return Decimal("0")
+
+
+def _ymd(epoch) -> str:
+    if not epoch:
+        return ""
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%Y%m%d")
+
+
+def settlement_transactions_to_dataframe(pairs: list[tuple[dict, dict]]) -> pd.DataFrame:
+    """Map (statement, transaction) pairs into the settlement Orders-sheet COL
+    shape, one row per (order, statement). Costs are emitted as positive
+    magnitudes; the importer's `_pos` takes abs() either way."""
+    rows: list[dict] = []
+    for stmt, t in pairs:
+        referral = abs(_D(t.get("referral_fee_amount")))
+        transaction = abs(_D(t.get("transaction_fee_amount")))
+        refund_admin = abs(_D(t.get("refund_administration_fee_amount")))
+        affiliate = abs(_D(t.get("affiliate_commission_amount"))
+                        + _D(t.get("affiliate_partner_commission_amount")))
+        shop_ads = abs(_D(t.get("affiliate_ads_commission_amount"))
+                       + _D(t.get("affiliate_partner_shop_ads_commission_amount")))
+        total_fees = abs(_D(t.get("fee_amount"))) - affiliate - shop_ads
+        if total_fees < 0:
+            total_fees = Decimal("0")
+        residual = total_fees - referral - transaction - refund_admin
+        if residual < 0:
+            residual = Decimal("0")
+        shipping = max(abs(_D(t.get("shipping_fee_amount"))),
+                       abs(_D(t.get("shipping_cost_amount"))))
+        rows.append({
+            COL["order_id"]: str(t.get("order_id") or "").strip(),
+            COL["linked_statement_id"]: str(stmt.get("id") or ""),
+            COL["linked_payout_id"]: str(stmt.get("payment_id") or ""),
+            COL["paid_date"]: _ymd(t.get("order_create_time")),
+            COL["settled_date"]: _ymd(stmt.get("statement_time")),
+            COL["order_income"]: str(t.get("settlement_amount") or "0"),
+            COL["gross_sales"]: str(abs(_D(t.get("gross_sales_amount")))),
+            COL["gross_sales_refund"]: str(abs(_D(t.get("gross_sales_refund_amount")))),
+            COL["seller_discount"]: str(abs(_D(t.get("seller_discount_amount")))),
+            COL["seller_discount_refund"]: str(abs(_D(t.get("seller_discount_refund_amount")))),
+            COL["referral_fee"]: str(referral),
+            COL["transaction_fee"]: str(transaction),
+            COL["refund_admin_fee"]: str(refund_admin),
+            COL["smart_promo_fee"]: str(residual),   # catch-all for un-itemised fees
+            COL["affiliate_commission"]: str(affiliate),
+            COL["affiliate_shop_ads_commission"]: str(shop_ads),
+            COL["tiktok_shipping_fee"]: str(shipping),
+        })
+    return pd.DataFrame(rows)
+
+
+def fetch_settlements(db: Session, cred: TikTokCredential, since: datetime | None) -> int:
+    """Pull settlement statements (and their per-order transactions) since
+    `since` from the Finance API, map them to the settlement importer seam, and
+    back-fill Order.* fees/refunds. Returns settlement rows imported. Idempotent
+    on (order, statement); re-pulling overlapping statements upserts in place."""
+    since_epoch = (
+        int(since.replace(tzinfo=timezone.utc).timestamp()) if since is not None else None
+    )
+    pairs = list(tiktok_api.iter_settlement_transactions(cred, statement_time_ge=since_epoch))
+    if not pairs:
+        return 0
+
+    orders_df = settlement_transactions_to_dataframe(pairs)
+    batch = ImportBatch(
+        kind=ImportFileKind.TIKTOK_SETTLEMENTS,
+        status=ImportBatchStatus.COMPLETED,
+        original_filename=f"TikTok API sync · settlements · {len(pairs)} txns",
+        stored_path="(api)",
+    )
+    db.add(batch)
+    db.flush()
+    result = import_dataframes(orders_df, None, db, batch)
     return result.rows_imported
