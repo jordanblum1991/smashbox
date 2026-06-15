@@ -40,15 +40,19 @@ def all_states(db: Session) -> list[TikTokSyncState]:
     return [get_state(db, s) for s in STREAMS]
 
 
-def _fetch_stream(stream: str, cred, since) -> int:
+def _fetch_stream(db: Session, stream: str, cred, since) -> int:
     """Pull `stream` records since `since` from the TikTok API, map them to the
-    stream's DataFrame shape, and feed `import_dataframes`. Returns rows imported.
+    stream's DataFrame shape, and feed the matching importer seam. Returns rows
+    imported.
 
-    This is the seam that needs the live, approved connection — built + verified
-    against real API responses at that point. Raising here keeps a sync run
-    graceful (the stream is marked 'pending') before the fetchers exist."""
+    Orders are live (see app.services.tiktok_fetchers). Settlements and payouts
+    still raise NotImplementedError so a run records them as 'pending' until
+    their fetchers are built — keeping the orchestration + status panel usable."""
+    if stream == "orders":
+        from app.services.tiktok_fetchers import fetch_orders
+        return fetch_orders(db, cred, since)
     raise NotImplementedError(
-        "TikTok data fetchers are wired once the app is approved and the shop is connected."
+        f"TikTok {stream} fetcher is wired once the app is approved and the shop is connected."
     )
 
 
@@ -73,7 +77,7 @@ def run_sync(db: Session, *, streams: tuple[str, ...] = STREAMS, source: str = "
         try:
             fresh = ensure_fresh_token(db) or cred
             since = state.synced_through or (now - timedelta(days=DEFAULT_LOOKBACK_DAYS))
-            n = _fetch_stream(stream, fresh, since)
+            n = _fetch_stream(db, stream, fresh, since)
             state.synced_through = now
             state.rows_last_run = n
             state.last_status = "ok" if n else "empty"
