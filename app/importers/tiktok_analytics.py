@@ -106,6 +106,20 @@ def _upsert(db: Session, day, row: pd.Series, batch: ImportBatch) -> TikTokDaily
     return existing
 
 
+def import_metric_rows(rows, db: Session, batch: ImportBatch) -> ImportResult:
+    """In-memory ingestion seam. `rows` = iterable of (day: date, mapping keyed
+    by COL display names). Upserts TikTokDailyMetric by date — shared by the xlsx
+    importer (run) and the analytics API fetcher, so both paths use one upsert."""
+    result = ImportResult()
+    for day, row in rows:
+        try:
+            _upsert(db, day, row, batch)
+            result.rows_imported += 1
+        except Exception as exc:  # noqa: BLE001
+            result.skip(f"{day}: {exc}")
+    return result
+
+
 # ---------- helpers ---------------------------------------------------------
 
 def _str(v) -> str | None:

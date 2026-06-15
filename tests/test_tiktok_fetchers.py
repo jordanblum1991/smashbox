@@ -7,7 +7,7 @@ gross, shipping, and GMV. The combined-platform-discount limitation (API can't
 split SKU- vs payment-platform) is asserted explicitly so a future change is a
 conscious one.
 """
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -22,10 +22,12 @@ from app.models import (
 )
 from app.models.settlement import Adjustment, Settlement
 from app.models.payout import Payout
+from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.services.tiktok_fetchers import (
     adjustment_type_label,
     adjustments_to_dataframe,
     display_status,
+    fetch_analytics,
     fetch_payouts,
     fetch_settlements,
     orders_to_dataframe,
@@ -281,6 +283,44 @@ def test_adjustments_dataframe_is_none_when_all_orders():
     pairs = [(stmt, {"type": "ORDER", "order_id": "O1", "fee_amount": "0",
                      "gross_sales_amount": "5", "shipping_fee_amount": "0"})]
     assert adjustments_to_dataframe(pairs) is None
+
+
+# --- analytics (daily GMV) --------------------------------------------------
+
+def test_fetch_analytics_upserts_daily_metric_from_intervals(monkeypatch):
+    """Shop Performance intervals -> TikTokDailyMetric. metric_date is the
+    interval start_date; gmv/orders/buyers/units map straight across (validated
+    14/14 vs stored on prod)."""
+    from app.services import tiktok_api
+
+    intervals = [{
+        "start_date": "2026-06-01", "end_date": "2026-06-02",
+        "gmv": {"amount": "154.01", "currency": "USD"},
+        "orders": 5, "buyers": 5, "units_sold": 5,
+        "cancellations_and_returns": 2,
+        "avg_order_value": {"amount": "30.80", "currency": "USD"},
+    }]
+    monkeypatch.setattr(tiktok_api, "get_shop_performance", lambda *a, **k: intervals)
+
+    with SessionLocal() as db:
+        n = fetch_analytics(db, object(), datetime(2026, 6, 1))
+        db.commit()
+        assert n == 1
+        m = db.query(TikTokDailyMetric).one()
+    assert m.metric_date == date(2026, 6, 1)
+    assert m.gmv == Decimal("154.01")
+    assert m.orders == 5
+    assert m.customers == 5
+    assert m.items_sold == 5
+    assert m.items_canceled_returned == 2
+    assert m.aov == Decimal("30.80")
+
+
+def test_fetch_analytics_returns_zero_when_no_intervals(monkeypatch):
+    from app.services import tiktok_api
+    monkeypatch.setattr(tiktok_api, "get_shop_performance", lambda *a, **k: [])
+    with SessionLocal() as db:
+        assert fetch_analytics(db, object(), None) == 0
 
 
 # --- payouts ----------------------------------------------------------------

@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from decimal import Decimal
 
+from app.importers.tiktok_analytics import COL as ANALYTICS_COL, import_metric_rows
 from app.importers.tiktok_orders import HEADER_MAP, import_dataframe
 from app.importers.tiktok_settlements import ADJ_COL, COL, import_dataframes
 from app.importers.tiktok_payouts import (
@@ -379,3 +380,52 @@ def fetch_payouts(db: Session, cred: TikTokCredential, since: datetime | None) -
         db, batch,
     )
     return result.rows_imported
+
+
+# --- analytics (daily GMV, for reconciliation) ------------------------------
+#
+# Maps the Shop Performance API's daily intervals onto the TikTokDailyMetric
+# columns. Validated against stored (xlsx-imported) metrics on prod 2026-06-15:
+# gmv and orders matched 14/14 across the sampled fortnight. Each interval is one
+# day; metric_date = interval.start_date (the Seller-Center day, already Pacific).
+# gmv_with_tax / tax / shipping_fees / items_refunded aren't in this endpoint, so
+# they default to 0 — the reconciliation keys on gmv (+ orders), which are exact.
+
+_ANALYTICS_LOOKBACK_DAYS = 30  # first sync (no watermark) backfills this much
+
+
+def fetch_analytics(db: Session, cred: TikTokCredential, since: datetime | None) -> int:
+    """Pull daily shop performance since `since` and upsert TikTokDailyMetric.
+    Idempotent on metric_date; re-pulls a trailing window each run so TikTok's
+    provisional recent days get corrected. Returns days imported."""
+    from datetime import date, timedelta
+
+    start = since.date() if since is not None else (date.today() - timedelta(days=_ANALYTICS_LOOKBACK_DAYS))
+    end = date.today() + timedelta(days=2)  # exclusive; API caps at latest available
+    intervals = tiktok_api.get_shop_performance(cred, start.isoformat(), end.isoformat())
+    if not intervals:
+        return 0
+
+    rows = []
+    for iv in intervals:
+        sd = iv.get("start_date")
+        if not sd:
+            continue
+        rows.append((date.fromisoformat(sd), {
+            ANALYTICS_COL["gmv"]: str((iv.get("gmv") or {}).get("amount") or "0"),
+            ANALYTICS_COL["orders"]: str(iv.get("orders") or 0),
+            ANALYTICS_COL["customers"]: str(iv.get("buyers") or 0),
+            ANALYTICS_COL["items_sold"]: str(iv.get("units_sold") or 0),
+            ANALYTICS_COL["items_canceled_returned"]: str(iv.get("cancellations_and_returns") or 0),
+            ANALYTICS_COL["aov"]: str((iv.get("avg_order_value") or {}).get("amount") or "0"),
+        }))
+
+    batch = ImportBatch(
+        kind=ImportFileKind.TIKTOK_ANALYTICS,
+        status=ImportBatchStatus.COMPLETED,
+        original_filename=f"TikTok API sync · analytics · {len(rows)} days",
+        stored_path="(api)",
+    )
+    db.add(batch)
+    db.flush()
+    return import_metric_rows(rows, db, batch).rows_imported

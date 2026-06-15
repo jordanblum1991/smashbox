@@ -16,17 +16,18 @@ def fresh_db():
     yield
 
 
-def test_all_states_creates_three_streams():
+def test_all_states_creates_four_streams():
     with SessionLocal() as db:
         states = tiktok_sync.all_states(db)
         db.commit()
-        assert {s.stream for s in states} == {"orders", "settlements", "payouts"}
+        assert {s.stream for s in states} == {"orders", "settlements", "payouts", "analytics"}
 
 
 def test_run_sync_pending_when_not_connected():
     with SessionLocal() as db:
         summary = tiktok_sync.run_sync(db)
-        assert summary == {"orders": "pending", "settlements": "pending", "payouts": "pending"}
+        assert summary == {"orders": "pending", "settlements": "pending",
+                           "payouts": "pending", "analytics": "pending"}
     with SessionLocal() as db:
         states = {s.stream: s for s in tiktok_sync.all_states(db)}
         assert states["orders"].last_status == "pending"
@@ -35,14 +36,15 @@ def test_run_sync_pending_when_not_connected():
 
 
 def test_run_sync_all_streams_run_when_connected(monkeypatch):
-    """All three streams (orders, settlements, payouts) have live fetchers now.
-    The API iterators are stubbed so the unit test never hits the network — each
-    stream connects, runs, and records 'empty' (no rows) rather than 'pending'."""
+    """All four streams (orders, settlements, payouts, analytics) have live
+    fetchers now. The API calls are stubbed so the unit test never hits the
+    network — each stream connects, runs, and records 'empty' (no rows)."""
     from app.services import tiktok_api
 
     monkeypatch.setattr(tiktok_api, "iter_orders", lambda *a, **k: iter(()))
     monkeypatch.setattr(tiktok_api, "iter_settlement_transactions", lambda *a, **k: iter(()))
     monkeypatch.setattr(tiktok_api, "iter_payments", lambda *a, **k: iter(()))
+    monkeypatch.setattr(tiktok_api, "get_shop_performance", lambda *a, **k: [])
 
     with SessionLocal() as db:
         db.add(TikTokCredential(access_token="a", refresh_token="r", shop_cipher="CIPHER",
@@ -50,6 +52,7 @@ def test_run_sync_all_streams_run_when_connected(monkeypatch):
         db.commit()
     with SessionLocal() as db:
         summary = tiktok_sync.run_sync(db)
-        assert summary == {"orders": "empty", "settlements": "empty", "payouts": "empty"}
+        assert summary == {"orders": "empty", "settlements": "empty",
+                           "payouts": "empty", "analytics": "empty"}
         states = {s.stream: s for s in tiktok_sync.all_states(db)}
         assert all(states[s].last_run_at is not None for s in ("orders", "settlements", "payouts"))
