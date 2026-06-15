@@ -28,12 +28,22 @@
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations + (dh.missing_cogs if dh.missing_cogs is defined else 0) %}
       {% set overdue_ap = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0, "total": 0} %}
       {% set inv_alerts = request.state.inventory_alerts if request.state is defined and request.state.inventory_alerts is defined else {"count": 0} %}
+      {% set action_items = request.state.action_items if request.state is defined and request.state.action_items is defined else 0 %}
       {% for href, label in primary_links_left %}
         <a href="{{ href }}"
            class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
           {{ label }}
         </a>
       {% endfor %}
+
+      <a href="/action-center" title="Action Center — open items needing attention"
+         class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+        {{ ui.icon("circle-alert", "h-3.5 w-3.5") }}
+        Action Center
+        {% if action_items > 0 %}
+        <span class="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ action_items }}</span>
+        {% endif %}
+      </a>
 
       <div class="group relative">
         <button type="button"

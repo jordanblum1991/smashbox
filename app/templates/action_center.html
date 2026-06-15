@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Action Center · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Operations",
+  title="Action Center",
+  subtitle="Everything that needs your attention, in one place.",
+  accent_bar=true,
+) %}
+  <span class="text-xs text-slate-500">Updated {{ view.as_of.strftime("%b %d, %Y · %I:%M %p") }}</span>
+{% endcall %}
+
+{% set sev = {
+  'error': {'dot': 'bg-rose-500',  'label': 'Urgent',    'chip': 'bg-rose-50 text-rose-700 ring-rose-200'},
+  'warn':  {'dot': 'bg-amber-500', 'label': 'To review', 'chip': 'bg-amber-50 text-amber-700 ring-amber-200'},
+  'info':  {'dot': 'bg-sky-500',   'label': 'FYI',       'chip': 'bg-sky-50 text-sky-700 ring-sky-200'},
+} %}
+
+{% if view.total_items == 0 and not view.heads_up %}
+<div class="rounded-2xl border border-emerald-200 bg-emerald-50/50 px-6 py-12 text-center">
+  {{ ui.icon("circle-check", "mx-auto h-10 w-10 text-emerald-500") }}
+  <p class="mt-3 text-base font-semibold text-slate-900">You're all caught up</p>
+  <p class="mt-1 text-sm text-slate-500">No open items right now — payables, inventory, and data health are all clear.</p>
+</div>
+{% else %}
+
+{# Summary strip #}
+<div class="mb-6 flex flex-wrap items-center gap-3">
+  <div class="flex items-baseline gap-2">
+    <span class="text-3xl font-bold tabular-nums text-slate-900">{{ view.total_items }}</span>
+    <span class="text-sm text-slate-500">{{ "item needs" if view.total_items == 1 else "items need" }} attention</span>
+  </div>
+  {% if view.error_count > 0 %}
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+    <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>{{ view.error_count }} urgent
+  </span>
+  {% endif %}
+  {% if view.warn_count > 0 %}
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>{{ view.warn_count }} to review
+  </span>
+  {% endif %}
+</div>
+
+{% if view.total_items == 0 %}
+<div class="mb-6 rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-3 text-sm text-emerald-900">
+  {{ ui.icon("circle-check", "mr-1.5 inline h-4 w-4 text-emerald-500") }}
+  No action items — just the heads-up notes below.
+</div>
+{% endif %}
+
+{# Actionable groups #}
+{% for g in view.groups %}
+<section class="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-center gap-2 border-b border-slate-200 px-5 py-3">
+    {{ ui.icon(g.icon, "h-4 w-4 text-slate-400") }}
+    <h2 class="text-sm font-semibold text-slate-900">{{ g.title }}</h2>
+    <span class="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">{{ g.items | length }}</span>
+  </header>
+  <ul class="divide-y divide-slate-100">
+    {% for it in g.items %}
+    <li class="flex items-center gap-3 px-5 py-3">
+      <span class="h-2 w-2 shrink-0 rounded-full {{ sev[it.severity].dot }}"></span>
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-medium text-slate-900">{{ it.title }}</div>
+        <div class="text-xs text-slate-500">{{ it.detail }}</div>
+      </div>
+      <a href="{{ it.href }}"
+         class="shrink-0 self-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
+        {{ it.cta }} →
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+
+{# Heads up — informational, not counted in the headline #}
+{% if view.heads_up %}
+<section class="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/40 shadow-sm">
+  <header class="flex items-center gap-2 border-b border-slate-200 px-5 py-3">
+    {{ ui.icon("info", "h-4 w-4 text-slate-400") }}
+    <h2 class="text-sm font-semibold text-slate-700">Heads up</h2>
+    <span class="ml-auto text-[11px] font-medium text-slate-400">informational</span>
+  </header>
+  <ul class="divide-y divide-slate-100">
+    {% for it in view.heads_up %}
+    <li class="flex items-center gap-3 px-5 py-3">
+      <span class="h-2 w-2 shrink-0 rounded-full {{ sev[it.severity].dot }}"></span>
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-medium text-slate-700">{{ it.title }}</div>
+        <div class="text-xs text-slate-500">{{ it.detail }}</div>
+      </div>
+      <a href="{{ it.href }}"
+         class="shrink-0 self-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
+        {{ it.cta }} →
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

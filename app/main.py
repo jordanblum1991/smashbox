@@ -298,6 +298,17 @@ async def attach_data_health(request: Request, call_next):
                 request.state.inventory_alerts = get_inventory_alert_summary(db)
         except Exception:
             pass
+    # Action Center nav badge: count of open actionable categories, derived from
+    # the state above with no extra queries (the page itself adds imports too, so
+    # this is a cheap lower-bound approximation — see app/reports/action_center.py).
+    _dh, _inv = request.state.data_health, request.state.inventory_alerts
+    _oap, _soon = request.state.overdue_ap, request.state.payables_due_soon
+    request.state.action_items = sum(1 for c in (
+        _oap.get("count", 0), _soon.get("count", 0),
+        _inv.get("out_of_stock", 0), _inv.get("reorder_now", 0), _inv.get("at_risk", 0),
+        _dh.get("unmapped", 0), _dh.get("missing_cogs", 0),
+        _dh.get("policy_violations", 0), _dh.get("orphans", 0),
+    ) if c > 0)
     return await call_next(request)
 
 

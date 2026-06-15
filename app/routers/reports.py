@@ -265,6 +265,17 @@ def inventory_report_view(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/action-center")
+def action_center_view(request: Request, db: Session = Depends(get_db)):
+    """Consolidated open-items hub — everything that needs attention in one place."""
+    from app.reports.action_center import compute_action_center
+    return templates.TemplateResponse(
+        request,
+        "action_center.html",
+        {"view": compute_action_center(db)},
+    )
+
+
 def _creator_view(r) -> dict:
     return {
         "creator_handle": r.creator_handle,
