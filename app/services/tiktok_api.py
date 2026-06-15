@@ -32,6 +32,7 @@ SHOPS_PATH = "/authorization/202309/shops"
 ORDER_SEARCH_PATH = "/order/202309/orders/search"
 STATEMENTS_PATH = "/finance/202309/statements"
 PAYMENTS_PATH = "/finance/202309/payments"
+SHOP_PERFORMANCE_PATH = "/analytics/202405/shop/performance"
 
 
 # ---- token exchange / refresh (these are NOT signed) -----------------------
@@ -210,6 +211,20 @@ def _iter_one_statement(cred, statement_id: str, page_size: int):
         page_token = data.get("next_page_token") or ""
         if not page_token:
             break
+
+
+def get_shop_performance(cred, start_date: str, end_date: str, *, granularity: str = "1D") -> list[dict]:
+    """Daily shop performance (GMV, orders, buyers, …) over [start_date, end_date)
+    — dates as 'YYYY-MM-DD'. Returns the `performance.intervals` list (one entry
+    per day at 1D granularity); the API caps the range at its latest available
+    (analytics lags ~1-2 days)."""
+    data = _signed_send("GET", SHOP_PERFORMANCE_PATH, cred.access_token, query={
+        "shop_cipher": cred.shop_cipher,
+        "start_date_ge": start_date,
+        "end_date_lt": end_date,
+        "granularity": granularity,
+    })
+    return (data.get("performance") or {}).get("intervals") or []
 
 
 # ---- credential storage ----------------------------------------------------

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.models.import_batch import _utc_now_naive
 from app.models.tiktok_sync_state import TikTokSyncState
 
-STREAMS = ("orders", "settlements", "payouts")
+STREAMS = ("orders", "settlements", "payouts", "analytics")
 DEFAULT_LOOKBACK_DAYS = 7  # first sync (no watermark) pulls this much history
 
 
@@ -57,6 +57,9 @@ def _fetch_stream(db: Session, stream: str, cred, since) -> int:
     if stream == "payouts":
         from app.services.tiktok_fetchers import fetch_payouts
         return fetch_payouts(db, cred, since)
+    if stream == "analytics":
+        from app.services.tiktok_fetchers import fetch_analytics
+        return fetch_analytics(db, cred, since)
     raise NotImplementedError(
         f"TikTok {stream} fetcher is wired once the app is approved and the shop is connected."
     )
