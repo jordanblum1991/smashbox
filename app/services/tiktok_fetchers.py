@@ -35,6 +35,11 @@ from decimal import Decimal
 
 from app.importers.tiktok_orders import HEADER_MAP, import_dataframe
 from app.importers.tiktok_settlements import COL, import_dataframes
+from app.importers.tiktok_payouts import (
+    PAY_COL,
+    STMT_COL,
+    import_dataframes as import_payout_dataframes,
+)
 from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.tiktok_credential import TikTokCredential
 from app.services import tiktok_api
@@ -233,4 +238,83 @@ def fetch_settlements(db: Session, cred: TikTokCredential, since: datetime | Non
     db.add(batch)
     db.flush()
     result = import_dataframes(orders_df, None, db, batch)
+    return result.rows_imported
+
+
+# --- payouts ----------------------------------------------------------------
+#
+# Validated against stored (xlsx-imported) payouts on prod 2026-06-15 — exact,
+# no drift:
+#   net_amount   = payment.amount.value                                   [n/n]
+#   gross_amount = sum of linked statements' net_sales_amount (by payment) [n/n]
+#   fees         = gross - net (computed by the importer)                  [n/n]
+#   paid_at      = paid_time (Pacific date) or create_time when unpaid     [n/n]
+# A payment's statements precede it by ~1-2 weeks, so we pull statements with a
+# lookback margin to cover each payment's period.
+
+_STMT_LOOKBACK_DAYS = 45
+
+
+def _pacific_date(epoch) -> str:
+    """UTC epoch -> shop-local (Pacific) date 'YYYY-MM-DD' for _parse_ymd.
+    Empty string when the timestamp is absent (e.g. unpaid → paid_time = 0)."""
+    if not epoch:
+        return ""
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).astimezone(SHOP_TZ).strftime("%Y-%m-%d")
+
+
+def payments_to_dataframe(payments: list[dict]) -> pd.DataFrame:
+    rows = [{
+        PAY_COL["payment_id"]: str(p.get("id") or "").strip(),
+        PAY_COL["amount"]: str((p.get("amount") or {}).get("value") or "0"),
+        PAY_COL["initiation_date"]: _pacific_date(p.get("create_time")),
+        PAY_COL["completion_date"]: _pacific_date(p.get("paid_time")),
+        PAY_COL["status"]: str(p.get("status") or ""),
+    } for p in payments]
+    return pd.DataFrame(rows)
+
+
+def statements_to_payout_dataframe(statements: list[dict]) -> pd.DataFrame:
+    """Statement-level rows for the payout gross/period roll-up (by Payment ID)."""
+    rows = [{
+        STMT_COL["statement_date"]: _pacific_date(s.get("statement_time")),
+        STMT_COL["statement_id"]: str(s.get("id") or ""),
+        STMT_COL["payment_id"]: str(s.get("payment_id") or ""),
+        STMT_COL["net_sales"]: str(s.get("net_sales_amount") or "0"),
+    } for s in statements]
+    return pd.DataFrame(rows)
+
+
+def fetch_payouts(db: Session, cred: TikTokCredential, since: datetime | None) -> int:
+    """Pull payouts (payments) since `since` from the Finance API, plus the
+    statements that roll up to their gross/period, and ingest via the payouts
+    importer seam. Returns payouts imported. Idempotent on payout_id."""
+    from datetime import timedelta
+
+    since_epoch = (
+        int(since.replace(tzinfo=timezone.utc).timestamp()) if since is not None else None
+    )
+    payments = list(tiktok_api.iter_payments(cred, create_time_ge=since_epoch))
+    if not payments:
+        return 0
+
+    stmt_since = (
+        int((since - timedelta(days=_STMT_LOOKBACK_DAYS)).replace(tzinfo=timezone.utc).timestamp())
+        if since is not None else None
+    )
+    statements = list(tiktok_api.iter_statements(cred, statement_time_ge=stmt_since))
+
+    batch = ImportBatch(
+        kind=ImportFileKind.TIKTOK_PAYOUTS,
+        status=ImportBatchStatus.COMPLETED,
+        original_filename=f"TikTok API sync · payouts · {len(payments)} payments",
+        stored_path="(api)",
+    )
+    db.add(batch)
+    db.flush()
+    result = import_payout_dataframes(
+        payments_to_dataframe(payments),
+        statements_to_payout_dataframe(statements),
+        db, batch,
+    )
     return result.rows_imported

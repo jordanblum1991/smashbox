@@ -31,6 +31,7 @@ OPEN_API_BASE = "https://open-api.tiktokglobalshop.com"  # signed data calls
 SHOPS_PATH = "/authorization/202309/shops"
 ORDER_SEARCH_PATH = "/order/202309/orders/search"
 STATEMENTS_PATH = "/finance/202309/statements"
+PAYMENTS_PATH = "/finance/202309/payments"
 
 
 # ---- token exchange / refresh (these are NOT signed) -----------------------
@@ -146,13 +147,10 @@ def iter_orders(cred, *, create_time_ge: int | None = None, page_size: int = 50)
             break
 
 
-def iter_settlement_transactions(cred, *, statement_time_ge: int | None = None,
-                                 page_size: int = 50):
-    """Yield `(statement, transaction)` pairs from the Finance API. Statements are
-    walked newest-first; iteration stops once a statement predates
-    `statement_time_ge` (epoch seconds). Each statement's per-order transactions
-    are paged via their own `next_page_token`. The transaction carries the full
-    per-order fee/shipping/affiliate breakdown."""
+def iter_statements(cred, *, statement_time_ge: int | None = None, page_size: int = 50):
+    """Yield settlement statement dicts (statement-level: id, payment_id,
+    statement_time, net_sales_amount, fee_amount, …) newest-first, stopping once
+    a statement predates `statement_time_ge` (epoch seconds)."""
     page_token = ""
     while True:
         query = {"shop_cipher": cred.shop_cipher, "page_size": page_size,
@@ -160,11 +158,39 @@ def iter_settlement_transactions(cred, *, statement_time_ge: int | None = None,
         if page_token:
             query["page_token"] = page_token
         data = _signed_send("GET", STATEMENTS_PATH, cred.access_token, query=query)
-        statements = data.get("statements") or []
-        for stmt in statements:
+        for stmt in data.get("statements") or []:
             if statement_time_ge is not None and int(stmt.get("statement_time") or 0) < statement_time_ge:
                 return
-            yield from ((stmt, txn) for txn in _iter_one_statement(cred, stmt["id"], page_size))
+            yield stmt
+        page_token = data.get("next_page_token") or ""
+        if not page_token:
+            break
+
+
+def iter_settlement_transactions(cred, *, statement_time_ge: int | None = None,
+                                 page_size: int = 50):
+    """Yield `(statement, transaction)` pairs from the Finance API — each
+    statement (newest-first, bounded by `statement_time_ge`) paired with its
+    per-order transactions (full fee/shipping/affiliate breakdown)."""
+    for stmt in iter_statements(cred, statement_time_ge=statement_time_ge, page_size=page_size):
+        yield from ((stmt, txn) for txn in _iter_one_statement(cred, stmt["id"], page_size))
+
+
+def iter_payments(cred, *, create_time_ge: int | None = None, page_size: int = 50):
+    """Yield payout (payment) dicts from the Finance API, newest-first, stopping
+    once a payment predates `create_time_ge` (epoch seconds). Each carries the
+    cash side: id, amount{value}, create_time, paid_time, status."""
+    page_token = ""
+    while True:
+        query = {"shop_cipher": cred.shop_cipher, "page_size": page_size,
+                 "sort_field": "create_time", "sort_order": "DESC"}
+        if page_token:
+            query["page_token"] = page_token
+        data = _signed_send("GET", PAYMENTS_PATH, cred.access_token, query=query)
+        for pay in data.get("payments") or []:
+            if create_time_ge is not None and int(pay.get("create_time") or 0) < create_time_ge:
+                return
+            yield pay
         page_token = data.get("next_page_token") or ""
         if not page_token:
             break

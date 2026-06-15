@@ -34,14 +34,15 @@ def test_run_sync_pending_when_not_connected():
         assert "not connected" in states["orders"].last_message
 
 
-def test_run_sync_orders_and_settlements_run_payouts_pending(monkeypatch):
-    """Orders + settlements have live fetchers now; payouts is still unbuilt and
-    records 'pending'. The API iterators are stubbed so the unit test never hits
-    the network."""
+def test_run_sync_all_streams_run_when_connected(monkeypatch):
+    """All three streams (orders, settlements, payouts) have live fetchers now.
+    The API iterators are stubbed so the unit test never hits the network — each
+    stream connects, runs, and records 'empty' (no rows) rather than 'pending'."""
     from app.services import tiktok_api
 
     monkeypatch.setattr(tiktok_api, "iter_orders", lambda *a, **k: iter(()))
     monkeypatch.setattr(tiktok_api, "iter_settlement_transactions", lambda *a, **k: iter(()))
+    monkeypatch.setattr(tiktok_api, "iter_payments", lambda *a, **k: iter(()))
 
     with SessionLocal() as db:
         db.add(TikTokCredential(access_token="a", refresh_token="r", shop_cipher="CIPHER",
@@ -49,9 +50,6 @@ def test_run_sync_orders_and_settlements_run_payouts_pending(monkeypatch):
         db.commit()
     with SessionLocal() as db:
         summary = tiktok_sync.run_sync(db)
-        assert summary["orders"] == "empty"          # connected + ran, no rows
-        assert summary["settlements"] == "empty"     # connected + ran, no rows
-        assert summary["payouts"] == "pending"       # fetcher not built yet
+        assert summary == {"orders": "empty", "settlements": "empty", "payouts": "empty"}
         states = {s.stream: s for s in tiktok_sync.all_states(db)}
-        assert "fetcher is wired" in (states["payouts"].last_message or "")
-        assert states["settlements"].last_run_at is not None
+        assert all(states[s].last_run_at is not None for s in ("orders", "settlements", "payouts"))
