@@ -102,34 +102,10 @@
 {% endcall %}
 {% endif %}
 
-{# Payables reminders — overdue (past due) and the proactive due-soon nudge. #}
-{% set oap = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0, "total": 0} %}
-{% if oap.count > 0 %}
-{% call ui.banner(tone="error", compact=true,
-                  title="Overdue payables: " ~ oap.count ~ (" invoice" if oap.count == 1 else " invoices"),
-                  action_label="Review aging", action_href="/admin/product-invoices/aging") %}
-  {{ oap.total | money }} past due to Smashbox.
-{% endcall %}
-{% endif %}
-{% set due_soon = request.state.payables_due_soon if request.state is defined and request.state.payables_due_soon is defined else {"count": 0, "total": 0, "within_days": 14} %}
-{% if due_soon.count > 0 %}
-{% call ui.banner(tone="warn", compact=true,
-                  title="Payables due soon: " ~ due_soon.count ~ (" invoice" if due_soon.count == 1 else " invoices"),
-                  action_label="Review aging", action_href="/admin/product-invoices/aging") %}
-  {{ due_soon.total | money }} due within {{ due_soon.within_days }} days.
-{% endcall %}
-{% endif %}
-
-{# Low-stock / reorder alert — sellable SKUs out of stock, at risk, or at their
-   reorder point (velocity-based, from the demand planner). #}
-{% set inv = request.state.inventory_alerts if request.state is defined and request.state.inventory_alerts is defined else {"count": 0, "out_of_stock": 0} %}
-{% if inv.count > 0 %}
-{% call ui.banner(tone=("error" if inv.out_of_stock > 0 else "warn"), compact=true,
-                  title="Reorder needed: " ~ inv.count ~ (" SKU" if inv.count == 1 else " SKUs"),
-                  action_label="Open Demand Planning", action_href="/reports/demand-planning") %}
-  {% if inv.out_of_stock > 0 %}{{ inv.out_of_stock }} out of stock · {% endif %}{{ inv.reorder_now }} at reorder point · {{ inv.at_risk }} at risk.
-{% endcall %}
-{% endif %}
+{# Overdue/due-soon payables and low-stock reorders used to each get their own
+   banner here; they're now rolled into the single "items need attention" entry
+   banner above and detailed on the Action Center. The period-specific
+   settlement-coverage banner stays (the Action Center is not period-scoped). #}
 
 <!-- Last Imported — data freshness per file kind -->
 <section aria-label="Data freshness" class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 print:hidden">

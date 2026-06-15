@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models.purchase_invoice import PurchaseInvoice, PurchaseInvoicePayment
+from app.reports.inventory_alerts import _reset_cache
 from app.reports.overdue_ap import compute_overdue_ap
 from app.services.reporting_tz import today_local
 
@@ -17,6 +18,7 @@ from app.services.reporting_tz import today_local
 def fresh_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    _reset_cache()  # the action_items nav count reads the inventory alert cache
     yield
 
 
@@ -56,17 +58,24 @@ def test_compute_overdue_ap():
     assert result["total"] == Decimal("1000.00")
 
 
-def test_dashboard_shows_overdue_banner(client: TestClient):
+def test_overdue_surfaces_via_action_center(client: TestClient):
     with SessionLocal() as db:
         _inv(db, "OD-PASTDUE", -3, "750.00")
         db.commit()
+    # Dashboard shows the consolidated entry banner (not a standalone AP banner)...
     r = client.get("/")
     assert r.status_code == 200
-    assert "Overdue payables" in r.text
-    assert "$750.00" in r.text
+    assert "Open Action Center" in r.text
+    assert "Overdue payables" not in r.text  # standalone banner removed
+    # ...and the Action Center itself details the overdue payable.
+    ac = client.get("/action-center")
+    assert ac.status_code == 200
+    assert "overdue invoice" in ac.text
+    assert "$750.00" in ac.text
 
 
-def test_dashboard_no_banner_when_none(client: TestClient):
+def test_no_entry_banner_when_none(client: TestClient):
     r = client.get("/")
     assert r.status_code == 200
+    assert "Open Action Center" not in r.text
     assert "Overdue payables" not in r.text

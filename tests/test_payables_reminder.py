@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models.purchase_invoice import PurchaseInvoice
+from app.reports.inventory_alerts import _reset_cache
 from app.reports.overdue_ap import compute_due_soon_ap
 from app.services.reporting_tz import today_local
 
@@ -16,6 +17,7 @@ from app.services.reporting_tz import today_local
 def fresh_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    _reset_cache()  # the action_items nav count reads the inventory alert cache
     yield
 
 
@@ -48,23 +50,28 @@ def test_compute_due_soon_ap():
     assert r["total"] == Decimal("600.00")     # 500 + 100
 
 
-def test_dashboard_shows_due_soon_banner(client: TestClient):
+def test_due_soon_surfaces_via_action_center(client: TestClient):
     with SessionLocal() as db:
         _inv(db, "SOON-7", 7, "456.00")
         db.commit()
+    # Dashboard shows the consolidated entry banner...
     r = client.get("/")
     assert r.status_code == 200
-    assert "Payables due soon" in r.text
-    assert "$456.00" in r.text
-    assert "within 14 days" in r.text
+    assert "Open Action Center" in r.text
+    # ...and the Action Center details the due-soon payable.
+    ac = client.get("/action-center")
+    assert ac.status_code == 200
+    assert "due soon" in ac.text
+    assert "$456.00" in ac.text
+    assert "within 14 days" in ac.text
 
 
-def test_no_due_soon_banner_for_overdue_only(client: TestClient):
-    # An overdue invoice triggers the overdue banner but NOT the due-soon one.
+def test_overdue_not_counted_as_due_soon(client: TestClient):
+    # An overdue invoice is an "overdue" item, NOT a "due soon" one.
     with SessionLocal() as db:
         _inv(db, "OD", -5, "111.00")
         db.commit()
-    r = client.get("/")
-    assert r.status_code == 200
-    assert "Overdue payables" in r.text
-    assert "Payables due soon" not in r.text
+    ac = client.get("/action-center")
+    assert ac.status_code == 200
+    assert "overdue invoice" in ac.text
+    assert "due soon" not in ac.text
