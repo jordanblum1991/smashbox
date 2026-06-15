@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 
 from app.importers.tiktok_orders import HEADER_MAP, import_dataframe
-from app.importers.tiktok_settlements import COL, import_dataframes
+from app.importers.tiktok_settlements import ADJ_COL, COL, import_dataframes
 from app.importers.tiktok_payouts import (
     PAY_COL,
     STMT_COL,
@@ -173,12 +173,42 @@ def _ymd(epoch) -> str:
     return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%Y%m%d")
 
 
+# Adjustment (non-ORDER statement transactions) API enum -> the Seller-Center
+# label the xlsx uses. Matching the label exactly keeps the natural key
+# (adjustment_id, adjustment_type, create_time) idempotent with xlsx-imported
+# rows. Validated against stored adjustments on prod 2026-06-15.
+_ADJ_TYPE = {
+    "NET_EARNINGS_BALANCE": "Net earnings balance",
+    "NET_EARNINGS_DEDUCTION": "Net earnings deduction",
+    "PLATFORM_REIMBURSEMENT": "TikTok Shop reimbursement",
+    "LOGISTICS_REIMBURSEMENT": "Logistics reimbursement",
+    "BILL_PAYMENT_(NEGATIVE_BALANCE)": "Bill payment (negative balance)",
+}
+
+
+def adjustment_type_label(api_type) -> str:
+    t = str(api_type or "").strip()
+    if t in _ADJ_TYPE:
+        return _ADJ_TYPE[t]
+    return t.replace("_", " ").capitalize() if t else "unknown"
+
+
+def _pacific_ymd(epoch) -> str:
+    """UTC epoch -> shop-local (Pacific) 'YYYYMMDD' for the settlement _parse_ymd."""
+    if not epoch:
+        return ""
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).astimezone(SHOP_TZ).strftime("%Y%m%d")
+
+
 def settlement_transactions_to_dataframe(pairs: list[tuple[dict, dict]]) -> pd.DataFrame:
     """Map (statement, transaction) pairs into the settlement Orders-sheet COL
-    shape, one row per (order, statement). Costs are emitted as positive
-    magnitudes; the importer's `_pos` takes abs() either way."""
+    shape, one row per (order, statement). Only ORDER-type transactions become
+    settlement rows; non-ORDER rows are adjustments (see adjustments_to_dataframe).
+    Costs are emitted as positive magnitudes; the importer's `_pos` takes abs()."""
     rows: list[dict] = []
     for stmt, t in pairs:
+        if str(t.get("type") or "ORDER").upper() != "ORDER":
+            continue
         referral = abs(_D(t.get("referral_fee_amount")))
         transaction = abs(_D(t.get("transaction_fee_amount")))
         refund_admin = abs(_D(t.get("refund_administration_fee_amount")))
@@ -216,11 +246,41 @@ def settlement_transactions_to_dataframe(pairs: list[tuple[dict, dict]]) -> pd.D
     return pd.DataFrame(rows)
 
 
+def adjustments_to_dataframe(pairs: list[tuple[dict, dict]]) -> "pd.DataFrame | None":
+    """Map the non-ORDER statement transactions (net-earnings balance/deduction,
+    reimbursements, bill payments) into the Adjustment-sheet ADJ_COL shape. The
+    amount keeps its sign (paired balance/deduction cancel in the P&L). Returns
+    None when there are no adjustments (the importer accepts adj_df=None).
+
+    NB: the API doesn't expose the per-adjustment `reason` text the xlsx has, so
+    it's left blank — reason is display-only and nullable."""
+    rows: list[dict] = []
+    for stmt, t in pairs:
+        if str(t.get("type") or "ORDER").upper() == "ORDER":
+            continue
+        aid = str(t.get("adjustment_id") or "").strip()
+        if not aid:
+            continue
+        rows.append({
+            ADJ_COL["adjustment_id"]: aid,
+            ADJ_COL["adjustment_type"]: adjustment_type_label(t.get("type")),
+            ADJ_COL["reason"]: "",
+            ADJ_COL["amount"]: str(t.get("adjustment_amount") or "0"),
+            ADJ_COL["create_time"]: _pacific_ymd(t.get("order_create_time")),
+            ADJ_COL["settlement_time"]: _pacific_ymd(stmt.get("statement_time")),
+            ADJ_COL["linked_statement_id"]: str(stmt.get("id") or ""),
+            ADJ_COL["linked_payout_id"]: str(stmt.get("payment_id") or ""),
+        })
+    return pd.DataFrame(rows) if rows else None
+
+
 def fetch_settlements(db: Session, cred: TikTokCredential, since: datetime | None) -> int:
     """Pull settlement statements (and their per-order transactions) since
     `since` from the Finance API, map them to the settlement importer seam, and
-    back-fill Order.* fees/refunds. Returns settlement rows imported. Idempotent
-    on (order, statement); re-pulling overlapping statements upserts in place."""
+    back-fill Order.* fees/refunds. The same feed's non-ORDER rows become
+    Adjustments (net-earnings, reimbursements, bill payments) — exactly how the
+    xlsx's Orders + Adjustment sheets work. Returns rows imported. Idempotent on
+    (order, statement) and (adjustment_id, type, create_time)."""
     since_epoch = (
         int(since.replace(tzinfo=timezone.utc).timestamp()) if since is not None else None
     )
@@ -229,6 +289,7 @@ def fetch_settlements(db: Session, cred: TikTokCredential, since: datetime | Non
         return 0
 
     orders_df = settlement_transactions_to_dataframe(pairs)
+    adj_df = adjustments_to_dataframe(pairs)
     batch = ImportBatch(
         kind=ImportFileKind.TIKTOK_SETTLEMENTS,
         status=ImportBatchStatus.COMPLETED,
@@ -237,7 +298,7 @@ def fetch_settlements(db: Session, cred: TikTokCredential, since: datetime | Non
     )
     db.add(batch)
     db.flush()
-    result = import_dataframes(orders_df, None, db, batch)
+    result = import_dataframes(orders_df, adj_df, db, batch)
     return result.rows_imported
 
 

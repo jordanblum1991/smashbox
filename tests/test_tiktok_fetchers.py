@@ -20,9 +20,11 @@ from app.models import (
     Order,
     OrderType,
 )
-from app.models.settlement import Settlement
+from app.models.settlement import Adjustment, Settlement
 from app.models.payout import Payout
 from app.services.tiktok_fetchers import (
+    adjustment_type_label,
+    adjustments_to_dataframe,
     display_status,
     fetch_payouts,
     fetch_settlements,
@@ -233,6 +235,52 @@ def test_fetch_settlements_returns_zero_when_no_statements(monkeypatch):
     monkeypatch.setattr(tiktok_api, "iter_settlement_transactions", lambda *a, **k: iter(()))
     with SessionLocal() as db:
         assert fetch_settlements(db, object(), None) == 0
+
+
+# --- adjustments (non-ORDER rows in the same statement-transactions feed) ----
+
+def test_adjustment_type_label_maps_enums_to_seller_center_labels():
+    assert adjustment_type_label("NET_EARNINGS_BALANCE") == "Net earnings balance"
+    assert adjustment_type_label("PLATFORM_REIMBURSEMENT") == "TikTok Shop reimbursement"
+    assert adjustment_type_label("LOGISTICS_REIMBURSEMENT") == "Logistics reimbursement"
+    assert adjustment_type_label("BILL_PAYMENT_(NEGATIVE_BALANCE)") == "Bill payment (negative balance)"
+    # Unknown enum is humanised (and still distinct), not dropped.
+    assert adjustment_type_label("SOME_NEW_THING") == "Some new thing"
+
+
+def test_non_order_rows_become_adjustments_orders_stay_settlements():
+    stmt = {"id": "STMT9", "statement_time": 1781395200, "payment_id": "PAY9"}
+    order_txn = {"type": "ORDER", "order_id": "O1", "fee_amount": "0",
+                 "gross_sales_amount": "10", "shipping_fee_amount": "0"}
+    adj_txn = {"type": "NET_EARNINGS_BALANCE", "adjustment_id": "ADJ1",
+               "adjustment_amount": "4.64", "order_create_time": 1780883398}  # 2026-06-07 PT
+    pairs = [(stmt, order_txn), (stmt, adj_txn)]
+
+    orders_df = settlement_transactions_to_dataframe(pairs)
+    adj_df = adjustments_to_dataframe(pairs)
+    assert len(orders_df) == 1          # only the ORDER row
+    assert len(adj_df) == 1             # only the non-ORDER row
+
+    with SessionLocal() as db:
+        batch = ImportBatch(kind=ImportFileKind.TIKTOK_SETTLEMENTS,
+                            status=ImportBatchStatus.COMPLETED,
+                            original_filename="api", stored_path="(api)")
+        db.add(batch); db.flush()
+        import_dataframes(orders_df, adj_df, db, batch)
+        db.commit()
+        a = db.query(Adjustment).one()
+    assert a.adjustment_id == "ADJ1"
+    assert a.adjustment_type == "Net earnings balance"
+    assert a.amount == Decimal("4.64")          # sign preserved
+    assert a.create_time == datetime(2026, 6, 7)  # Pacific date of order_create_time
+    assert a.linked_statement_id == "STMT9"
+
+
+def test_adjustments_dataframe_is_none_when_all_orders():
+    stmt = {"id": "S", "statement_time": 1781395200}
+    pairs = [(stmt, {"type": "ORDER", "order_id": "O1", "fee_amount": "0",
+                     "gross_sales_amount": "5", "shipping_fee_amount": "0"})]
+    assert adjustments_to_dataframe(pairs) is None
 
 
 # --- payouts ----------------------------------------------------------------
