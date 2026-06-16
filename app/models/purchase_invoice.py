@@ -13,7 +13,7 @@ Each invoice carries many credits (credit memos from Smashbox — damaged/return
 product, price adjustments). Net owed = amount − Σ credits. Manual entry via
 /admin/product-invoices; mirrors the GMV Max Reimbursements admin pattern.
 """
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text
@@ -23,7 +23,7 @@ from app.db import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class PurchaseInvoice(Base):

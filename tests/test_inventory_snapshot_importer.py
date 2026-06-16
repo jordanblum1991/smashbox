@@ -1,5 +1,5 @@
 """InventorySnapshotImporter — file format + idempotency."""
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -56,9 +56,9 @@ def test_missing_captured_at_defaults_to_upload_time(tmp_path):
     csv = tmp_path / "inventory.csv"
     csv.write_text("sku,on_hand\nSBX-A,100\n", encoding="utf-8")
 
-    before = datetime.utcnow()
+    before = datetime.now(UTC).replace(tzinfo=None)
     result = _run(csv)
-    after = datetime.utcnow()
+    after = datetime.now(UTC).replace(tzinfo=None)
 
     assert result.rows_imported == 1
     with SessionLocal() as db:
