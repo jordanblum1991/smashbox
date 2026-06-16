@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
-{% block title %}Account · Smashbox{% endblock %}
+{% block title %}User Accounts · Smashbox{% endblock %}
 
 {% block content %}
 {% set _subtitle = "Update your sign-in password." %}
 {% if show_admin %}{% set _subtitle = "Update your sign-in password, and add or manage team members." %}{% endif %}
 {% call ui.page_header(
   eyebrow="Account",
-  title="Account",
+  title="User Accounts",
   subtitle=_subtitle,
   accent_bar=true,
 ) %}
