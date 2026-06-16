@@ -27,6 +27,7 @@ from app.reports.inventory_alerts import get_inventory_alert_summary
 from app.reports.missing_cogs import count_missing_cogs
 from app.reports.overdue_ap import compute_due_soon_ap, compute_overdue_ap
 from app.reports.policy_violations import count_policy_violations
+from app.reports.reconciliation import get_recon_break_summary
 from app.reports.settlement_only_orders import count_settlement_only_orders
 from app.reports.unmapped_skus import count_unmapped_skus
 from app.services.data_freshness import compute_freshness
@@ -142,6 +143,18 @@ def compute_action_center(db: Session) -> "ActionCenterView":
             f"{orphans} settlement-only {_plural(orphans, 'order')}",
             orphans, "Settled orders with no matching orders-export row.",
             "/reports/settlement-only-orders", "View",
+        ))
+    recon = get_recon_break_summary(db)
+    if recon["count"] > 0:
+        n = recon["count"]
+        dh.items.append(ActionItem(
+            "dh_recon_break", "warn",
+            f"{n} {_plural(n, 'day')} don't reconcile",
+            n,
+            f"GMV differs from TikTok's reported total on {n} settled "
+            f"{_plural(n, 'day')} — worst {_money(abs(recon['worst_variance']))} "
+            f"on {recon['worst_day']}.",
+            "/reports/recon-health?tab=recon", "Open reconciliation",
         ))
 
     # --- Imports & data freshness ------------------------------------------

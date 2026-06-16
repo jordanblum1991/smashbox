@@ -8,7 +8,7 @@ supplier (auto-email is a later add-on).
 Distinct from `purchase_invoices` (the inbound AP ledger of invoices we RECEIVE):
 a PO is what we send to order goods; the invoice is what comes back to be paid.
 """
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
@@ -18,7 +18,7 @@ from app.db import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class PurchaseOrder(Base):

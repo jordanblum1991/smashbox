@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}TikTok Ad Spend · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Integrations",
+  title="TikTok Marketing API — Ad Spend",
+  subtitle="Authorize your advertiser account to pull campaign ad spend automatically (replaces the manual Cost upload).",
+  accent_bar=true,
+) %}{% endcall %}
+
+{% if error %}<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"><strong>Error:</strong> {{ error }}</div>{% endif %}
+{% if notice %}<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{{ notice }}</div>{% endif %}
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <div class="px-6 py-5">
+    {% if not configured %}
+    <div class="flex items-start gap-2.5">
+      {{ ui.icon("triangle-alert", "mt-0.5 h-5 w-5 shrink-0 text-amber-500") }}
+      <div>
+        <p class="text-sm font-medium text-slate-900">App not configured</p>
+        <p class="mt-1 text-xs text-slate-500">Set the <code>TIKTOK_MARKETING_APP_ID</code> and <code>TIKTOK_MARKETING_SECRET</code> secrets (and <code>PUBLIC_BASE_URL</code>), then reload.</p>
+      </div>
+    </div>
+    {% elif cred %}
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex items-start gap-2.5">
+        {{ ui.icon("check", "mt-0.5 h-5 w-5 shrink-0 text-emerald-500") }}
+        <div>
+          <p class="text-sm font-semibold text-slate-900">Connected</p>
+          <dl class="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-slate-600 sm:grid-cols-2">
+            <div><dt class="inline font-medium text-slate-500">Advertiser:</dt> {{ cred.advertiser_name or cred.advertiser_id or "—" }}</div>
+            <div><dt class="inline font-medium text-slate-500">Advertiser ID:</dt> {{ cred.advertiser_id or "—" }}</div>
+            <div class="sm:col-span-2"><dt class="inline font-medium text-slate-500">Scopes:</dt> {{ cred.granted_scopes or "—" }}</div>
+            <div><dt class="inline font-medium text-slate-500">Connected:</dt> {{ cred.connected_at.strftime("%Y-%m-%d %H:%M") }} UTC</div>
+          </dl>
+        </div>
+      </div>
+      <a href="/auth/tiktok-ads/authorize" class="shrink-0 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Reconnect</a>
+    </div>
+    {% else %}
+    <div class="flex items-center justify-between gap-4">
+      <div>
+        <p class="text-sm font-medium text-slate-900">Not connected yet</p>
+        <p class="mt-1 text-xs text-slate-500">Click Connect, authorize your advertiser account on TikTok, and you'll be redirected back here.</p>
+      </div>
+      <a href="/auth/tiktok-ads/authorize" class="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        {{ ui.icon("link", "h-3.5 w-3.5") }} Connect ad account
+      </a>
+    </div>
+    {% endif %}
+
+    {# The advertiser redirect URL to register in the Marketing API app. #}
+    <div class="mt-4 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">
+      <span class="font-medium text-slate-500">Advertiser redirect URL (register this in your app):</span>
+      <code class="ml-1 break-all text-slate-800">{{ redirect_uri or "set PUBLIC_BASE_URL to display" }}</code>
+    </div>
+  </div>
+</section>
+
+{# Ad-spend sync status + manual run #}
+<section class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-center justify-between border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Ad spend sync</h2>
+      <p class="mt-0.5 text-xs text-slate-500">Campaign spend by day → the <code>ad_spend</code> table the P&amp;L reads. Incremental, watermarked.</p>
+    </div>
+    <form action="/admin/tiktok-ads/sync" method="post">
+      <button type="submit"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
+        {{ ui.icon("refresh-cw", "h-3.5 w-3.5") }} Sync ad spend now
+      </button>
+    </form>
+  </header>
+  <table class="min-w-full text-sm">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-6 py-2">Stream</th>
+        <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2">Synced through</th>
+        <th class="px-4 py-2">Last run</th>
+        <th class="px-4 py-2 text-right">Rows</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      <tr>
+        <td class="px-6 py-2.5 font-medium text-slate-900">Ad spend</td>
+        <td class="px-4 py-2.5">
+          {% set st = ads_state.last_status if ads_state else None %}
+          <span class="rounded-full px-2 py-0.5 text-xs font-semibold
+            {% if st == 'ok' %}bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200
+            {% elif st == 'error' %}bg-rose-50 text-rose-700 ring-1 ring-rose-200
+            {% elif st == 'pending' %}bg-amber-50 text-amber-700 ring-1 ring-amber-200
+            {% else %}bg-slate-100 text-slate-600{% endif %}">{{ st or "never run" }}</span>
+          {% if ads_state and ads_state.last_message %}<span class="ml-2 text-xs text-slate-400">{{ ads_state.last_message }}</span>{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-slate-600">{{ ads_state.synced_through.strftime("%Y-%m-%d %H:%M") if ads_state and ads_state.synced_through else "—" }}</td>
+        <td class="px-4 py-2.5 text-slate-600">{{ ads_state.last_run_at.strftime("%Y-%m-%d %H:%M") if ads_state and ads_state.last_run_at else "—" }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ "{:,}".format(ads_state.rows_last_run) if ads_state and ads_state.rows_last_run is not none else "—" }}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+{% endblock %}

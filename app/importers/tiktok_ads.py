@@ -81,10 +81,7 @@ def _upsert(
     row: pd.Series,
     batch: ImportBatch,
 ) -> AdSpend:
-    payload = dict(
-        import_batch_id=batch.id,
-        spend_date=spend_date,
-        campaign_id=campaign_id,
+    return _persist(db, spend_date, campaign_id, batch, dict(
         campaign_name=_str(row.get(COL["campaign_name"])),
         cash_cost=_abs(row.get(COL["cash_cost"])),
         credit_cost=_abs(row.get(COL["credit_cost"])),
@@ -92,8 +89,24 @@ def _upsert(
         amount=_abs(row.get(COL["amount"])),
         currency=_str(row.get(COL["currency"])) or "USD",
         campaign_type=_str(row.get(COL["type"])),
-    )
+    ))
 
+
+def _persist(
+    db: Session,
+    spend_date: datetime,
+    campaign_id: str,
+    batch: ImportBatch,
+    fields: dict,
+) -> AdSpend:
+    """Upsert one AdSpend row on the (spend_date, campaign_id) natural key.
+    Shared by the file importer and the Marketing API fetcher seam below."""
+    payload = dict(
+        import_batch_id=batch.id,
+        spend_date=spend_date,
+        campaign_id=campaign_id,
+        **fields,
+    )
     existing = db.execute(
         select(AdSpend)
         .where(AdSpend.spend_date == spend_date)
@@ -107,6 +120,35 @@ def _upsert(
     for k, v in payload.items():
         setattr(existing, k, v)
     return existing
+
+
+def import_ad_spend_rows(rows: list[dict], db: Session, batch: ImportBatch) -> ImportResult:
+    """In-memory seam: feed pre-mapped ad-spend rows (from the Marketing API
+    fetcher) through the SAME upsert as the file importer. Each row is a dict:
+    {spend_date: datetime, campaign_id: str, campaign_name, cash_cost,
+    credit_cost, ad_credit_cost, amount: Decimal, currency, campaign_type}.
+    Idempotent on (spend_date, campaign_id). Returns ImportResult."""
+    result = ImportResult()
+    for r in rows:
+        spend_date = r.get("spend_date")
+        campaign_id = (r.get("campaign_id") or "").strip()
+        if spend_date is None or not campaign_id:
+            result.skip(f"row missing spend_date/campaign_id: {r!r}")
+            continue
+        try:
+            _persist(db, spend_date, campaign_id, batch, {
+                "campaign_name": r.get("campaign_name"),
+                "cash_cost": r.get("cash_cost", Decimal("0")),
+                "credit_cost": r.get("credit_cost", Decimal("0")),
+                "ad_credit_cost": r.get("ad_credit_cost", Decimal("0")),
+                "amount": r.get("amount", Decimal("0")),
+                "currency": r.get("currency") or "USD",
+                "campaign_type": r.get("campaign_type"),
+            })
+            result.rows_imported += 1
+        except Exception as exc:  # noqa: BLE001
+            result.skip(f"{spend_date} / {campaign_id}: {exc}")
+    return result
 
 
 def _str(v) -> str | None:

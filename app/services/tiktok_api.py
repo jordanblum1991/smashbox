@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -239,7 +239,7 @@ def _expiry(value) -> datetime | None:
     if v <= 0:
         return None
     if v > 1_000_000_000:  # looks like an absolute Unix timestamp
-        return datetime.utcfromtimestamp(v)
+        return datetime.fromtimestamp(v, UTC).replace(tzinfo=None)
     return _utc_now_naive() + timedelta(seconds=v)
 
 
