@@ -22,6 +22,7 @@ from app.models.order import OrderLine
 from app.models.sku import Sku
 from app.reports.ad_spend import compute_ad_spend_monthly, compute_ad_spend_summary
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
+from app.reports.planner_accuracy import compute_planner_accuracy
 from app.reports.dashboard_trends import (
     bar_chart,
     build_dashboard_trends,
@@ -706,6 +707,16 @@ def _dp_pipeline_view(i) -> dict:
         "suggested_qty": i.suggested_qty,
         "investment": float(i.investment),
     }
+
+
+@router.get("/reports/planner-accuracy")
+def planner_accuracy_view(request: Request, db: Session = Depends(get_db)):
+    """Backtest of the demand planner — predicted vs actual demand, with a
+    safety-stock / cover-days read. (See app/reports/planner_accuracy.py.)"""
+    view = compute_planner_accuracy(db)
+    return templates.TemplateResponse(
+        request, "reports/planner_accuracy.html", {"view": view},
+    )
 
 
 @router.get("/reports/demand-planning")
