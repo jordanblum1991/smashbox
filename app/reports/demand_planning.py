@@ -633,6 +633,10 @@ class SkuDetailView:
     depletion_daily_sales: Decimal = Decimal("0")  # SBX-folded sales, for the comparison
     depletion_gap: Decimal | None = None           # depletion − sales (positive = unexplained)
 
+    # Stockout history (zero-readings in the snapshot series) + lost-sales est.
+    stockout: "StockoutStat | None" = None
+    est_lost_units: int = 0
+
 
 def _weekly_velocity(
     db: Session, component_sku: str, *, as_of: datetime, weeks: int = 12,
@@ -967,6 +971,11 @@ def compute_sku_detail_view(
         if measured_depletion else None
     )
 
+    # Stockout history + lost-sales estimate (lost = days-out × sales velocity).
+    from app.services.demand.stockouts import compute_stockout_stats, estimate_lost_units
+    stockout = compute_stockout_stats(db, as_of=now).get(sap_sku)
+    est_lost_units = estimate_lost_units(stockout, depletion_daily_sales)
+
     return SkuDetailView(
         row=row,
         safety_stock_pct=effective_safety,
@@ -986,4 +995,6 @@ def compute_sku_detail_view(
         measured_depletion=measured_depletion,
         depletion_daily_sales=depletion_daily_sales,
         depletion_gap=depletion_gap,
+        stockout=stockout,
+        est_lost_units=est_lost_units,
     )
