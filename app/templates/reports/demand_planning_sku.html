@@ -204,6 +204,32 @@
 </section>
 {% endif %}
 
+{# Measured depletion vs sales — from the daily inventory snapshots #}
+{% if v.measured_depletion %}
+{% set md = v.measured_depletion %}
+{% set gap = v.depletion_gap %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Measured depletion vs sales</h2>
+    <p class="mt-0.5 text-xs text-slate-500">
+      Units that actually left the warehouse ({{ md.units_depleted }} over {{ md.span_days }} days,
+      {{ md.snapshots }} snapshots) vs what TikTok sales explain. An unexplained gap = samples,
+      other channels, or shrinkage.
+    </p>
+  </header>
+  <div class="grid grid-cols-1 gap-4 px-6 py-5 sm:grid-cols-3">
+    {{ ui.kpi("Depleted / day", "%.2f"|format(md.daily_depletion|float), "measured from snapshots") }}
+    {{ ui.kpi("Sold / day", "%.2f"|format(v.depletion_daily_sales|float), "TikTok order velocity (60d)") }}
+    {{ ui.kpi("Unexplained / day",
+              ("+" if gap >= 0 else "") ~ ("%.2f"|format(gap|float)),
+              ("depleting faster than sales — investigate" if gap > 0.5
+               else ("sales exceed depletion — feed may lag" if gap < -0.5
+               else "reconciles with sales")),
+              surface=("bg-amber-50" if (gap > 0.5 or gap < -0.5) else "")) }}
+  </div>
+</section>
+{% endif %}
+
 {# Inventory history #}
 <section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <header class="border-b border-slate-200 px-6 py-3">
