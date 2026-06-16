@@ -626,6 +626,13 @@ class SkuDetailView:
     # Order-line mix over 60 days — for cross-checking against TikTok.
     demand_breakdown: "SkuDemandBreakdown | None" = None
 
+    # Measured depletion from the daily inventory snapshots (independent of
+    # orders) vs SBX-folded sales velocity — surfaces outflow not explained by
+    # TikTok sales (samples / shrinkage / other channels). None with <2 snapshots.
+    measured_depletion: "DepletionStat | None" = None
+    depletion_daily_sales: Decimal = Decimal("0")  # SBX-folded sales, for the comparison
+    depletion_gap: Decimal | None = None           # depletion − sales (positive = unexplained)
+
 
 def _weekly_velocity(
     db: Session, component_sku: str, *, as_of: datetime, weeks: int = 12,
@@ -948,6 +955,18 @@ def compute_sku_detail_view(
 
     parents, children = _bundle_relationships(db, sku, component_sku)
 
+    # Measured depletion (from the daily inventory snapshots) vs sales velocity,
+    # both folded into the physical SAP/SBX key space so they compare like-for-
+    # like (a multi-variation SBX sums its variations' sales).
+    from app.services.demand.depletion import compute_depletion_rates, velocity_by_sap_sku
+    sap_sku = (sku.sku if (sku and sku.sku) else component_sku)
+    measured_depletion = compute_depletion_rates(db, as_of=now).get(sap_sku)
+    depletion_daily_sales = velocity_by_sap_sku(db, velocities).get(sap_sku, Decimal("0"))
+    depletion_gap = (
+        measured_depletion.daily_depletion - depletion_daily_sales
+        if measured_depletion else None
+    )
+
     return SkuDetailView(
         row=row,
         safety_stock_pct=effective_safety,
@@ -964,4 +983,7 @@ def compute_sku_detail_view(
         default_lead_time_days=settings.demand_lead_time_default_days,
         default_safety_stock_pct=settings.demand_safety_stock_pct,
         demand_breakdown=_demand_breakdown(db, component_sku, as_of=now, alias_map=alias_map),
+        measured_depletion=measured_depletion,
+        depletion_daily_sales=depletion_daily_sales,
+        depletion_gap=depletion_gap,
     )
