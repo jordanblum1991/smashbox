@@ -24,27 +24,11 @@ from app.reports.sample_tracking import (
     count_samples_shipped,
     samples_by_sku_shipped,
 )
-from app.reports.sku_profitability import compute_top_skus
 from app.services.data_freshness import compute_freshness
 from app.services.reporting_tz import today_local
 from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["dashboard"])
-
-
-def _top_sku_view(r) -> dict:
-    """Serialize a TopSkuRow for the dashboard's AG Grid (JSON-ready)."""
-    return {
-        "rank": r.rank,
-        "tiktok_sku_id": r.tiktok_sku_id,
-        "sku_code": r.sku_code,
-        "name": (title_case(strip_size(r.name)) if r.name else None),
-        "is_bundle": r.is_bundle,
-        "is_unmapped": r.is_unmapped,
-        "units_sold": r.units_sold,
-        "net_customer_sales": float(r.net_customer_sales),
-        "aov": float(r.aov),
-    }
 
 
 def _sample_sku_view(r) -> dict:
@@ -112,7 +96,6 @@ def home(
 
     # Period-scoped extras — same window the P&L view uses.
     start, end = window_for(view)
-    top_skus = compute_top_skus(db, start, end, limit=10)
     samples_shipped = count_samples_shipped(db, start, end)
     sample_orders_shipped = count_sample_orders_shipped(db, start, end)
     # All-time lifetime total — period-independent, shown beside the period figure.
@@ -163,9 +146,7 @@ def home(
             "has_ads_all_time": has_ads_all_time,
             "last_failed": last_failed,
             "today": today_local(),
-            "top_skus": top_skus,
             "samples_by_sku": samples_by_sku,
-            "top_skus_json": [_top_sku_view(r) for r in top_skus],
             "samples_json": [_sample_sku_view(r) for r in samples_by_sku],
             "freshness": freshness,
             "trends": trends,

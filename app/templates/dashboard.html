@@ -179,34 +179,6 @@
 </summary>
 {% endmacro %}
 
-{# ---- Top 10 Best Selling SKUs -------------------------------------------- #}
-<section class="mt-2">
-  <details class="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-    {{ module_summary(
-        "Top 10 Best Selling SKUs",
-        "Ranked by units sold · " ~ view.title_suffix,
-        "shopping-bag") }}
-
-    <div class="mt-6">
-      {% if top_skus %}
-      <div class="agx -mx-6">
-        <div id="top-skus-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%"></div>
-      </div>
-      <p class="mt-4 text-xs leading-relaxed text-slate-400">
-        Bundles count as 1 unit per order (not exploded into components). Net Customer Sales is computed at the line level
-        (gross − TikTok-funded discount − Outlandish − Smashbox); order-grain refunds are excluded from this column.
-        Unmapped rows are also counted in the <a href="/reports/unmapped-skus" class="text-slate-600 underline underline-offset-2 hover:text-slate-900">Unmapped SKUs</a> report.
-      </p>
-      {% else %}
-      <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
-        <p class="text-sm font-medium text-slate-700">No paid orders in this period</p>
-        <p class="mt-1 text-xs text-slate-500">Change the period above or <a href="/uploads" class="underline underline-offset-2">import a file</a>.</p>
-      </div>
-      {% endif %}
-    </div>
-  </details>
-</section>
-
 {# ---- Samples Sent by SKU ------------------------------------------------- #}
 <section class="mt-4">
   <details class="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -254,7 +226,6 @@
 /* Dashboard data grids — Top SKUs + Samples by SKU, on the shared .agx system.
    Both live in collapsible <details>, so each grid is created lazily the first
    time its module opens (AG Grid needs a visible container to size itself). */
-const TOP_SKUS = {{ top_skus_json | tojson }};
 const SAMPLES = {{ samples_json | tojson }};
 
 const dollars = v => (v===null||v===undefined) ? "—" : "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -274,26 +245,6 @@ const intRenderer = p => `<span class="num">${intc(p.value)}</span>`;
 const moneyRenderer = p => `<span class="num">${dollars(p.value)}</span>`;
 
 const baseCol = { sortable:true, suppressHeaderMenuButton:true, resizable:true };
-
-function makeTopSkusGrid(){
-  return {
-    columnDefs:[
-      { headerName:"Rank", field:"rank", width:84, type:"rightAligned",
-        cellRenderer:p=>`<span class="num muted">${p.value}</span>` },
-      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuCellRenderer },
-      { headerName:"Product", field:"name", flex:1.8, minWidth:180, cellRenderer:nameRenderer },
-      { headerName:"TikTok SKU ID", field:"tiktok_sku_id", width:170, cellRenderer:ttRenderer },
-      { headerName:"Units Sold", field:"units_sold", width:120, type:"rightAligned", cellRenderer:intRenderer },
-      { headerName:"Net Customer Sales", field:"net_customer_sales", width:180, type:"rightAligned", cellRenderer:moneyRenderer },
-      { headerName:"AOV", field:"aov", width:120, type:"rightAligned", cellRenderer:moneyRenderer },
-    ],
-    defaultColDef:baseCol,
-    rowData:TOP_SKUS,
-    domLayout:"autoHeight",
-    suppressCellFocus:true,
-    rowClassRules:{ "dash-unmapped": p => p.data && p.data.is_unmapped },
-  };
-}
 
 function makeSamplesGrid(){
   const tot = SAMPLES.reduce((a,r)=>({ samples_sent:a.samples_sent+r.samples_sent, sample_orders_shipped:a.sample_orders_shipped+r.sample_orders_shipped, units_sold:a.units_sold+r.units_sold }), {samples_sent:0,sample_orders_shipped:0,units_sold:0});
@@ -332,7 +283,6 @@ function lazyGrid(gridId, makeOptions){
 }
 
 document.addEventListener("DOMContentLoaded", ()=>{
-  lazyGrid("top-skus-grid", makeTopSkusGrid);
   lazyGrid("samples-grid", makeSamplesGrid);
 });
 </script>
