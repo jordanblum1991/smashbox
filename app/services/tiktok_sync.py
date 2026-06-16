@@ -17,11 +17,40 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.import_batch import _utc_now_naive
 from app.models.tiktok_sync_state import TikTokSyncState
 
 STREAMS = ("orders", "settlements", "payouts", "analytics")
 DEFAULT_LOOKBACK_DAYS = 7  # first sync (no watermark) pulls this much history
+STALE_HOURS = 36  # past the daily cadence (+grace) → the auto-sync has stalled
+
+
+def sync_health(db: Session) -> dict | None:
+    """Return an attention signal when the auto-sync needs a look, else None.
+    Only when the shop is connected. Read-only — does NOT create sync-state rows
+    (so it's safe to call from a render path / middleware).
+
+      {"severity": "error", "reason": "error", "streams": [...]}  — a stream failed
+      {"severity": "warn",  "reason": "stale", "hours": N}        — hasn't run in >36h
+    """
+    from app.services.tiktok_api import get_credential
+
+    cred = get_credential(db)
+    if cred is None or not cred.shop_cipher:
+        return None
+    states = db.query(TikTokSyncState).all()
+    errored = [s.stream for s in states if s.last_status == "error"]
+    if errored:
+        return {"severity": "error", "reason": "error", "streams": errored}
+    if not settings.tiktok_auto_sync_enabled:
+        return None
+    runs = [s.last_run_at for s in states if s.last_run_at]
+    if runs:
+        hours = (_utc_now_naive() - max(runs)).total_seconds() / 3600
+        if hours > STALE_HOURS:
+            return {"severity": "warn", "reason": "stale", "hours": int(hours)}
+    return None
 
 
 def get_state(db: Session, stream: str) -> TikTokSyncState:

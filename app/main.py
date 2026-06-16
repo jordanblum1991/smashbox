@@ -274,6 +274,7 @@ async def attach_data_health(request: Request, call_next):
     request.state.overdue_ap = {"count": 0, "total": 0}
     request.state.payables_due_soon = {"count": 0, "total": 0, "within_days": 14}
     request.state.inventory_alerts = {"count": 0, "out_of_stock": 0, "at_risk": 0, "reorder_now": 0}
+    request.state.tiktok_sync_alert = False
     # /healthz is a DB-free liveness probe — never run the diagnostic queries for
     # it, or a locked/slow DB would hang the probe and trigger a needless restart.
     if not request.url.path.startswith(("/static", "/healthz")):
@@ -296,6 +297,8 @@ async def attach_data_health(request: Request, call_next):
                 # Cached (TTL) so the velocity-based reorder compute doesn't run
                 # on every request — see app/reports/inventory_alerts.py.
                 request.state.inventory_alerts = get_inventory_alert_summary(db)
+                from app.services.tiktok_sync import sync_health
+                request.state.tiktok_sync_alert = sync_health(db) is not None
         except Exception:
             pass
     # Action Center nav badge: count of open actionable categories, derived from
@@ -308,6 +311,7 @@ async def attach_data_health(request: Request, call_next):
         _inv.get("out_of_stock", 0), _inv.get("reorder_now", 0), _inv.get("at_risk", 0),
         _dh.get("unmapped", 0), _dh.get("missing_cogs", 0),
         _dh.get("policy_violations", 0), _dh.get("orphans", 0),
+        1 if request.state.tiktok_sync_alert else 0,
     ) if c > 0)
     return await call_next(request)
 

@@ -173,6 +173,26 @@ def compute_action_center(db: Session) -> "ActionCenterView":
             "/uploads", "Manage imports",
         ))
 
+    # TikTok auto-sync health — a stream in `error`, or a sync that hasn't run in
+    # >36h (past the daily cadence). Only fires when connected. Shares one helper
+    # with the dashboard's per-request action-items count so they never drift.
+    from app.services.tiktok_sync import sync_health
+
+    health = sync_health(db)
+    if health and health["reason"] == "error":
+        streams = health["streams"]
+        imp.items.append(ActionItem(
+            "tiktok_sync_error", "error", "TikTok sync error", len(streams),
+            f"{', '.join(streams)} failed on the last run — re-check the connection.",
+            "/admin/tiktok", "Open connection",
+        ))
+    elif health and health["reason"] == "stale":
+        imp.items.append(ActionItem(
+            "tiktok_sync_stale", "warn", "TikTok auto-sync stale", 1,
+            f"Last ran {health['hours']}h ago — the daily sync may have stalled.",
+            "/admin/tiktok", "Open connection",
+        ))
+
     for g in (pay, inv_group, dh, imp):
         g.items.sort(key=lambda i: _SEV_RANK.get(i.severity, 9))
         if g.items:
