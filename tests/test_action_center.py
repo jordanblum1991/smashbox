@@ -22,9 +22,11 @@ from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.models.shop import Shop
 from app.models.sku import Sku
 from app.models.tiktok_credential import TikTokCredential
+from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.tiktok_sync_state import TikTokSyncState
 from app.reports.action_center import compute_action_center
 from app.reports.inventory_alerts import _reset_cache
+from app.reports.reconciliation import _reset_recon_cache
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +34,7 @@ def fresh_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     _reset_cache()  # inventory alert summary is process-cached
+    _reset_recon_cache()  # recon-break summary is process-cached too
     with SessionLocal() as db:
         db.add(Shop(slug="smashbox", name="Smashbox", timezone="America/Los_Angeles"))
         db.add(Sku(sku="SBX-001", name="Primer", brand="smashbox",
@@ -152,3 +155,60 @@ def test_no_sync_item_when_not_connected():
         db.commit()
         v = compute_action_center(db)
     assert "tiktok_sync_error" not in _keys(v)
+
+
+# --- reconciliation breaks --------------------------------------------------
+
+def _make_paid_order(db, *, batch_id, day, gross):
+    """A PAID order on a given Pacific day (noon → safe from the tz boundary)."""
+    db.add(Order(
+        import_batch_id=batch_id, tiktok_order_id=f"RB-{day}-{gross}",
+        placed_at=datetime(day.year, day.month, day.day, 12, 0),
+        order_type=OrderType.PAID, status="Completed", brand="smashbox",
+        gross_sales=Decimal(str(gross)),
+    ))
+
+
+def test_recon_break_surfaces_on_settled_day_mismatch():
+    from datetime import timedelta
+    from app.services.reporting_tz import today_local
+    day = today_local() - timedelta(days=10)  # settled + within lookback
+    with SessionLocal() as db:
+        b = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS, status=ImportBatchStatus.COMPLETED,
+                        original_filename="o", stored_path="o")
+        db.add(b); db.flush()
+        _make_paid_order(db, batch_id=b.id, day=day, gross=100)        # our GMV 100
+        db.add(TikTokDailyMetric(import_batch_id=b.id, metric_date=day, gmv=Decimal("50")))
+        db.commit()
+        v = compute_action_center(db)
+    assert "dh_recon_break" in _keys(v)
+
+
+def test_recon_break_ignores_recent_provisional_days():
+    from datetime import timedelta
+    from app.services.reporting_tz import today_local
+    day = today_local() - timedelta(days=1)  # inside the settle-grace window
+    with SessionLocal() as db:
+        b = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS, status=ImportBatchStatus.COMPLETED,
+                        original_filename="o", stored_path="o")
+        db.add(b); db.flush()
+        _make_paid_order(db, batch_id=b.id, day=day, gross=100)
+        db.add(TikTokDailyMetric(import_batch_id=b.id, metric_date=day, gmv=Decimal("50")))
+        db.commit()
+        v = compute_action_center(db)
+    assert "dh_recon_break" not in _keys(v)
+
+
+def test_no_recon_break_when_settled_day_ties():
+    from datetime import timedelta
+    from app.services.reporting_tz import today_local
+    day = today_local() - timedelta(days=10)
+    with SessionLocal() as db:
+        b = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS, status=ImportBatchStatus.COMPLETED,
+                        original_filename="o", stored_path="o")
+        db.add(b); db.flush()
+        _make_paid_order(db, batch_id=b.id, day=day, gross=100)
+        db.add(TikTokDailyMetric(import_batch_id=b.id, metric_date=day, gmv=Decimal("100")))  # ties
+        db.commit()
+        v = compute_action_center(db)
+    assert "dh_recon_break" not in _keys(v)

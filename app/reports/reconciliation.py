@@ -11,8 +11,9 @@ decomposed into:
 The seller-funded discount split check is kept exactly as-is — it asserts the
 load-bearing invariant Outlandish + Smashbox == TikTok total seller-funded.
 """
+import time
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import case, distinct, func, select
@@ -27,6 +28,7 @@ from app.services.reporting_tz import (
     placed_local_date,
     placed_window,
     shop_boundary_to_source,
+    today_local,
 )
 
 
@@ -285,6 +287,81 @@ def daily_sales_reconciliation(
             tiktok_orders=tt[1] if tt else None,
         ))
     return out
+
+
+# ---- reconciliation-break alerting -----------------------------------------
+#
+# A *settled* day where our GMV diverges from TikTok's reported GMV is a real
+# signal (a missed import, a TikTok-side change) — the offset sweep showed the
+# bucketing model ties settled months to $0.00/day, so a non-zero settled-day
+# variance isn't timezone noise. We exclude the most recent few days, where both
+# sides are still provisional (the known current-month drift).
+
+@dataclass
+class ReconBreakDay:
+    day: date
+    gmv: Decimal          # our GMV-equivalent for the day
+    tiktok_gmv: Decimal   # TikTok-reported GMV
+    variance: Decimal     # gmv − tiktok_gmv
+
+
+def recent_recon_breaks(
+    db: Session, *, today: date | None = None, lookback_days: int = 30,
+    settle_grace_days: int = 3, threshold: Decimal = Decimal("1.00"),
+) -> list[ReconBreakDay]:
+    """Settled days in the trailing window whose GMV diverges from TikTok's by
+    more than `threshold`. The most recent `settle_grace_days` days are excluded
+    (still provisional on both sides → expected drift, not a break)."""
+    today = today or today_local()
+    window_end = today - timedelta(days=settle_grace_days)
+    window_start = today - timedelta(days=lookback_days)
+    if window_end < window_start:
+        return []
+
+    months: list[tuple[int, int]] = []
+    y, m = window_start.year, window_start.month
+    while (y, m) <= (window_end.year, window_end.month):
+        months.append((y, m))
+        m, y = (1, y + 1) if m == 12 else (m + 1, y)
+
+    breaks: list[ReconBreakDay] = []
+    for (yy, mm) in months:
+        for r in daily_sales_reconciliation(db, yy, mm):
+            if not (window_start <= r.day <= window_end):
+                continue
+            v = r.tiktok_variance
+            if r.tiktok_gmv is None or v is None or abs(v) <= threshold:
+                continue
+            breaks.append(ReconBreakDay(day=r.day, gmv=r.gmv, tiktok_gmv=r.tiktok_gmv, variance=v))
+    breaks.sort(key=lambda b: b.day)
+    return breaks
+
+
+_recon_cache: dict = {"at": float("-inf"), "data": None}
+_RECON_TTL_SECONDS = 600  # 10 min — the per-request callers read this cache
+
+
+def get_recon_break_summary(db: Session, *, ttl: float = _RECON_TTL_SECONDS) -> dict:
+    """TTL-cached `{count, worst_day, worst_variance}` so the dashboard/nav can
+    check for reconciliation breaks every request without recomputing the
+    multi-month daily recon each time. Mirrors get_inventory_alert_summary."""
+    now = time.monotonic()
+    if _recon_cache["data"] is None or (now - _recon_cache["at"]) > ttl:
+        breaks = recent_recon_breaks(db)
+        worst = max(breaks, key=lambda b: abs(b.variance)) if breaks else None
+        _recon_cache["data"] = {
+            "count": len(breaks),
+            "worst_day": worst.day if worst else None,
+            "worst_variance": worst.variance if worst else Decimal("0"),
+        }
+        _recon_cache["at"] = now
+    return _recon_cache["data"]
+
+
+def _reset_recon_cache() -> None:
+    """Test hook — clear the cached summary so a fresh DB recomputes."""
+    _recon_cache["data"] = None
+    _recon_cache["at"] = float("-inf")
 
 
 def yearly_sales_reconciliation(
