@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Bundles' if active_tab == 'bundles' else 'SKUs' }} · Catalog · Smashbox{% endblock %}
+{% block title %}{{ 'Bundles' if active_tab == 'bundles' else 'SKUs' }} · Product Catalog · Smashbox{% endblock %}
 
 {# Server-rendered tabs: the active tab's head assets (ag-grid etc.) and body
    are included on a full page load, so each grid initializes normally — a
@@ -10,7 +10,7 @@
 {% endblock %}
 
 {% block content %}
-<nav class="mb-6 inline-flex gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="Catalog sections">
+<nav class="mb-6 inline-flex gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="Product Catalog sections">
   <a href="/admin/catalog?tab=skus"
      class="rounded-lg px-6 py-2.5 text-sm font-semibold transition {{ 'bg-indigo-600 text-white shadow-sm' if active_tab == 'skus' else 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700' }}">SKUs</a>
   <a href="/admin/catalog?tab=bundles"
