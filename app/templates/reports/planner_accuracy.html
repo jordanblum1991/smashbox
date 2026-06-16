@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Planner Accuracy · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Demand",
+  title="Planner Accuracy",
+  subtitle="Backtest — what the planner would have recommended vs what actually sold.",
+  accent_bar=true,
+) %}{% endcall %}
+
+{% if not view.has_data %}
+  <div class="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+    Not enough history yet — the backtest needs an inventory snapshot plus the demand that followed.
+    {% if view.snapshot_history_from %}Snapshots began {{ view.snapshot_history_from.strftime("%b %d, %Y") }}; check back as more accumulate.{% endif %}
+  </div>
+{% else %}
+{% set sc = view.scorecard %}
+
+<p class="-mt-3 mb-5 text-sm text-slate-500">
+  Replayed at <strong class="text-slate-700">{{ view.as_of.strftime("%b %d, %Y") }}</strong>
+  using only the data available then, scored against the
+  <strong class="text-slate-700">{{ view.forward_days }} days</strong> of actual demand since.
+  {{ sc.skus_scored }} SKUs scored.
+</p>
+
+{% call ui.banner(tone=view.verdict_tone, title="What the backtest says") %}{{ view.verdict }}{% endcall %}
+
+<section class="my-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {{ ui.kpi("Forecast efficiency", "%.2f"|format(sc.forecast_efficiency_30d|float),
+            "actual demand $ ÷ recommended $ · 1.0 = perfect") }}
+  {{ ui.kpi("Overstock rate", "%.0f"|format(sc.overstock_rate|float) ~ "%",
+            "SKUs recommended well above 30d demand") }}
+  {{ ui.kpi("Real stockout rate", "%.0f"|format(sc.stockout_lead_rate_uncensored|float) ~ "%",
+            "stocked SKUs that ran out within lead time") }}
+  {{ ui.kpi("Demand vs recommended",
+            (sc.total_actual_demand_value_30d | money) ~ " / " ~ (sc.total_recommended_investment | money),
+            "30d actual demand value vs recommended investment") }}
+</section>
+
+{% if view.overstock_skus %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Biggest over-recommendations</h2>
+    <p class="mt-0.5 text-xs text-slate-500">Where the suggestion far exceeded what the next 30 days actually consumed.</p>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2">SKU</th>
+          <th class="px-4 py-2 text-right">Recommended</th>
+          <th class="px-4 py-2 text-right">Actual 30d</th>
+          <th class="px-4 py-2 text-right">Over-recommended</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in view.overstock_skus %}
+        <tr>
+          <td class="px-4 py-2"><span class="font-medium text-slate-900">{{ r.sku_code or r.component_sku }}</span>{% if r.name %} <span class="text-slate-400">· {{ r.name | strip_size | title_case }}</span>{% endif %}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.recommended_qty) }} · {{ r.recommended_investment | money }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.actual_demand_30d) }} · {{ r.actual_demand_value_30d | money }}</td>
+          <td class="px-4 py-2 text-right font-semibold tabular-nums text-amber-700">{{ (r.recommended_investment - r.actual_demand_value_30d) | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if view.stockout_skus %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-sm">
+  <header class="border-b border-rose-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Real lead-time stockouts</h2>
+    <p class="mt-0.5 text-xs text-slate-500">Had stock at {{ view.as_of.strftime("%b %d") }} but ran out within lead time — under-ordered.</p>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2">SKU</th>
+          <th class="px-4 py-2 text-right">On hand</th>
+          <th class="px-4 py-2 text-right">Demand (lead)</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in view.stockout_skus %}
+        <tr>
+          <td class="px-4 py-2"><span class="font-medium text-slate-900">{{ r.sku_code or r.component_sku }}</span>{% if r.name %} <span class="text-slate-400">· {{ r.name | strip_size | title_case }}</span>{% endif %}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.on_hand_at_as_of) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums text-rose-700">{{ "{:,}".format(r.actual_demand_lead) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<p class="text-xs text-slate-400">Backtest depth is limited by snapshot history (began {{ view.snapshot_history_from.strftime("%b %d, %Y") }}); it covers more replay points as the daily inventory sync accumulates.</p>
+{% endif %}
+{% endblock %}
