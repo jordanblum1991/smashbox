@@ -65,6 +65,11 @@
     <div>
       <h2 class="text-base font-semibold text-slate-900">Data sync</h2>
       <p class="mt-0.5 text-xs text-slate-500">Orders, settlements, payouts, and analytics — incremental, watermarked per stream.</p>
+      {% if auto_sync %}
+      <p class="mt-1 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+        {{ ui.icon("clock", "h-3 w-3") }} Auto-syncs daily at {{ auto_sync }} (shop time)
+      </p>
+      {% endif %}
     </div>
     <form action="/admin/tiktok/sync" method="post">
       <button type="submit"

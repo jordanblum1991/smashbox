@@ -30,10 +30,14 @@ AUTHORIZE_URL = "https://services.tiktokshop.com/open/authorize"
 def tiktok_status(request: Request, db: Session = Depends(get_db),
                   error: str | None = None, notice: str | None = None):
     cred = tiktok_api.get_credential(db)
+    auto_sync = None
+    if settings.scheduler_enabled and settings.tiktok_auto_sync_enabled:
+        auto_sync = f"{settings.tiktok_sync_hour:02d}:{settings.tiktok_sync_minute:02d}"
     return templates.TemplateResponse(
         request, "admin/tiktok.html",
         {"cred": cred, "configured": settings.tiktok_oauth_enabled,
          "sync_states": tiktok_sync.all_states(db),
+         "auto_sync": auto_sync,
          "error": error, "notice": notice},
     )
 

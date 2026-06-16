@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     inventory_sync_default_minute: int = 30
     inventory_sync_default_days: str = "mon,tue,wed,thu,fri"
 
+    # TikTok API auto-sync (orders/settlements/payouts/analytics). Runs daily in
+    # the shop's timezone via the same scheduler, after TikTok finalizes the
+    # prior day. Gated by scheduler_enabled too; the job skips if not connected.
+    tiktok_auto_sync_enabled: bool = True
+    tiktok_sync_hour: int = 6
+    tiktok_sync_minute: int = 0
+
     # ---- Auth (per-user sessions) -----------------------------------------
     # Phase 1: real users instead of the v1 shared HTTP Basic credential.
     #
