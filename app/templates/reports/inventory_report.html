@@ -30,12 +30,19 @@
 </p>
 {% endif %}
 
+{# View toggle: focus the report on sellable (SB) or sample (SBS) stock. #}
+<div class="mb-5 inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm shadow-sm print:hidden" role="group" aria-label="Inventory view">
+  <button type="button" data-mode="all" class="inv-mode-btn rounded-md px-3.5 py-1.5 font-medium text-slate-600 transition hover:text-slate-900">All</button>
+  <button type="button" data-mode="sellable" class="inv-mode-btn rounded-md px-3.5 py-1.5 font-medium text-slate-600 transition hover:text-slate-900">Sellable</button>
+  <button type="button" data-mode="sample" class="inv-mode-btn rounded-md px-3.5 py-1.5 font-medium text-slate-600 transition hover:text-slate-900">Sample</button>
+</div>
+
 <!-- Headline KPIs -->
 <section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
   {{ ui.kpi("Inventory Value", view.total_inventory_value | money, "On-hand × unit COGS (sellable + sample)") }}
   {{ ui.kpi("Total Units", view.total_units, "Sellable + sample, across all SKUs") }}
-  {{ ui.kpi("Sellable On-Hand", view.total_sellable, view.total_sellable_value | money ~ " · SB warehouse") }}
-  {{ ui.kpi("Sample On-Hand", view.total_sample, view.total_sample_value | money ~ " · SBS warehouse") }}
+  <div class="kpi-sellable">{{ ui.kpi("Sellable On-Hand", view.total_sellable, view.total_sellable_value | money ~ " · SB warehouse") }}</div>
+  <div class="kpi-sample">{{ ui.kpi("Sample On-Hand", view.total_sample, view.total_sample_value | money ~ " · SBS warehouse") }}</div>
   {{ ui.kpi("SKUs", view.sku_count, "Distinct SKUs in the report") }}
 </section>
 
@@ -74,8 +81,8 @@
         <tr>
           <th data-key="sku" class="select-none px-4 py-2 hover:text-slate-700">SKU <span class="sort-ind"></span></th>
           <th data-key="name" class="select-none px-4 py-2 hover:text-slate-700">Product Name <span class="sort-ind"></span></th>
-          <th data-key="sellable" class="select-none px-4 py-2 text-right hover:text-slate-700">Sellable <span class="sort-ind"></span></th>
-          <th data-key="sample" class="select-none px-4 py-2 text-right hover:text-slate-700">Sample <span class="sort-ind"></span></th>
+          <th data-key="sellable" class="col-sellable select-none px-4 py-2 text-right hover:text-slate-700">Sellable <span class="sort-ind"></span></th>
+          <th data-key="sample" class="col-sample select-none px-4 py-2 text-right hover:text-slate-700">Sample <span class="sort-ind"></span></th>
           <th data-key="total" class="select-none px-4 py-2 text-right hover:text-slate-700">Total <span class="sort-ind"></span></th>
           <th data-key="in_transit" class="select-none px-4 py-2 text-right hover:text-slate-700" title="Units on placed purchase orders, not yet received">On order <span class="sort-ind"></span></th>
           <th data-key="value" class="select-none px-4 py-2 text-right hover:text-slate-700">Value <span class="sort-ind"></span></th>
@@ -107,8 +114,8 @@
           <td class="px-4 py-2">
             {% if r.name %}{{ r.name | strip_size | title_case }}{% else %}<span class="text-rose-700">—</span>{% endif %}
           </td>
-          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sellable_on_hand) }}</td>
-          <td class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sample_on_hand) }}</td>
+          <td class="col-sellable px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sellable_on_hand) }}</td>
+          <td class="col-sample px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sample_on_hand) }}</td>
           <td class="px-4 py-2 text-right font-semibold tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ "{:,}".format(r.total_on_hand) }}</td>
           <td class="px-4 py-2 text-right tabular-nums {% if r.in_transit == 0 %}text-slate-300{% else %}text-sky-700{% endif %}">{{ "{:,}".format(r.in_transit) }}</td>
           <td class="px-4 py-2 text-right tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-700{% endif %}">{{ r.total_value | money }}</td>
@@ -123,8 +130,8 @@
       <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 font-semibold">
         <tr>
           <td class="px-4 py-2" colspan="2"><span id="foot-label">Total</span></td>
-          <td id="foot-sellable" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
-          <td id="foot-sample" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
+          <td id="foot-sellable" class="col-sellable px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
+          <td id="foot-sample" class="col-sample px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
           <td id="foot-total" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_units) }}</td>
           <td id="foot-in_transit" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_in_transit) }}</td>
           <td id="foot-value" class="px-4 py-2 text-right tabular-nums">{{ view.total_inventory_value | money }}</td>
@@ -168,7 +175,7 @@
     var pageLabel = document.getElementById("inv-pagelabel");
     var prevBtn = document.getElementById("inv-prev");
     var nextBtn = document.getElementById("inv-next");
-    var sortKey = null, sortDir = 1, page = 1;
+    var sortKey = null, sortDir = 1, page = 1, mode = "all";
 
     function num(r, k) { return parseFloat(r.getAttribute("data-" + k)) || 0; }
     function money(n) { return "$" + n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
@@ -186,6 +193,9 @@
       if (f === "outofstock" && total > 0) return false;
       if (f === "sellable" && sell <= 0) return false;
       if (f === "sample" && samp <= 0) return false;
+      // View toggle: a focused warehouse only lists SKUs that hold its stock.
+      if (mode === "sellable" && sell <= 0) return false;
+      if (mode === "sample" && samp <= 0) return false;
       return true;
     }
 
@@ -265,6 +275,31 @@
       th.style.cursor = "pointer";
       th.addEventListener("click", function () { sortBy(th.getAttribute("data-key")); });
     });
+
+    // View toggle (All / Sellable / Sample): hide the other warehouse's column +
+    // KPI, list only SKUs holding the focused stock, and mark the active button.
+    var modeBtns = Array.prototype.slice.call(document.querySelectorAll(".inv-mode-btn"));
+    function applyMode() {
+      modeBtns.forEach(function (b) {
+        var on = b.getAttribute("data-mode") === mode;
+        b.classList.toggle("bg-slate-900", on);
+        b.classList.toggle("text-white", on);
+        b.classList.toggle("shadow-sm", on);
+        b.classList.toggle("text-slate-600", !on);
+      });
+      document.querySelectorAll(".col-sellable, .kpi-sellable").forEach(function (el) {
+        el.classList.toggle("hidden", mode === "sample");
+      });
+      document.querySelectorAll(".col-sample, .kpi-sample").forEach(function (el) {
+        el.classList.toggle("hidden", mode === "sellable");
+      });
+    }
+    modeBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        mode = b.getAttribute("data-mode"); page = 1; applyMode(); render();
+      });
+    });
+    applyMode();
 
     // Print every filtered row (ignore the page limit), then restore the page.
     window.addEventListener("beforeprint", function () {
