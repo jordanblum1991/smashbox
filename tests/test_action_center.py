@@ -172,7 +172,7 @@ def _make_paid_order(db, *, batch_id, day, gross):
 def test_recon_break_surfaces_on_settled_day_mismatch():
     from datetime import timedelta
     from app.services.reporting_tz import today_local
-    day = today_local() - timedelta(days=10)  # settled + within lookback
+    day = today_local() - timedelta(days=14)  # settled (past 10-day grace), within lookback
     with SessionLocal() as db:
         b = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS, status=ImportBatchStatus.COMPLETED,
                         original_filename="o", stored_path="o")
@@ -202,7 +202,7 @@ def test_recon_break_ignores_recent_provisional_days():
 def test_no_recon_break_when_settled_day_ties():
     from datetime import timedelta
     from app.services.reporting_tz import today_local
-    day = today_local() - timedelta(days=10)
+    day = today_local() - timedelta(days=14)
     with SessionLocal() as db:
         b = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS, status=ImportBatchStatus.COMPLETED,
                         original_filename="o", stored_path="o")

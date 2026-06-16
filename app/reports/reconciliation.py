@@ -307,11 +307,14 @@ class ReconBreakDay:
 
 def recent_recon_breaks(
     db: Session, *, today: date | None = None, lookback_days: int = 30,
-    settle_grace_days: int = 3, threshold: Decimal = Decimal("1.00"),
+    settle_grace_days: int = 10, threshold: Decimal = Decimal("1.00"),
 ) -> list[ReconBreakDay]:
     """Settled days in the trailing window whose GMV diverges from TikTok's by
-    more than `threshold`. The most recent `settle_grace_days` days are excluded
-    (still provisional on both sides → expected drift, not a break)."""
+    more than `threshold`. The most recent `settle_grace_days` days are excluded:
+    TikTok's Shop Analytics aggregate lags its own order ledger by up to ~a week
+    on recent days (verified 2026-06-16 — our orders matched TikTok's Order API
+    18/18 on a day its Analytics still under-reported), and settled months
+    reconcile to $0, so only a gap that persists past the grace is a real break."""
     today = today or today_local()
     window_end = today - timedelta(days=settle_grace_days)
     window_start = today - timedelta(days=lookback_days)
