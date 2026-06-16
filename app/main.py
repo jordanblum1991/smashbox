@@ -17,6 +17,7 @@ from app.routers import gmv_max_reimbursements as gmv_max_reimbursements_router
 from app.routers import purchase_invoices as purchase_invoices_router
 from app.routers import purchase_orders as purchase_orders_router
 from app.routers import tiktok as tiktok_router
+from app.routers import tiktok_marketing as tiktok_marketing_router
 from app.routers import invoices as invoices_router
 from app.routers import dashboard, exports, reports, uploads
 
@@ -275,6 +276,7 @@ async def attach_data_health(request: Request, call_next):
     request.state.payables_due_soon = {"count": 0, "total": 0, "within_days": 14}
     request.state.inventory_alerts = {"count": 0, "out_of_stock": 0, "at_risk": 0, "reorder_now": 0}
     request.state.tiktok_sync_alert = False
+    request.state.recon_breaks = {"count": 0}
     # /healthz is a DB-free liveness probe — never run the diagnostic queries for
     # it, or a locked/slow DB would hang the probe and trigger a needless restart.
     if not request.url.path.startswith(("/static", "/healthz")):
@@ -299,6 +301,8 @@ async def attach_data_health(request: Request, call_next):
                 request.state.inventory_alerts = get_inventory_alert_summary(db)
                 from app.services.tiktok_sync import sync_health
                 request.state.tiktok_sync_alert = sync_health(db) is not None
+                from app.reports.reconciliation import get_recon_break_summary
+                request.state.recon_breaks = get_recon_break_summary(db)
         except Exception:
             pass
     # Action Center nav badge: count of open actionable categories, derived from
@@ -312,6 +316,7 @@ async def attach_data_health(request: Request, call_next):
         _dh.get("unmapped", 0), _dh.get("missing_cogs", 0),
         _dh.get("policy_violations", 0), _dh.get("orphans", 0),
         1 if request.state.tiktok_sync_alert else 0,
+        request.state.recon_breaks.get("count", 0),
     ) if c > 0)
     return await call_next(request)
 
@@ -331,6 +336,7 @@ app.include_router(gmv_max_reimbursements_router.router)
 app.include_router(purchase_invoices_router.router)
 app.include_router(purchase_orders_router.router)
 app.include_router(tiktok_router.router)
+app.include_router(tiktok_marketing_router.router)
 app.include_router(invoices_router.router)
 app.include_router(dashboard.router)
 app.include_router(uploads.router)

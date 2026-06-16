@@ -104,6 +104,27 @@ class Settings(BaseSettings):
     def tiktok_oauth_enabled(self) -> bool:
         return bool(self.tiktok_app_key and self.tiktok_app_secret and self.tiktok_service_id)
 
+    # ---- TikTok Marketing API (ad spend) ----------------------------------
+    # SEPARATE app from the Shop API above — business-api.tiktok.com, advertiser
+    # auth, long-lived token (no refresh), no request signing. Set both as Fly
+    # secrets. The advertiser authorize/redirect URL registered in the app is
+    # <public_base_url>/auth/tiktok-ads/callback. Pulls campaign spend into the
+    # ad_spend table, replacing the manual TikTok Ads "Cost" upload.
+    tiktok_marketing_app_id: str = ""
+    tiktok_marketing_secret: str = ""
+
+    @property
+    def tiktok_marketing_oauth_enabled(self) -> bool:
+        return bool(self.tiktok_marketing_app_id and self.tiktok_marketing_secret)
+
+    @property
+    def tiktok_ads_redirect_uri(self) -> str:
+        """The advertiser redirect URL registered in the Marketing API app.
+        Built from public_base_url; empty in local dev (the portal requires an
+        https origin, so the connect button is gated on this being set)."""
+        base = (self.public_base_url or "").rstrip("/")
+        return f"{base}/auth/tiktok-ads/callback" if base else ""
+
     # ---- Business-rule caps -----------------------------------------------
     # Cap on Outlandish-funded portion of a seller-funded discount, as a
     # fraction of the order's eligible base. Smashbox absorbs anything over.

@@ -429,3 +429,51 @@ def fetch_analytics(db: Session, cred: TikTokCredential, since: datetime | None)
     db.add(batch)
     db.flush()
     return import_metric_rows(rows, db, batch).rows_imported
+
+
+# ---------------------------------------------------------------------------
+# Marketing API — campaign ad spend (separate auth; see tiktok_marketing_api).
+# ---------------------------------------------------------------------------
+_ADS_LOOKBACK_DAYS = 30  # first sync (no watermark) backfills this much
+
+
+def fetch_ad_spend(db: Session, cred, since: datetime | None) -> int:
+    """Pull campaign ad spend since `since` from the TikTok Marketing API and
+    upsert AdSpend. `cred` is a TikTokMarketingCredential. Idempotent on
+    (spend_date, campaign_id); re-pulls a trailing window each run so TikTok's
+    provisional recent days self-correct. Returns rows imported."""
+    from datetime import date, timedelta
+
+    from app.importers.tiktok_ads import import_ad_spend_rows
+    from app.services import tiktok_marketing_api as mkt
+
+    start = since.date() if since is not None else (date.today() - timedelta(days=_ADS_LOOKBACK_DAYS))
+    end = date.today()  # inclusive; the report caps at the latest available day
+    advertiser_ids = mkt.advertiser_id_list(cred)
+    if not advertiser_ids:
+        return 0
+
+    rows: list[dict] = []
+    for aid in advertiser_ids:
+        for r in mkt.get_ad_spend(cred.access_token, aid, start.isoformat(), end.isoformat()):
+            rows.append({
+                "spend_date": datetime.fromisoformat(r["stat_day"]),  # midnight, matches CSV path
+                "campaign_id": r["campaign_id"],
+                "campaign_name": r.get("campaign_name"),
+                "amount": r["spend"],        # canonical total the P&L subtracts
+                "cash_cost": r["spend"],     # report 'spend' is real money spent
+                "currency": "USD",
+                "campaign_type": "AUCTION",
+            })
+    if not rows:
+        return 0
+
+    batch = ImportBatch(
+        kind=ImportFileKind.TIKTOK_ADS,
+        status=ImportBatchStatus.COMPLETED,
+        original_filename=f"TikTok API sync · ad spend · {len(rows)} rows",
+        stored_path="(api)",
+    )
+    db.add(batch)
+    db.flush()
+    return import_ad_spend_rows(rows, db, batch).rows_imported
