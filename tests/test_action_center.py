@@ -1,7 +1,7 @@
 """Action Center — consolidated open-items hub. Verifies the roll-up reflects
 the underlying signals and that informational ("heads up") items stay out of the
 actionable headline count."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -17,9 +17,12 @@ from app.models import (
     OrderLine,
     OrderType,
 )
+from app.models.import_batch import _utc_now_naive
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.models.shop import Shop
 from app.models.sku import Sku
+from app.models.tiktok_credential import TikTokCredential
+from app.models.tiktok_sync_state import TikTokSyncState
 from app.reports.action_center import compute_action_center
 from app.reports.inventory_alerts import _reset_cache
 
@@ -96,3 +99,56 @@ def test_nav_badge_and_link_present(client):
     # Empty DB → link present, no badge number.
     r = client.get("/action-center")
     assert 'href="/action-center"' in r.text
+
+
+# --- TikTok auto-sync health -----------------------------------------------
+
+def _connect(db, *, cipher="CIPHER"):
+    db.add(TikTokCredential(access_token="a", refresh_token="r", shop_cipher=cipher))
+
+
+def _keys(view):
+    return {i.key for g in view.groups for i in g.items}
+
+
+def test_tiktok_sync_error_surfaces_as_error_item():
+    with SessionLocal() as db:
+        _connect(db)
+        db.add(TikTokSyncState(stream="settlements", last_status="error", last_run_at=_utc_now_naive()))
+        db.add(TikTokSyncState(stream="orders", last_status="ok", last_run_at=_utc_now_naive()))
+        db.commit()
+        v = compute_action_center(db)
+    items = {i.key: i for g in v.groups for i in g.items}
+    assert "tiktok_sync_error" in items
+    assert items["tiktok_sync_error"].severity == "error"
+
+
+def test_tiktok_sync_stale_when_last_run_old():
+    with SessionLocal() as db:
+        _connect(db)
+        db.add(TikTokSyncState(stream="orders", last_status="ok",
+                               last_run_at=_utc_now_naive() - timedelta(hours=40)))
+        db.commit()
+        v = compute_action_center(db)
+    assert "tiktok_sync_stale" in _keys(v)
+
+
+def test_tiktok_sync_healthy_is_silent():
+    with SessionLocal() as db:
+        _connect(db)
+        db.add(TikTokSyncState(stream="orders", last_status="ok", last_run_at=_utc_now_naive()))
+        db.add(TikTokSyncState(stream="analytics", last_status="empty", last_run_at=_utc_now_naive()))
+        db.commit()
+        v = compute_action_center(db)
+    keys = _keys(v)
+    assert "tiktok_sync_error" not in keys and "tiktok_sync_stale" not in keys
+
+
+def test_no_sync_item_when_not_connected():
+    """A credential without a shop_cipher isn't 'connected' — no sync flags."""
+    with SessionLocal() as db:
+        db.add(TikTokCredential(access_token="a", refresh_token="r"))  # no shop_cipher
+        db.add(TikTokSyncState(stream="orders", last_status="error", last_run_at=_utc_now_naive()))
+        db.commit()
+        v = compute_action_center(db)
+    assert "tiktok_sync_error" not in _keys(v)
