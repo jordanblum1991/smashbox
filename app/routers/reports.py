@@ -453,7 +453,9 @@ def reconciliation_csv(
 @router.get("/reports/data-health.csv")
 def data_health_csv(db: Session = Depends(get_db)) -> Response:
     """All open data-quality issues (unmapped SKUs, orphan orders, policy
-    violations) in one CSV, tagged by Issue Type."""
+    violations, missing COGS) in one CSV, tagged by Issue Type."""
+    from app.reports.missing_cogs import find_missing_cogs
+
     def rows():
         for r in find_unmapped_skus(db):
             yield ["Unmapped SKU", r.identifier,
@@ -472,6 +474,10 @@ def data_health_csv(db: Session = Depends(get_db)) -> Response:
                    f"order {r.tiktok_order_id}, excess {r.excess:.2f}",
                    f"{r.seller_funded_discount:.2f}",
                    r.placed_at.strftime("%Y-%m-%d")]
+        for r in find_missing_cogs(db):
+            yield ["Missing COGS", r.sku_code,
+                   f"{r.name or ''} (on hand {r.on_hand}, sold {r.units_sold})".strip(),
+                   "0.00", ""]
 
     return _csv_response(
         rows(),
