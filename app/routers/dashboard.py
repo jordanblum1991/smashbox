@@ -19,31 +19,11 @@ from app.models.import_batch import ImportBatch, ImportBatchStatus
 from app.models.order import Order
 from app.reports.dashboard_trends import build_dashboard_trends
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
-from app.reports.sample_tracking import (
-    count_sample_orders_shipped,
-    count_samples_shipped,
-    samples_by_sku_shipped,
-)
 from app.services.data_freshness import compute_freshness
 from app.services.reporting_tz import today_local
-from app.templating import strip_size, templates, title_case
+from app.templating import templates
 
 router = APIRouter(tags=["dashboard"])
-
-
-def _sample_sku_view(r) -> dict:
-    """Serialize a ShippedSamplesBySkuRow for the dashboard's AG Grid."""
-    return {
-        "tiktok_sku_id": r.tiktok_sku_id,
-        "sku_code": r.sku_code,
-        "name": (title_case(strip_size(r.name)) if r.name else None),
-        "is_bundle": r.is_bundle,
-        "is_unmapped": r.is_unmapped,
-        "samples_sent": r.samples_sent,
-        "sample_orders_shipped": r.sample_orders_shipped,
-        "units_sold": r.units_sold,
-        "sold_per_sample": float(r.sold_per_sample),
-    }
 
 
 @router.get("/")
@@ -95,13 +75,7 @@ def home(
     )
 
     # Period-scoped extras — same window the P&L view uses.
-    start, end = window_for(view)
-    samples_shipped = count_samples_shipped(db, start, end)
-    sample_orders_shipped = count_sample_orders_shipped(db, start, end)
-    # All-time lifetime total — period-independent, shown beside the period figure.
-    # Wide window captures every sample regardless of the selected period.
-    samples_shipped_all_time = count_samples_shipped(db, date(1970, 1, 1), date(2100, 1, 1))
-    samples_by_sku = samples_by_sku_shipped(db, start, end)
+    _, end = window_for(view)
     freshness = compute_freshness(db)
 
     # All-time ROAS — canonical: a full-range P&L view read with the same
@@ -139,15 +113,10 @@ def home(
         {
             "view": view,
             "pnl": view.total,            # convenience for existing tile/waterfall code
-            "samples_shipped": samples_shipped,
-            "sample_orders_shipped": sample_orders_shipped,
-            "samples_shipped_all_time": samples_shipped_all_time,
             "roas_all_time": roas_all_time,
             "has_ads_all_time": has_ads_all_time,
             "last_failed": last_failed,
             "today": today_local(),
-            "samples_by_sku": samples_by_sku,
-            "samples_json": [_sample_sku_view(r) for r in samples_by_sku],
             "freshness": freshness,
             "trends": trends,
             "error": error,

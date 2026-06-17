@@ -1,7 +1,7 @@
 """Dashboard surfaces a single "open items → Action Center" entry banner driven
 by the per-request action_items count, so anything needing attention is one click
-from the home page. Also guards the SKU Profitability report — previously
-reachable only by URL — from the nav."""
+from the home page. The SKU Profitability report nav link was intentionally
+removed (report unused); the page still renders by direct URL."""
 from datetime import datetime
 from decimal import Decimal
 
@@ -43,10 +43,10 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_nav_links_sku_profitability_and_page_renders(client):
+def test_sku_profitability_page_renders_without_nav_link(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "/reports/sku-profitability" in r.text  # now discoverable from the nav
+    assert "/reports/sku-profitability" not in r.text  # nav link removed (report unused)
     assert client.get("/reports/sku-profitability").status_code == 200
 
 
