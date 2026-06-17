@@ -31,17 +31,6 @@
   {% set pnl_qs = "?period=" ~ kind ~ "&year=" ~ view.year ~ ("&month=" ~ view.month if view.month else "") %}
 {% endif %}
 
-{% if kind == "month" %}
-  {% set samples_qs = "?period=month&year=" ~ view.year ~ "&month=" ~ view.month %}
-{% elif kind == "ytd" %}
-  {% set samples_qs = "?period=ytd&year=" ~ view.year ~ "&month=" ~ view.month %}
-{% elif kind == "year" %}
-  {% set samples_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=1&end_year=" ~ view.year ~ "&end_month=12" %}
-{% else %}
-  {% set last_m = view.monthly_breakdown[-1].month if view.monthly_breakdown else None %}
-  {% set samples_qs = "?period=range&start_year=" ~ view.year ~ "&start_month=" ~ (view.month or 1) ~ "&end_year=" ~ (last_m.year if last_m else view.year) ~ "&end_month=" ~ (last_m.month if last_m else 1) %}
-{% endif %}
-
 {# ---- Derived signals used by banners + KPI accent colors ---------------- #}
 {% set has_orders = pnl.orders_count > 0 %}
 {% set coverage_pct = pnl.settlement_coverage_pct %}
@@ -129,7 +118,7 @@
 </section>
 
 {# ===========================================================================
-   KPI GRID — sales snapshot, then ad efficiency, then samples
+   KPI GRID — sales snapshot, then ad efficiency
    =========================================================================== #}
 {# ROAS tone from the derived ad signals above #}
 {% set roas_tone = 'none' %}
@@ -158,133 +147,5 @@
       delta=trends.ad_spend.delta, delta_polarity="neutral", spark=trends.ad_spend.spark) }}
 </section>
 
-
-{# ===========================================================================
-   POLISHED MODULES — Top SKUs + Samples by SKU
-   =========================================================================== #}
-{% macro module_summary(title, subtitle, icon_name) %}
-<summary class="-m-6 flex cursor-pointer items-center justify-between rounded-2xl p-6 transition hover:bg-slate-50/60">
-  <div class="flex items-center gap-3.5">
-    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100 transition group-open:bg-indigo-600 group-open:text-white">
-      {{ ui.icon(icon_name, "h-4 w-4") }}
-    </span>
-    <div>
-      <h2 class="text-base font-semibold text-slate-900">{{ title }}</h2>
-      <p class="mt-0.5 text-xs text-slate-500">{{ subtitle }}</p>
-    </div>
-  </div>
-  <span class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition group-open:border-slate-900 group-open:bg-slate-900 group-open:text-white">
-    {{ ui.icon("chevron-right", "h-3.5 w-3.5 transition-transform group-open:rotate-90") }}
-  </span>
-</summary>
-{% endmacro %}
-
-{# ---- Samples Sent by SKU ------------------------------------------------- #}
-<section class="mt-4">
-  <details class="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-    {{ module_summary(
-        "Samples Sent by SKU",
-        "Samples shipped · " ~ view.title_suffix,
-        "package") }}
-
-    <div class="mt-6">
-      {% if samples_by_sku %}
-      <div class="agx -mx-6">
-        <div id="samples-grid" class="ag-theme-quartz ag-theme-smashbox" style="width:100%; height:460px"></div>
-      </div>
-      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-        <p class="max-w-2xl leading-relaxed text-slate-400">
-          Shipped means TikTok status <span class="font-medium text-slate-600">Shipped</span> or
-          <span class="font-medium text-slate-600">Completed</span> — pending, canceled, withdrawn, unfulfilled,
-          failed, and <em>To ship</em> are excluded. No sample allowance applied.
-          <span class="ml-2 inline-block rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 ring-1 ring-amber-200">Amber rows</span> = zero units sold.
-        </p>
-        <div class="flex items-center gap-3">
-          <a href="/export/samples-by-sku.csv{{ samples_qs }}"
-             class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-slate-700 transition hover:bg-slate-50">
-            {{ ui.icon("download", "h-3.5 w-3.5") }}
-            Download CSV
-          </a>
-          <a href="/reports/samples{{ samples_qs }}"
-             class="inline-flex items-center gap-1 font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700">
-            Open Samples page
-            {{ ui.icon("arrow-right", "h-3.5 w-3.5") }}
-          </a>
-        </div>
-      </div>
-      {% else %}
-      <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
-        <p class="text-sm font-medium text-slate-700">No samples shipped in this period</p>
-        <p class="mt-1 text-xs text-slate-500">All shipped sample orders (status <em>Shipped</em> or <em>Completed</em>) in this window will appear here.</p>
-      </div>
-      {% endif %}
-    </div>
-  </details>
-</section>
-
-<script>
-/* Dashboard data grids — Top SKUs + Samples by SKU, on the shared .agx system.
-   Both live in collapsible <details>, so each grid is created lazily the first
-   time its module opens (AG Grid needs a visible container to size itself). */
-const SAMPLES = {{ samples_json | tojson }};
-
-const dollars = v => (v===null||v===undefined) ? "—" : "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-const intc = v => (v===null||v===undefined) ? "" : Number(v).toLocaleString("en-US");
-const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
-function skuCellRenderer(p){
-  if(p.node.rowPinned) return `<span style="font-weight:600">Total</span>`;
-  const d=p.data;
-  if(d.is_unmapped) return `<a class="cell-link" href="/reports/unmapped-skus">Unmapped</a>`;
-  const pill = d.is_bundle ? ` <span class="tag bundle" style="height:18px;font-size:10px;padding:0 6px;text-transform:uppercase;letter-spacing:.04em">Bundle</span>` : "";
-  return `<span style="font-weight:600;color:var(--sbx-ink)">${esc(d.sku_code||"—")}</span>${pill}`;
-}
-const nameRenderer = p => p.node.rowPinned ? "" : (p.data.is_unmapped ? `<span class="cell-link" style="text-decoration:none">${esc(p.data.name||"—")}</span>` : `<span style="color:var(--sbx-ink-soft)">${esc(p.data.name||"—")}</span>`);
-const ttRenderer = p => p.node.rowPinned ? "" : `<span class="code" style="font-family:var(--sbx-mono);font-size:11px;color:var(--sbx-ink-faint)">${esc(p.value)}</span>`;
-const intRenderer = p => `<span class="num">${intc(p.value)}</span>`;
-const moneyRenderer = p => `<span class="num">${dollars(p.value)}</span>`;
-
-const baseCol = { sortable:true, suppressHeaderMenuButton:true, resizable:true };
-
-function makeSamplesGrid(){
-  const tot = SAMPLES.reduce((a,r)=>({ samples_sent:a.samples_sent+r.samples_sent, sample_orders_shipped:a.sample_orders_shipped+r.sample_orders_shipped, units_sold:a.units_sold+r.units_sold }), {samples_sent:0,sample_orders_shipped:0,units_sold:0});
-  const pinned = { _total:true, samples_sent:tot.samples_sent, sample_orders_shipped:tot.sample_orders_shipped, units_sold:tot.units_sold,
-                   sold_per_sample: tot.samples_sent>0 ? tot.units_sold/tot.samples_sent : null };
-  return {
-    columnDefs:[
-      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuCellRenderer },
-      { headerName:"Product", field:"name", flex:1.8, minWidth:180, cellRenderer:nameRenderer },
-      { headerName:"TikTok SKU ID", field:"tiktok_sku_id", width:170, cellRenderer:ttRenderer },
-      { headerName:"Samples Sent", field:"samples_sent", width:130, type:"rightAligned", cellRenderer:intRenderer },
-      { headerName:"Sample Orders", field:"sample_orders_shipped", width:140, type:"rightAligned", cellRenderer:intRenderer },
-      { headerName:"Units Sold", field:"units_sold", width:120, type:"rightAligned",
-        cellRenderer:p=>`<span class="num${(!p.node.rowPinned && p.data.units_sold===0)?' warn':''}">${intc(p.value)}</span>` },
-      { headerName:"Sold / Sample", field:"sold_per_sample", width:140, type:"rightAligned",
-        cellRenderer:p=> p.value===null||p.value===undefined ? `<span class="num muted">—</span>` : `<span class="num">${Number(p.value).toFixed(2)}</span>` },
-    ],
-    defaultColDef:baseCol,
-    rowData:SAMPLES,
-    pinnedBottomRowData:[pinned],
-    suppressCellFocus:true,
-    rowClassRules:{ "dash-unmapped": p => p.data && !p.node.rowPinned && p.data.is_unmapped,
-                    "dash-zero": p => p.data && !p.node.rowPinned && !p.data.is_unmapped && p.data.units_sold===0 },
-  };
-}
-
-/* lazy-create a grid the first time its enclosing <details> is opened */
-function lazyGrid(gridId, makeOptions){
-  const el = document.getElementById(gridId);
-  if(!el) return;                       // empty period → no grid div rendered
-  const det = el.closest("details");
-  let created = false;
-  const make = ()=>{ if(!created && (!det || det.open)){ created=true; agGrid.createGrid(el, makeOptions()); } };
-  if(det) det.addEventListener("toggle", make);
-  make();                               // in case the module is already open
-}
-
-document.addEventListener("DOMContentLoaded", ()=>{
-  lazyGrid("samples-grid", makeSamplesGrid);
-});
-</script>
 
 {% endblock %}
