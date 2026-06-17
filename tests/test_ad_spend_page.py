@@ -57,6 +57,10 @@ def test_by_month_view_renders_table(client):
     assert "$200.00" in r.text                # Total Gross Spend = campaign Cost
     assert "5.00x" in r.text                  # ROAS = net 1000 / cost 200
     assert "All-Time" in r.text               # toggle + totals row
+    # Blended-ROAS relabel + scope footnote (honest labeling, not "ROAS").
+    assert "Blended ROAS" in r.text
+    assert "not</em> campaign-attributed" in r.text or "not campaign-attributed" in r.text
+    assert "/reports/ad-spend/reimbursements" in r.text   # cross-link to full spend breakdown
 
 
 def test_by_month_shows_campaign_columns(client):
