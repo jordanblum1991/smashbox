@@ -151,9 +151,9 @@
     Each row reconciles to the TikTok Seller Center <em>Sales</em> tile for that month.
     Variances between TikTok and our P&amp;L should equal the Refunds column — anything else
     indicates an out-of-sync settlement, an orphan order, or a data-entry issue worth investigating in the detail tables below.
-    Small day-level differences inside a month (visible in the daily table below) are expected
-    and explained there — they come from a 1-hour difference in how the two systems bucket
-    boundary-crossing orders, and net to ~zero at the month total.
+    The daily GMV table below ties to TikTok to the cent for every day of a fully-settled
+    month; only the current and most-recent days can differ, while TikTok's Shop Analytics
+    is still provisional (see the note under that table).
   </p>
 </section>
 {% endif %}
@@ -319,28 +319,24 @@
       Variance is shown as <em>ours − TikTok</em>: positive means we're counting more than TikTok on that day, negative means TikTok is counting more.
     </p>
     <p class="mt-2">
-      <strong class="text-slate-900">These small daily gaps are expected.</strong>
-      TikTok Seller Center buckets orders by their own reporting timezone, while our app keeps each
-      order's exact <code class="rounded bg-white px-1 ring-1 ring-slate-200">placed_at</code> timestamp from the orders CSV.
-      Orders placed near midnight at the boundary land on different calendar days
-      in the two systems — a single order can flip Day X's variance by its full
-      net amount, which is almost always offset by an equal-and-opposite flip on
-      the neighboring day.
+      <strong class="text-slate-900">Settled months tie to $0.00 per day.</strong>
+      We bucket each order by its shop-local (Seller Center) calendar day — the same
+      DST-aware reporting zone TikTok uses — so once a month is fully settled, every day
+      matches TikTok to the cent (Feb–May 2026 each reconcile with zero off-days). This
+      replaced an earlier model that left a ~1-hour midnight-boundary artifact; that's resolved.
     </p>
     <p class="mt-2">
-      <strong class="text-slate-900">Month totals reconcile cleanly.</strong>
-      Boundary-crossing within a month nets to zero, so the only true gap that
-      matters is at the very first/last day of the period. For March 2026 the
-      net monthly residual was <strong>$7.80</strong> — well under typical
-      finance-team tolerance and not worth a fix that would risk other
-      downstream joins.
+      <strong class="text-amber-800">Amber on a settled (older) day is a real break</strong>
+      worth investigating — typically a missing or partial import, or a TikTok-side
+      restatement — <em>not</em> timezone noise. The dashboard surfaces these as
+      reconciliation-break alerts once a day is past its settling grace window.
     </p>
     <p class="mt-2 text-slate-500">
-      Investigated 2026-05-19: the empirical offset between the two systems is
-      exactly 1 hour. We deliberately do NOT shift our stored timestamps because
-      the gap is immaterial at the monthly level and changing the data risks
-      breaking settlement reconciliation, P&amp;L date filters, and policy-violation
-      flagging. Treat amber rows as informational, not as bugs.
+      <strong class="text-slate-700">Amber on the most recent days is expected and clears on its own.</strong>
+      TikTok's Shop Analytics aggregate lags its own order ledger by a few days, so the
+      current and last several days can under-report until TikTok finalizes them — that's
+      provisional data settling, not an error. Let those days age out of the grace window
+      before treating a gap as a break.
     </p>
   </div>
   {% else %}
