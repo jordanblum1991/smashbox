@@ -16,14 +16,15 @@ from app.services.demand.replenishment import (
 )
 
 
-def test_default_cover_days_is_30():
-    """cover_days default lowered 45 -> 30 (2026-06-17) on backtest evidence:
-    45-day cover over-bought ~2.2x (forecast efficiency 0.46) with 0% real
-    lead-time stockouts; 30 lifts efficiency to ~0.61, cuts ~25% capital per
-    reorder cycle, and still holds 0% real stockouts. Guard against an
+def test_default_cover_days_is_21():
+    """cover_days default lowered 45 -> 30 -> 21 (2026-06-17) on backtest
+    evidence: 45-day cover over-bought ~2.2x (efficiency 0.46) with 0% real
+    lead-time stockouts; the prod sweep showed 21 lifts efficiency to ~0.76
+    and cuts ~40% capital per reorder cycle while STILL holding 0% real
+    stockouts (~35-day total runway = 21 cover + 14 lead). Guard against an
     accidental revert. (safety_stock_pct stays 0.10 but is inert for live
     SKUs — variance/Poisson safety stock supersede the flat %.)"""
-    assert settings.demand_cover_days == 30
+    assert settings.demand_cover_days == 21
     assert settings.demand_safety_stock_pct == Decimal("0.10")
 
 

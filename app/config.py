@@ -142,18 +142,22 @@ class Settings(BaseSettings):
     # 2026-05 product brief: 10% safety, 14-day default lead time, 180-day
     # overstock threshold.
     #
-    # cover_days lowered 45 -> 30 (2026-06-17) on backtest evidence: a prod
-    # sweep at as_of=2026-05-20 showed 45-day cover over-buys ~2.2x (forecast
-    # efficiency 0.46) with 0% real lead-time stockouts; 30-day cover lifts
-    # efficiency to 0.61 and cuts recommended capital ~25% per reorder cycle
-    # while STILL holding 0% real stockouts and a ~44-day total runway
-    # (30 cover + 14 lead). Conservative first step; 21 is viable later once
-    # real lead-time reliability is confirmed. NOTE: demand_safety_stock_pct
-    # is effectively inert for live SKUs — the engine uses variance (z·σ·√L)
-    # or Poisson safety stock; the flat % only applies as a no-σ fallback.
+    # cover_days lowered 45 -> 30 -> 21 on backtest evidence. A prod sweep at
+    # as_of=2026-05-20 showed 45-day cover over-buys ~2.2x (forecast efficiency
+    # 0.46) with 0% real lead-time stockouts; lowering cover monotonically
+    # lifts efficiency and frees capital while real stockouts stay at 0%:
+    #   45 -> eff 0.46, $18.6k   30 -> eff 0.61, $13.9k (-25%)
+    #   21 -> eff 0.76, $11.2k (-40%)   14 -> eff 0.93, $9.1k (-51%)
+    # Stepped to 30 then 21 (2026-06-17). At 21 the total runway is ~35 days
+    # (21 cover + 14 lead) — still clear of stockout risk in the backtest, but
+    # less cushion against lead-time variability than 30; revisit if real lead
+    # times prove longer/lumpier than the modeled 14 days. NOTE:
+    # demand_safety_stock_pct is effectively inert for live SKUs — the engine
+    # uses variance (z·σ·√L) or Poisson safety stock; the flat % only applies
+    # as a no-σ fallback.
     demand_safety_stock_pct: Decimal = Decimal("0.10")
     demand_lead_time_default_days: int = 14
-    demand_cover_days: int = 30
+    demand_cover_days: int = 21
     demand_overstocked_days: int = 180
 
     # ---- Velocity spike dampening ----------------------------------------
