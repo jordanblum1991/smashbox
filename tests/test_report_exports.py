@@ -51,3 +51,32 @@ def test_data_health_csv(client: TestClient):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     assert _rows(r)[0] == ["Issue Type", "Identifier", "Detail", "Amount", "Date"]
+
+
+def test_data_health_csv_includes_missing_cogs(client: TestClient):
+    """Missing COGS is the 4th Data Health section; it must appear in the CSV
+    too (it was previously dropped from the export)."""
+    from decimal import Decimal
+
+    from app.db import SessionLocal
+    from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
+    from app.models.inventory_snapshot import InventorySnapshot
+    from app.models.sku import Sku
+
+    with SessionLocal() as db:
+        db.add(Sku(sku="SBX-NOCOGS", name="No Cost Item", brand="smashbox",
+                   tiktok_sku_id="SBX-NOCOGS", unit_cogs=Decimal("0")))
+        b = ImportBatch(kind=ImportFileKind.INVENTORY_SNAPSHOT,
+                        status=ImportBatchStatus.COMPLETED,
+                        original_filename="s", stored_path="s")
+        db.add(b)
+        db.flush()
+        db.add(InventorySnapshot(import_batch_id=b.id, sku="SBX-NOCOGS", on_hand=12,
+                                 captured_at=__import__("datetime").datetime(2026, 6, 1)))
+        db.commit()
+
+    r = client.get("/reports/data-health.csv")
+    rows = _rows(r)
+    missing = [row for row in rows if row and row[0] == "Missing COGS"]
+    assert len(missing) == 1
+    assert missing[0][1] == "SBX-NOCOGS"
