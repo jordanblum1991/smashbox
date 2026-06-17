@@ -128,6 +128,19 @@ def test_no_data_shows_empty_state(client):
     assert "No GMV Max campaign data yet" in r.text
 
 
+def test_reimbursements_explainer_does_not_claim_shop_ads_is_included(client):
+    """AdSpend (this page's Gross Ad Spend) is GMV-Max only — Shop Ads comes
+    from settlement and lives only in the P&L. The explainer must not claim
+    Gross Ad Spend bundles Shop Ads (verified on prod: AdSpend is 100% Auction
+    GMV-Max campaigns; AdSpend.amount ties to GmvMaxDailyMetric.cost to the
+    cent for settled months)."""
+    r = client.get("/reports/ad-spend/reimbursements")
+    assert r.status_code == 200
+    assert "Shop Ads affiliate commission + GMV Max" not in r.text   # old, wrong claim
+    assert "GMV Max campaign cost from the Cost export" in r.text     # corrected
+    assert "not</em> included here" in r.text
+
+
 def test_daily_scope_renders_per_day_rows(client):
     with SessionLocal() as db:
         _seed_day(db, date(2026, 5, 10), cost=100, sku=5, gr=300)

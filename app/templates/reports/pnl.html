@@ -199,7 +199,7 @@
         </tr>
 
         {{ line("Affiliate Commissions", -pnl.affiliate_commission) }}
-        {{ line("Affiliate Commission (Shop Ads)", -pnl.shop_ads_cost) }}
+        {{ line("Shop Ads Commission", -pnl.shop_ads_cost) }}
         {{ line("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend) }}
         {% if pnl.gmv_max_reimbursement and pnl.gmv_max_reimbursement > 0 %}
         {{ line("Less: GMV Max Reimbursement", pnl.gmv_max_reimbursement, indent=1) }}
@@ -427,7 +427,7 @@
 
       {{ section_header("Affiliate / Commission Costs") }}
       {{ line_row("Affiliate Commissions", "affiliate_commission", indent=1, deduction=true) }}
-      {{ line_row("Affiliate Commission (Shop Ads)", "shop_ads_cost", indent=1, deduction=true) }}
+      {{ line_row("Shop Ads Commission", "shop_ads_cost", indent=1, deduction=true) }}
 
       {{ section_header("Advertising") }}
       {{ line_row("TikTok Ads (GMV Max)", "gmv_max_ad_spend", indent=1, deduction=true) }}
