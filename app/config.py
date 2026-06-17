@@ -139,11 +139,21 @@ class Settings(BaseSettings):
     # ---- Demand planning defaults ----------------------------------------
     # Tunable on the planner page via query-string overrides (?safety, ?cover);
     # a Phase D settings UI will make these per-shop persistent. Per the
-    # 2026-05 product brief: 10% safety, 14-day default lead time, 45-day
-    # cover, 180-day overstock threshold.
+    # 2026-05 product brief: 10% safety, 14-day default lead time, 180-day
+    # overstock threshold.
+    #
+    # cover_days lowered 45 -> 30 (2026-06-17) on backtest evidence: a prod
+    # sweep at as_of=2026-05-20 showed 45-day cover over-buys ~2.2x (forecast
+    # efficiency 0.46) with 0% real lead-time stockouts; 30-day cover lifts
+    # efficiency to 0.61 and cuts recommended capital ~25% per reorder cycle
+    # while STILL holding 0% real stockouts and a ~44-day total runway
+    # (30 cover + 14 lead). Conservative first step; 21 is viable later once
+    # real lead-time reliability is confirmed. NOTE: demand_safety_stock_pct
+    # is effectively inert for live SKUs — the engine uses variance (z·σ·√L)
+    # or Poisson safety stock; the flat % only applies as a no-σ fallback.
     demand_safety_stock_pct: Decimal = Decimal("0.10")
     demand_lead_time_default_days: int = 14
-    demand_cover_days: int = 45
+    demand_cover_days: int = 30
     demand_overstocked_days: int = 180
 
     # ---- Velocity spike dampening ----------------------------------------

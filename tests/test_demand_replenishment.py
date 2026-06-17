@@ -8,11 +8,23 @@ from decimal import Decimal
 
 import pytest
 
+from app.config import settings
 from app.services.demand.replenishment import (
     ReplenishmentInputs,
     ReplenishmentStatus,
     compute_one,
 )
+
+
+def test_default_cover_days_is_30():
+    """cover_days default lowered 45 -> 30 (2026-06-17) on backtest evidence:
+    45-day cover over-bought ~2.2x (forecast efficiency 0.46) with 0% real
+    lead-time stockouts; 30 lifts efficiency to ~0.61, cuts ~25% capital per
+    reorder cycle, and still holds 0% real stockouts. Guard against an
+    accidental revert. (safety_stock_pct stays 0.10 but is inert for live
+    SKUs — variance/Poisson safety stock supersede the flat %.)"""
+    assert settings.demand_cover_days == 30
+    assert settings.demand_safety_stock_pct == Decimal("0.10")
 
 
 def _mk(**overrides) -> ReplenishmentInputs:
