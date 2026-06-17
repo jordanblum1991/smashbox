@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -20,7 +20,11 @@ from app.models.ad_credit import AdCredit
 from app.models.import_batch import _utc_now_naive
 from app.models.order import OrderLine
 from app.models.sku import Sku
-from app.reports.ad_spend import compute_ad_spend_monthly, compute_ad_spend_summary
+from app.reports.ad_spend import (
+    compute_ad_spend_daily,
+    compute_ad_spend_monthly,
+    compute_ad_spend_summary,
+)
 from app.reports.demand_planning import compute_demand_planning_view, compute_sku_detail_view
 from app.reports.planner_accuracy import compute_planner_accuracy
 from app.reports.dashboard_trends import (
@@ -371,6 +375,52 @@ def ad_spend_csv(db: Session = Depends(get_db)) -> Response:
         ["Year", "Month", "Gross Spend (GMV-Max)", "ROAS", "SKU Orders",
          "Cost per Order", "Gross Revenue", "ROI"],
         "ad_spend.csv",
+    )
+
+
+@router.get("/reports/ad-spend-daily.csv")
+def ad_spend_daily_csv(
+    start_date: str | None = None, end_date: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Per-DAY GMV-Max ad-spend KPIs (campaign-attributed) for the range as CSV
+    — mirrors the Daily scope of the Ad Spend page. Defaults to the last 30 days
+    of available data when no range is given."""
+    from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
+
+    try:
+        sd = date.fromisoformat(start_date) if start_date else None
+        ed = date.fromisoformat(end_date) if end_date else None
+    except ValueError:
+        sd = ed = None
+    if sd is None or ed is None:
+        latest = db.execute(select(func.max(GmvMaxDailyMetric.metric_date))).scalar()
+        if latest is not None:
+            ed = ed or latest
+            sd = sd or (ed - timedelta(days=29))
+    if sd is None or ed is None:
+        return _csv_response(iter([]), ["Date", "SKU Orders", "Cost per Order",
+                                        "Gross Revenue", "ROI", "Gross Spend (GMV-Max)"],
+                             "ad_spend_daily.csv")
+    if sd > ed:
+        sd, ed = ed, sd
+    view = compute_ad_spend_daily(db, sd, ed)
+
+    def rows():
+        for r in view.rows:
+            yield [
+                r.day.isoformat(), r.sku_orders,
+                f"{r.cost_per_order:.2f}" if r.cost_per_order is not None else "",
+                f"{r.gross_revenue:.2f}",
+                f"{r.roi:.2f}" if r.roi is not None else "",
+                f"{r.gross_spend:.2f}",
+            ]
+
+    return _csv_response(
+        rows(),
+        ["Date", "SKU Orders", "Cost per Order", "Gross Revenue", "ROI",
+         "Gross Spend (GMV-Max)"],
+        f"ad_spend_daily_{sd.isoformat()}_to_{ed.isoformat()}.csv",
     )
 
 
@@ -1044,32 +1094,56 @@ def ad_spend_view(
       overlaps the window.
 
     Campaign figures come from the entered GMV Max metrics; spend is GMV-Max only
-    (matches TikTok's Ad Cost; Shop Ads stays in the P&L)."""
+    (matches TikTok's Ad Cost; Shop Ads stays in the P&L). `daily` lists one row
+    per day in [start_date, end_date] with the same campaign-attributed columns
+    (no blended ROAS — see compute_ad_spend_daily)."""
+    from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
+
     start = end = None
     range_error: str | None = None
-    if scope == "range":
+    sd: date | None = None
+    ed: date | None = None
+    if scope in ("range", "daily"):
         try:
             sd = date.fromisoformat(start_date) if start_date else None
             ed = date.fromisoformat(end_date) if end_date else None
         except ValueError:
             sd = ed = None
             range_error = "Invalid date — use YYYY-MM-DD."
+        # Daily defaults to the last 30 days of available data so the first
+        # click isn't an empty error; the picker then repaints with these.
+        if range_error is None and scope == "daily" and (sd is None or ed is None):
+            latest = db.execute(select(func.max(GmvMaxDailyMetric.metric_date))).scalar()
+            if latest is not None:
+                ed = ed or latest
+                sd = sd or (ed - timedelta(days=29))
         if range_error is None and (sd is None or ed is None):
             range_error = "Pick both a start and end date."
         elif range_error is None and sd > ed:
             range_error = "Start date must be on or before end date."
-        if range_error is None:
+        if range_error is None and scope == "range":
             start = datetime(sd.year, sd.month, sd.day)
             # End is inclusive of the chosen day; the window is [start, end) so
             # bump by one day to cover all of end_date.
             end = datetime(ed.year, ed.month, ed.day) + timedelta(days=1)
 
-    monthly = compute_ad_spend_monthly(db, start, end)
+    daily = None
+    monthly = None
+    if scope == "daily":
+        if range_error is None and sd is not None and ed is not None:
+            daily = compute_ad_spend_daily(db, sd, ed)
+        # Repaint the pickers with the resolved (possibly defaulted) dates.
+        start_date = sd.isoformat() if sd else start_date
+        end_date = ed.isoformat() if ed else end_date
+    else:
+        monthly = compute_ad_spend_monthly(db, start, end)
+
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
         {
             "monthly": monthly,
+            "daily": daily,
             "scope": scope,
             "start_date": start_date,
             "end_date": end_date,
