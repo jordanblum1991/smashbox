@@ -307,6 +307,13 @@ def test_fetch_analytics_upserts_daily_metric_from_intervals(monkeypatch):
         db.commit()
         assert n == 1
         m = db.query(TikTokDailyMetric).one()
+        # Regression: the fetcher must persist the count onto the batch (it
+        # previously returned the count but left batch.rows_imported = 0, so
+        # API-sync batches showed "0 rows" on the freshness/uploads views).
+        batch = db.query(ImportBatch).filter(
+            ImportBatch.kind == ImportFileKind.TIKTOK_ANALYTICS
+        ).one()
+        assert batch.rows_imported == 1
     assert m.metric_date == date(2026, 6, 1)
     assert m.gmv == Decimal("154.01")
     assert m.orders == 5
