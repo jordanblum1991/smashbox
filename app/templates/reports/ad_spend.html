@@ -9,10 +9,15 @@
   subtitle="Monthly GMV Max performance — SKU orders, cost per order, gross revenue, ROI, ad spend, and blended ROAS. Toggle All-Time for the combined total.",
   accent_bar=true,
 ) %}
+  {% if scope == 'daily' %}
+  <a href="/reports/ad-spend-daily.csv{% if start_date and end_date %}?start_date={{ start_date }}&end_date={{ end_date }}{% endif %}"
+     class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">CSV</a>
+  {% else %}
   <a href="/reports/ad-spend.csv"
      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">CSV</a>
   <a href="/export/ad-spend.xlsx?scope={{ scope }}{% if scope == 'range' and start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}"
      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Excel</a>
+  {% endif %}
   <button onclick="window.print()" type="button"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Print</button>
 {% endcall %}
@@ -31,11 +36,13 @@
      class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if scope == 'all-time' else 'text-slate-600 hover:bg-slate-100' }}">All-Time</a>
   <a href="/reports/ad-spend?scope=range"
      class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if scope == 'range' else 'text-slate-600 hover:bg-slate-100' }}">Date range</a>
+  <a href="/reports/ad-spend?scope=daily"
+     class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if scope == 'daily' else 'text-slate-600 hover:bg-slate-100' }}">Daily</a>
 </div>
 
-{% if scope == 'range' %}
+{% if scope in ('range', 'daily') %}
 <form method="get" action="/reports/ad-spend" class="mb-6 flex flex-wrap items-center gap-2 text-sm print:hidden">
-  <input type="hidden" name="scope" value="range">
+  <input type="hidden" name="scope" value="{{ scope }}">
   <span class="text-xs text-slate-500">From</span>
   <input type="text" id="range-start" name="start_date" value="{{ start_date or '' }}"
          placeholder="YYYY-MM-DD" autocomplete="off"
@@ -50,6 +57,69 @@
 </form>
 {% endif %}
 
+{% if scope == 'daily' %}
+{# Daily → one row per day in the chosen range. Campaign-attributed only
+   (no Blended ROAS) — every figure comes straight from the daily GMV-Max
+   metric and ties to TikTok's GMV Max report for the window. #}
+{% if daily and daily.rows %}
+{% set t = daily.total %}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="text-base font-semibold text-slate-900">Daily GMV Max KPIs</h2>
+      <p class="mt-0.5 text-xs text-slate-500">{{ daily.start.strftime("%b %d, %Y") }} – {{ daily.end.strftime("%b %d, %Y") }} · campaign-attributed, from the imported GMV Max report.</p>
+    </div>
+    <span class="shrink-0 text-xs text-slate-500">{{ daily.rows | length }} day{{ "" if daily.rows | length == 1 else "s" }} with activity</span>
+  </header>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <tr>
+          <th class="px-4 py-2.5">Day</th>
+          <th class="px-4 py-2.5 text-right">SKU Orders</th>
+          <th class="px-4 py-2.5 text-right">Cost per Order</th>
+          <th class="px-4 py-2.5 text-right">Gross Revenue</th>
+          <th class="px-4 py-2.5 text-right">ROI</th>
+          <th class="px-4 py-2.5 text-right">Total Gross Spend</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in daily.rows %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-2.5 font-medium text-slate-900 whitespace-nowrap">{{ r.day.strftime("%a %b %d") }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.sku_orders }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ (r.cost_per_order | money) if r.cost_per_order is not none else "—" }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.gross_revenue | money }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ ("%.2f" % r.roi) if r.roi is not none else "—" }}</td>
+          <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ r.gross_spend | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-300 bg-slate-100 text-sm font-semibold text-slate-900">
+        <tr>
+          <td class="px-4 py-3 whitespace-nowrap">Range total ({{ daily.rows | length }} day{{ "" if daily.rows | length == 1 else "s" }})</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ t.sku_orders if t.has_data else "—" }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ (t.cost_per_order | money) if (t.has_data and t.sku_orders > 0) else "—" }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ (t.gross_revenue | money) if t.has_data else "—" }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ ("%.2f" % t.roi) if (t.has_data and t.ad_cost > 0) else "—" }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ t.ad_cost | money }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+<p class="mt-3 max-w-3xl text-xs leading-relaxed text-slate-500 print:mt-2">
+  Campaign-attributed daily figures from TikTok's GMV Max report.
+  <strong class="font-medium text-slate-600">ROI</strong> = Gross Revenue ÷ Cost. Days with no GMV-Max activity are omitted.
+  <strong class="font-medium text-slate-600">Total Gross Spend</strong> is GMV-Max campaign cost only — see the
+  <a href="/reports/ad-spend/reimbursements" class="underline underline-offset-2 hover:text-slate-700">Ad Spend Reimbursements</a> page for the full cash / credit breakdown.
+</p>
+{% elif not range_error %}
+{% call ui.banner(tone="info", title="No GMV Max activity in this date range") %}
+  Nothing in the selected window — try a different range, or switch to By month / All-Time above.
+{% endcall %}
+{% endif %}
+{% else %}
 {% if monthly.rows %}
 {% set ct = monthly.campaign_total %}
 {% if all_time %}
@@ -158,4 +228,5 @@
   <a href="/uploads" class="underline underline-offset-2">Imports page</a>.
 {% endcall %}
 {% endif %}
+{% endif %}{# /scope: daily vs monthly #}
 {% endblock %}

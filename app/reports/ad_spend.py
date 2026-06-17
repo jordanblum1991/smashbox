@@ -264,3 +264,73 @@ def compute_ad_spend_monthly(
         rows=rows, total_gross=sum_gross, total_roas=total_roas,
         campaign_total=campaign_total,
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-DAY KPI listing — campaign-attributed figures straight from the daily
+# GMV-Max metric, for a specified date range. Attributed-only by design (no
+# blended ROAS): cost, SKU orders, cost/order, gross revenue, and ROI all come
+# from GmvMaxDailyMetric and aggregate exactly — no per-day whole-shop P&L.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AdSpendDayRow:
+    day: date
+    gross_spend: Decimal           # GMV-Max Cost for the day
+    sku_orders: int
+    gross_revenue: Decimal
+
+    @property
+    def cost_per_order(self) -> Decimal | None:
+        if self.sku_orders <= 0:
+            return None
+        return (self.gross_spend / self.sku_orders).quantize(Decimal("0.01"))
+
+    @property
+    def roi(self) -> Decimal | None:
+        if self.gross_spend <= 0:
+            return None
+        return (self.gross_revenue / self.gross_spend).quantize(Decimal("0.01"))
+
+
+@dataclass
+class AdSpendDailyView:
+    rows: list[AdSpendDayRow]
+    start: date
+    end: date                      # inclusive end (the day the user picked)
+    total: GmvMaxCampaignKpis      # window aggregate (carries has_data)
+
+
+def compute_ad_spend_daily(db: Session, start: date, end: date) -> AdSpendDailyView:
+    """One row per day in [start, end] (inclusive) that had GMV-Max activity,
+    with campaign-attributed figures from the daily metric. Days with no
+    campaign data are omitted (mirrors the monthly view's "months with
+    activity"). Totals aggregate the window via the shared KPI helper, so the
+    footer ties to TikTok's GMV Max report for the range."""
+    rows_raw = db.execute(
+        select(
+            GmvMaxDailyMetric.metric_date,
+            GmvMaxDailyMetric.cost,
+            GmvMaxDailyMetric.sku_orders,
+            GmvMaxDailyMetric.gross_revenue,
+        )
+        .where(GmvMaxDailyMetric.metric_date >= start)
+        .where(GmvMaxDailyMetric.metric_date <= end)
+        .order_by(GmvMaxDailyMetric.metric_date)
+    ).all()
+    rows = [
+        AdSpendDayRow(
+            day=d,
+            gross_spend=Decimal(str(cost or 0)),
+            sku_orders=int(sku or 0),
+            gross_revenue=Decimal(str(gr or 0)),
+        )
+        for d, cost, sku, gr in rows_raw
+        if (cost or 0) or (sku or 0) or (gr or 0)
+    ]
+    total = compute_gmv_max_campaign_kpis(
+        db,
+        datetime.combine(start, datetime.min.time()),
+        datetime.combine(end + timedelta(days=1), datetime.min.time()),  # exclusive end
+    )
+    return AdSpendDailyView(rows=rows, start=start, end=end, total=total)

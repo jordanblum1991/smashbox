@@ -14,7 +14,7 @@ from app.db import Base, SessionLocal, engine
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
 from app.models.order import Order, OrderType
-from app.reports.ad_spend import compute_ad_spend_monthly
+from app.reports.ad_spend import compute_ad_spend_daily, compute_ad_spend_monthly
 
 
 @pytest.fixture(autouse=True)
@@ -99,3 +99,39 @@ def test_empty_when_no_daily_metrics():
     assert result.rows == []
     assert result.total_gross == Decimal("0")
     assert result.total_roas == Decimal("0")
+
+
+# --- Daily scope -----------------------------------------------------------
+
+def test_daily_one_row_per_active_day_with_attributed_kpis():
+    with SessionLocal() as db:
+        b = _batch(db)
+        _daily(db, b.id, date(2026, 5, 1), "100.00", 5, "300.00")
+        _daily(db, b.id, date(2026, 5, 2), "0.00", 0, "0.00")        # zero day → omitted
+        _daily(db, b.id, date(2026, 5, 3), "50.00", 2, "120.00")
+        db.commit()
+        view = compute_ad_spend_daily(db, date(2026, 5, 1), date(2026, 5, 3))
+    # Zero-activity day omitted; one row per active day, ascending.
+    assert [r.day for r in view.rows] == [date(2026, 5, 1), date(2026, 5, 3)]
+    d1 = view.rows[0]
+    assert d1.gross_spend == Decimal("100.00")
+    assert d1.sku_orders == 5
+    assert d1.cost_per_order == Decimal("20.00")     # 100 / 5
+    assert d1.gross_revenue == Decimal("300.00")
+    assert d1.roi == Decimal("3.00")                 # 300 / 100
+    # Window total ties to the shown rows.
+    assert view.total.ad_cost == Decimal("150.00")
+    assert view.total.sku_orders == 7
+    assert view.total.gross_revenue == Decimal("420.00")
+
+
+def test_daily_window_is_inclusive_of_end_day():
+    with SessionLocal() as db:
+        b = _batch(db)
+        _daily(db, b.id, date(2026, 5, 1), "10.00", 1, "30.00")
+        _daily(db, b.id, date(2026, 5, 3), "20.00", 2, "60.00")
+        _daily(db, b.id, date(2026, 5, 4), "40.00", 4, "120.00")   # outside [1,3]
+        db.commit()
+        view = compute_ad_spend_daily(db, date(2026, 5, 1), date(2026, 5, 3))
+    assert [r.day for r in view.rows] == [date(2026, 5, 1), date(2026, 5, 3)]
+    assert view.total.ad_cost == Decimal("30.00")    # May 4 excluded

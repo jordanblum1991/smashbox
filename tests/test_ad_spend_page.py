@@ -128,6 +128,41 @@ def test_no_data_shows_empty_state(client):
     assert "No GMV Max campaign data yet" in r.text
 
 
+def test_daily_scope_renders_per_day_rows(client):
+    with SessionLocal() as db:
+        _seed_day(db, date(2026, 5, 10), cost=100, sku=5, gr=300)
+        _seed_day(db, date(2026, 5, 11), cost=50, sku=2, gr=120)
+        db.commit()
+    r = client.get("/reports/ad-spend?scope=daily&start_date=2026-05-10&end_date=2026-05-11")
+    assert r.status_code == 200
+    assert "Daily GMV Max KPIs" in r.text
+    assert "May 10, 2026" in r.text          # range header
+    assert "$150.00" in r.text               # range-total spend (100 + 50)
+    # Daily view is attributed-only — no Blended ROAS column.
+    assert "Blended ROAS" not in r.text
+
+
+def test_daily_scope_defaults_window_when_no_dates(client):
+    with SessionLocal() as db:
+        _seed_day(db, date(2026, 5, 10), cost=100, sku=5, gr=300)
+        db.commit()
+    # No start/end → defaults to last 30 days of available data; should still render.
+    r = client.get("/reports/ad-spend?scope=daily")
+    assert r.status_code == 200
+    assert "Daily GMV Max KPIs" in r.text
+
+
+def test_daily_csv_exports_per_day(client):
+    with SessionLocal() as db:
+        _seed_day(db, date(2026, 5, 10), cost=100, sku=5, gr=300)
+        db.commit()
+    r = client.get("/reports/ad-spend-daily.csv?start_date=2026-05-10&end_date=2026-05-10")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "Date,SKU Orders,Cost per Order,Gross Revenue,ROI,Gross Spend" in r.text
+    assert "2026-05-10" in r.text
+
+
 @pytest.mark.parametrize("url", ["/reports/ad-spend", "/reports/ad-spend?scope=all-time"])
 def test_no_credit_info_or_reimbursements_link(client, url):
     with SessionLocal() as db:
