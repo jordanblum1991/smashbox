@@ -67,7 +67,7 @@ def export_monthly_pnl_xlsx(
         ("    Shop partner commission", -pnl.tiktok_partner_commission),
         ("    Managed service (incl. tax)", -pnl.tiktok_managed_service),
         ("Affiliate Commissions", -pnl.affiliate_commission),
-        ("Affiliate Commission (Shop Ads)", -pnl.shop_ads_cost),
+        ("Shop Ads Commission", -pnl.shop_ads_cost),
         ("TikTok Ads (GMV Max)", -pnl.gmv_max_ad_spend),
         ("Less: GMV Max Reimbursement", pnl.gmv_max_reimbursement),
         ("Less: Ad Credits", pnl.ad_credit_offset),
@@ -541,7 +541,7 @@ def export_pnl_xlsx(
 
     _write_section_header(row, "AFFILIATE / COMMISSION COSTS"); row += 1
     _write_money_row(row, "Affiliate Commissions", "affiliate_commission", -1, f_line_indent, f_money_indent); row += 1
-    _write_money_row(row, "Affiliate Commission (Shop Ads)", "shop_ads_cost", -1, f_line_indent, f_money_indent); row += 1
+    _write_money_row(row, "Shop Ads Commission", "shop_ads_cost", -1, f_line_indent, f_money_indent); row += 1
 
     _write_section_header(row, "ADVERTISING"); row += 1
     _write_money_row(row, "TikTok Ads (GMV Max)", "gmv_max_ad_spend", -1, f_line_indent, f_money_indent); row += 1
