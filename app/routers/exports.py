@@ -18,7 +18,6 @@ from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.purchase_statement import compute_purchase_statement
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.sample_tracking import samples_by_sku_shipped
-from app.reports.sku_profitability import compute_sku_profitability
 from app.services.reporting_tz import today_local
 
 router = APIRouter(prefix="/export", tags=["exports"])
@@ -265,34 +264,6 @@ def export_purchase_statement_xlsx(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{fname}.xlsx"'},
-    )
-
-
-@router.get("/sku-profitability.csv")
-def export_sku_csv(
-    year: int | None = None,
-    month: int | None = None,
-    db: Session = Depends(get_db),
-):
-    today = today_local()
-    y, m = year or today.year, month or today.month
-    start = datetime(y, m, 1)
-    end = datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)
-    rows = compute_sku_profitability(db, start, end)
-
-    def gen():
-        yield "tiktok_sku_id,sku_code,name,is_bundle,units_sold,gross_sales,cogs,gross_profit,gross_margin\n"
-        for r in rows:
-            name = (r.name or "").replace(",", " ")
-            yield (
-                f"{r.tiktok_sku_id},{r.sku_code or ''},{name},{r.is_bundle},{r.units_sold},"
-                f"{r.gross_sales},{r.cogs},{r.gross_profit},{r.gross_margin}\n"
-            )
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="smashbox_sku_{y}-{m:02d}.csv"'},
     )
 
 

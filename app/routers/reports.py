@@ -52,7 +52,6 @@ from app.reports.sample_tracking import (
     samples_by_sku_shipped,
 )
 from app.reports.samples_by_creator import compute_samples_by_creator_view
-from app.reports.sku_profitability import compute_sku_profitability
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
@@ -157,40 +156,6 @@ def ytd_pnl_legacy(year: int | None = None):
     qs = "period=year"
     if year: qs += f"&year={year}"
     return RedirectResponse(url=f"/reports/pnl?{qs}", status_code=307)
-
-
-def _sku_prof_view(r) -> dict:
-    """Serialize a SKU-profitability SkuRow for the AG Grid."""
-    return {
-        "tiktok_sku_id": r.tiktok_sku_id,
-        "sku_code": r.sku_code,
-        "name": (title_case(strip_size(r.name)) if r.name else None),
-        "is_bundle": r.is_bundle,
-        "is_unmapped": (not r.is_bundle) and (not r.name),
-        "units_sold": r.units_sold,
-        "gross_sales": float(r.gross_sales),
-        "cogs": float(r.cogs),
-        "gross_profit": float(r.gross_profit),
-        "gross_margin": float(r.gross_margin),
-    }
-
-
-@router.get("/reports/sku-profitability")
-def sku_profitability_view(
-    request: Request,
-    year: int | None = None,
-    month: int | None = None,
-    db: Session = Depends(get_db),
-):
-    y, m = _ym(year, month)
-    start = datetime(y, m, 1)
-    end = datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)
-    rows = compute_sku_profitability(db, start, end)
-    return templates.TemplateResponse(
-        request,
-        "reports/sku_profitability.html",
-        {"rows": rows, "year": y, "month": m, "prof_rows": [_sku_prof_view(r) for r in rows]},
-    )
 
 
 @router.get("/reports/samples")
