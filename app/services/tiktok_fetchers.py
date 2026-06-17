@@ -67,6 +67,25 @@ _API_STATUS_TO_DISPLAY = {
 }
 
 
+def _record_result(batch: ImportBatch, result) -> int:
+    """Persist the importer's counts onto the batch and return rows_imported.
+
+    The file-upload path does this in app/routers/uploads.py; the API fetchers
+    must too, or the batch keeps its default `rows_imported = 0` even after
+    ingesting rows (nothing else writes it) — which is why API-sync batches
+    showed "0" on the freshness/uploads views despite processing orders.
+
+    `rows_imported` counts new + updated (an upsert re-pull is mostly updates).
+    The orders importer also appends an "N new, M updated" info line to
+    `result.errors`, so that breakdown surfaces here as the batch's detail.
+    """
+    batch.rows_imported = result.rows_imported
+    batch.rows_skipped = result.rows_skipped
+    if result.errors:
+        batch.error_message = "\n".join(result.errors[:50])
+    return result.rows_imported
+
+
 def display_status(api_status) -> str:
     return _API_STATUS_TO_DISPLAY.get(
         str(api_status or "").upper(), str(api_status or "unknown")
@@ -140,7 +159,7 @@ def fetch_orders(db: Session, cred: TikTokCredential, since: datetime | None) ->
     db.flush()
     result = import_dataframe(df, db, batch)
     resolve_all_order_lines(db)
-    return result.rows_imported
+    return _record_result(batch, result)
 
 
 # --- settlements ------------------------------------------------------------
@@ -300,7 +319,7 @@ def fetch_settlements(db: Session, cred: TikTokCredential, since: datetime | Non
     db.add(batch)
     db.flush()
     result = import_dataframes(orders_df, adj_df, db, batch)
-    return result.rows_imported
+    return _record_result(batch, result)
 
 
 # --- payouts ----------------------------------------------------------------
@@ -379,7 +398,7 @@ def fetch_payouts(db: Session, cred: TikTokCredential, since: datetime | None) -
         statements_to_payout_dataframe(statements),
         db, batch,
     )
-    return result.rows_imported
+    return _record_result(batch, result)
 
 
 # --- analytics (daily GMV, for reconciliation) ------------------------------
@@ -428,7 +447,7 @@ def fetch_analytics(db: Session, cred: TikTokCredential, since: datetime | None)
     )
     db.add(batch)
     db.flush()
-    return import_metric_rows(rows, db, batch).rows_imported
+    return _record_result(batch, import_metric_rows(rows, db, batch))
 
 
 # ---------------------------------------------------------------------------
@@ -476,4 +495,4 @@ def fetch_ad_spend(db: Session, cred, since: datetime | None) -> int:
     )
     db.add(batch)
     db.flush()
-    return import_ad_spend_rows(rows, db, batch).rows_imported
+    return _record_result(batch, import_ad_spend_rows(rows, db, batch))
