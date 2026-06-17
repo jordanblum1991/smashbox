@@ -192,6 +192,8 @@ def samples_view(
             "is_unmapped": r.is_unmapped,
             "samples_sent": r.samples_sent,
             "sample_orders_shipped": r.sample_orders_shipped,
+            "units_sold": r.units_sold,
+            "sold_per_sample": float(r.sold_per_sample),
         }
         for r in samples_by_sku_shipped(db, view.start, view.end)
     ]

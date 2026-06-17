@@ -169,7 +169,7 @@
   <header class="flex items-baseline justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">Samples shipped by SKU</h2>
-      <p class="mt-0.5 text-xs text-slate-500">Sample units and distinct sample orders per SKU, with totals. Shipped/Completed only; bundles roll up to their mapped SKU.</p>
+      <p class="mt-0.5 text-xs text-slate-500">Sample units &amp; distinct sample orders per SKU, plus paid units sold in the same window and a sold-per-sample conversion ratio. Shipped/Completed only; bundles roll up to their mapped SKU.</p>
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ sample_sku_rows | length }} SKU{{ "" if sample_sku_rows | length == 1 else "s" }}</span>
   </header>
@@ -246,20 +246,30 @@ function productRenderer(p){
             : (d.is_unmapped ? ` <span class="tag unmapped" style="height:18px;font-size:10px;padding:0 6px">Unmapped</span>` : "");
   return `<div class="cell-product"><span class="nm">${esc(nm)}${pill}</span><span class="code">${esc(d.tiktok_sku_id||"—")}</span></div>`;
 }
-const totals = ST_ROWS.reduce((a,r)=>({samples_sent:a.samples_sent+r.samples_sent, sample_orders_shipped:a.sample_orders_shipped+r.sample_orders_shipped}), {samples_sent:0, sample_orders_shipped:0});
+const totals = ST_ROWS.reduce((a,r)=>({samples_sent:a.samples_sent+r.samples_sent, sample_orders_shipped:a.sample_orders_shipped+r.sample_orders_shipped, units_sold:a.units_sold+r.units_sold}), {samples_sent:0, sample_orders_shipped:0, units_sold:0});
+const ratio2 = v => (v===null||v===undefined) ? "—" : Number(v).toFixed(2);
+function ratioRenderer(p){
+  // Pinned TOTAL has no precomputed ratio — derive it from the column totals.
+  const val = p.node.rowPinned
+    ? (totals.samples_sent>0 ? totals.units_sold/totals.samples_sent : null)
+    : p.value;
+  return `<span class="num">${ratio2(val)}</span>`;
+}
 let api;
 const gridOptions = {
   columnDefs:[
     { headerName:"Product", field:"name", flex:2.2, minWidth:240, cellRenderer:productRenderer,
       getQuickFilterText:p=>`${p.data.name||'unmapped'} ${p.data.sku_code} ${p.data.tiktok_sku_id}`, sortable:true },
-    { headerName:"SKU", field:"sku_code", width:150, sortable:true,
+    { headerName:"SKU", field:"sku_code", width:140, sortable:true,
       cellRenderer:p=> p.node.rowPinned ? "" : `<span class="mono" style="font-size:12px;color:var(--sbx-ink-soft)">${esc(p.value||"—")}</span>` },
-    { headerName:"Samples Sent", field:"samples_sent", width:150, type:"rightAligned", headerTooltip:"Units (sum of quantity)", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
-    { headerName:"Sample Orders", field:"sample_orders_shipped", width:150, type:"rightAligned", headerTooltip:"Distinct shipped sample orders", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Samples Sent", field:"samples_sent", width:130, type:"rightAligned", headerTooltip:"Sample units (sum of quantity)", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Sample Orders", field:"sample_orders_shipped", width:130, type:"rightAligned", headerTooltip:"Distinct shipped sample orders", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Units Sold", field:"units_sold", width:120, type:"rightAligned", headerTooltip:"Paid units sold in the same window", cellRenderer:p=>`<span class="num">${intc(p.value)}</span>`, sortable:true },
+    { headerName:"Sold / Sample", field:"sold_per_sample", width:130, type:"rightAligned", headerTooltip:"Units sold ÷ samples sent — sample-to-sale conversion", cellRenderer:ratioRenderer, sortable:true },
   ],
   defaultColDef:{ resizable:true, suppressHeaderMenuButton:true, sortable:false },
   rowData:ST_ROWS,
-  pinnedBottomRowData:[{ _total:true, samples_sent:totals.samples_sent, sample_orders_shipped:totals.sample_orders_shipped }],
+  pinnedBottomRowData:[{ _total:true, samples_sent:totals.samples_sent, sample_orders_shipped:totals.sample_orders_shipped, units_sold:totals.units_sold }],
   pagination:true, paginationPageSize:25, paginationPageSizeSelector:[10,25,50,100], suppressCellFocus:true,
   onGridReady:(e)=>{ api=e.api; shown(); }, onModelUpdated:shown,
 };

@@ -21,6 +21,8 @@ from app.models.sku_alias import SkuAlias
 from app.reports.sample_tracking import (
     SamplePeriodKind,
     compute_sample_view,
+    count_sample_orders_shipped,
+    count_samples_shipped,
     count_sku_units_shipped,
     samples_by_sku_shipped,
     samples_vs_sales_by_sku,
@@ -109,6 +111,36 @@ def test_uneven_component_quantities():
         total = count_sku_units_shipped(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
 
     assert total == 8  # 2 lines × 4 components-per-bundle
+
+
+def test_tile_counts_are_shipped_only_and_reconcile_with_grid():
+    """The headline tiles (count_samples_shipped / count_sample_orders_shipped)
+    must use the SAME shipped/completed-only scope as the by-SKU grid, so the
+    tile total equals the grid's Samples Sent total. 'To ship' lines are
+    excluded; manual Sample rows always count."""
+    with SessionLocal() as db:
+        batch = _batch(db)
+        # Shipped sample order — counts (3 units, 1 order).
+        _sample_order_line(db, batch, tiktok_oid="O-SHIP", sku="TT-A", quantity=3)
+        # 'To ship' sample order — must be EXCLUDED from shipped tiles/grid.
+        o = Order(import_batch_id=batch.id, tiktok_order_id="O-TOSHIP",
+                  placed_at=datetime(2026, 5, 6), order_type=OrderType.SAMPLE,
+                  status="To ship", brand="smashbox")
+        db.add(o)
+        db.flush()
+        db.add(OrderLine(order_id=o.id, sku="TT-A", quantity=10, gross_sales=Decimal("0")))
+        # Manual Sample row — always counts (2 units, 1 order).
+        db.add(Sample(import_batch_id=batch.id, shipped_at=datetime(2026, 5, 10),
+                      sku="TT-A", quantity=2))
+        db.commit()
+
+        units = count_samples_shipped(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
+        orders = count_sample_orders_shipped(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
+        grid = samples_by_sku_shipped(db, datetime(2026, 5, 1), datetime(2026, 6, 1))
+
+    assert units == 5                                   # 3 shipped + 2 manual; the 10 To-ship excluded
+    assert units == sum(r.samples_sent for r in grid)   # tile reconciles with grid total
+    assert orders == 2                                  # 1 shipped order + 1 manual row; To-ship excluded
 
 
 def test_unmapped_sku_counts_as_one_per_unit():
