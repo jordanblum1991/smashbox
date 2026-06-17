@@ -24,7 +24,6 @@ def client() -> TestClient:
         "/reports/pnl?period=ytd&year=2026&month=4",
         "/reports/monthly-pnl",
         "/reports/ytd-pnl",
-        "/reports/sku-profitability",
         "/reports/unmapped-skus",
         "/reports/settlement-only-orders",
         "/reports/samples",
@@ -52,7 +51,7 @@ def test_excel_export(client: TestClient) -> None:
 
 
 def test_csv_export(client: TestClient) -> None:
-    r = client.get("/export/sku-profitability.csv")
+    r = client.get("/export/inventory.csv")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
-    assert "tiktok_sku_id,sku_code,name" in r.text
+    assert "sku_code,name" in r.text

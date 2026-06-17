@@ -1,7 +1,7 @@
 """Dashboard surfaces a single "open items → Action Center" entry banner driven
 by the per-request action_items count, so anything needing attention is one click
-from the home page. The SKU Profitability report nav link was intentionally
-removed (report unused); the page still renders by direct URL."""
+from the home page. The SKU Profitability report was fully decommissioned
+(report unused) — no nav link and the route no longer exists."""
 from datetime import datetime
 from decimal import Decimal
 
@@ -43,11 +43,11 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_sku_profitability_page_renders_without_nav_link(client):
+def test_sku_profitability_fully_removed(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "/reports/sku-profitability" not in r.text  # nav link removed (report unused)
-    assert client.get("/reports/sku-profitability").status_code == 200
+    assert "/reports/sku-profitability" not in r.text  # no nav link
+    assert client.get("/reports/sku-profitability").status_code == 404  # route deleted
 
 
 def test_no_action_banner_when_clean(client):
