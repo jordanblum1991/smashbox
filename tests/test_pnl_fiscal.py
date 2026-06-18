@@ -142,6 +142,15 @@ def test_pnl_page_renders_fiscal_month(client):
     assert "Apr 29, 2026" in r.text and "May 28, 2026" in r.text
 
 
+def test_pnl_excel_export_fiscal(client):
+    for url in ("/export/pnl.xlsx?period=fiscal_month&year=2026&month=5",
+                "/export/pnl.xlsx?period=fiscal_year&year=2026"):
+        r = client.get(url)
+        assert r.status_code == 200
+        assert "spreadsheetml" in r.headers["content-type"]
+        assert len(r.content) > 100
+
+
 def test_pnl_page_renders_fiscal_year_multicolumn(client):
     r = client.get("/reports/pnl?period=fiscal_year&year=2026")
     assert r.status_code == 200
@@ -157,9 +166,19 @@ def test_fiscal_period_banner_shows_only_for_fiscal_scopes(client):
     assert "Fiscal Period" not in calendar_view            # not on calendar months
 
 
-def test_fiscal_options_on_pnl_but_not_dashboard(client):
+def test_fiscal_options_on_pnl_and_dashboard(client):
     pnl = client.get("/reports/pnl").text
     assert 'value="fiscal_month"' in pnl
     assert 'value="fiscal_year"' in pnl
     dash = client.get("/").text
-    assert 'value="fiscal_month"' not in dash    # gated off on the Dashboard selector
+    assert 'value="fiscal_month"' in dash    # fiscal now enabled on the Dashboard too
+    assert 'value="fiscal_year"' in dash
+
+
+def test_dashboard_kpis_compute_over_fiscal_window(client):
+    """The Dashboard KPIs honor a fiscal scope — banner present + the period
+    resolves to the 29th–28th window."""
+    r = client.get("/?period=fiscal_month&year=2026&month=5")
+    assert r.status_code == 200
+    assert "Fiscal Period" in r.text
+    assert "Apr 29, 2026" in r.text and "May 28, 2026" in r.text

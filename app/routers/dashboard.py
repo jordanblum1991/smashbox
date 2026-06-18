@@ -18,6 +18,7 @@ from app.db import get_db
 from app.models.import_batch import ImportBatch, ImportBatchStatus
 from app.models.order import Order
 from app.reports.dashboard_trends import build_dashboard_trends
+from app.reports.fiscal_calendar import fiscal_banner_payload
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.services.data_freshness import compute_freshness
 from app.services.reporting_tz import today_local
@@ -120,6 +121,7 @@ def home(
             "freshness": freshness,
             "trends": trends,
             "error": error,
+            "fiscal_banner": fiscal_banner_payload(view.period_kind.value, view.year, view.month),
         },
     )
 

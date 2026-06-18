@@ -14,7 +14,11 @@
   <a href="/reports/ad-spend-daily.csv{% if start_date and end_date %}?start_date={{ start_date }}&end_date={{ end_date }}{% endif %}"
      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">CSV</a>
   {% elif scope in ('fiscal_month', 'fiscal_ytd', 'fiscal_year') %}
-  {# Fiscal scopes are on-screen + Print only; calendar CSV/Excel don't match the 29th–28th windows. #}
+  {% set fq = "?scope=" ~ scope ~ "&year=" ~ fiscal_year ~ "&month=" ~ fiscal_month %}
+  <a href="/reports/ad-spend.csv{{ fq }}"
+     class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">CSV</a>
+  <a href="/export/ad-spend.xlsx{{ fq }}"
+     class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Excel</a>
   {% else %}
   <a href="/reports/ad-spend.csv"
      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">CSV</a>

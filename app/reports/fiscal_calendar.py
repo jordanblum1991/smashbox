@@ -76,3 +76,19 @@ def fiscal_range_str(year: int, month: int, mode: str) -> str:
     """'Apr 29, 2026 – May 28, 2026' for the scope's full span."""
     start, end = fiscal_span(year, month, mode)
     return f"{_fmt(start)} – {_fmt(end)}"
+
+
+# Maps a report's period/scope VALUE (string) to a fiscal mode. Keyed by the
+# raw string so the P&L (PeriodKind value), Ad Spend (scope), and Dashboard all
+# share one definition without importing PeriodKind here.
+_BANNER_MODES = {"fiscal_month": "month", "fiscal_ytd": "ytd", "fiscal_year": "year"}
+
+
+def fiscal_banner_payload(period_value: str, year: int, month: int | None) -> dict | None:
+    """{label, range} for the "Fiscal Period" accent banner, or None when the
+    scope isn't fiscal (so the banner simply doesn't render)."""
+    mode = _BANNER_MODES.get(period_value)
+    if mode is None:
+        return None
+    m = month or 1
+    return {"label": fiscal_label(year, m, mode), "range": fiscal_range_str(year, m, mode)}

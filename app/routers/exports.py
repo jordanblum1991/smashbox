@@ -9,10 +9,11 @@ from io import BytesIO
 import xlsxwriter
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.reports.ad_spend import compute_ad_spend_monthly
+from app.reports.ad_spend import compute_ad_spend_fiscal, compute_ad_spend_monthly
 from app.reports.inventory_report import compute_inventory_report
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.purchase_statement import compute_purchase_statement
@@ -99,11 +100,16 @@ def export_ad_spend_xlsx(
     scope: str = "month",
     start_date: str | None = None,
     end_date: str | None = None,
+    year: int | None = None,         # fiscal_* scopes only
+    month: int | None = None,        # fiscal_* scopes only
     db: Session = Depends(get_db),
 ):
-    """Download the Ad Spend & Campaign KPIs table (per-month rows + a totals
-    row), honoring the page's scope (month / all-time / range). Spend is GMV-Max
-    only, matching the page."""
+    """Download the Ad Spend & Campaign KPIs table (per-period rows + a totals
+    row), honoring the page's scope (month / all-time / range / fiscal_*). Spend
+    is GMV-Max only, matching the page."""
+    from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
+
+    fiscal_modes = {"fiscal_month": "month", "fiscal_ytd": "ytd", "fiscal_year": "year"}
     start = end = None
     if scope == "range":
         try:
@@ -115,7 +121,13 @@ def export_ad_spend_xlsx(
             start = datetime(sd.year, sd.month, sd.day)
             end = datetime(ed.year, ed.month, ed.day) + timedelta(days=1)   # inclusive end
 
-    monthly = compute_ad_spend_monthly(db, start, end)
+    if scope in fiscal_modes:
+        latest = db.execute(select(func.max(GmvMaxDailyMetric.metric_date))).scalar()
+        fy = year or (latest.year if latest else today_local().year)
+        fm = month or (latest.month if latest else today_local().month)
+        monthly = compute_ad_spend_fiscal(db, fy, fm, fiscal_modes[scope])
+    else:
+        monthly = compute_ad_spend_monthly(db, start, end)
     ct = monthly.campaign_total
 
     import calendar
@@ -184,6 +196,8 @@ def export_ad_spend_xlsx(
         fname += "_all-time"
     elif scope == "range" and start and end:
         fname += f"_{start_date}_to_{end_date}"
+    elif scope in fiscal_modes:
+        fname += f"_{scope}_{fy}-{fm:02d}"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
