@@ -146,6 +146,26 @@ def test_fiscal_month_scope_renders(client):
     assert "Fiscal Period" not in client.get("/reports/ad-spend").text
 
 
+def test_fiscal_csv_and_excel_export(client):
+    with SessionLocal() as db:
+        _seed_day(db, date(2026, 4, 29), cost=100, sku=5, gr=300)   # in fiscal May
+        _seed_day(db, date(2026, 5, 28), cost=50, sku=2, gr=120)    # in fiscal May
+        _seed_day(db, date(2026, 5, 29), cost=999, sku=99, gr=9999) # next fiscal month
+        db.commit()
+    # CSV mirrors the fiscal table (one combined fiscal-month row).
+    csv = client.get("/reports/ad-spend.csv?scope=fiscal_month&year=2026&month=5")
+    assert csv.status_code == 200
+    assert csv.headers["content-type"].startswith("text/csv")
+    assert "150.00" in csv.text          # Apr 29 + May 28; May 29 excluded
+    assert "999" not in csv.text
+    # Excel exports too.
+    xl = client.get("/export/ad-spend.xlsx?scope=fiscal_month&year=2026&month=5")
+    assert xl.status_code == 200
+    assert "spreadsheetml" in xl.headers["content-type"]
+    assert "fiscal_month_2026-05" in xl.headers["content-disposition"]
+    assert len(xl.content) > 100
+
+
 def test_reimbursements_explainer_does_not_claim_shop_ads_is_included(client):
     """AdSpend (this page's Gross Ad Spend) is GMV-Max only — Shop Ads comes
     from settlement and lives only in the P&L. The explainer must not claim

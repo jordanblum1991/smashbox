@@ -52,7 +52,11 @@
    PERIOD SELECTOR
    =========================================================================== #}
 {% set selector_action = "/" %}
+{% set fiscal_enabled = true %}
 {% include "partials/period_selector.html" %}
+
+{% import "partials/fiscal_banner.html" as fb %}
+{{ fb.fiscal_banner(fiscal_banner) }}
 
 {# ---- Alerts ---- #}
 {% if error %}
