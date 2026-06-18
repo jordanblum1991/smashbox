@@ -22,6 +22,7 @@ from app.models.order import OrderLine
 from app.models.sku import Sku
 from app.reports.ad_spend import (
     compute_ad_spend_daily,
+    compute_ad_spend_fiscal,
     compute_ad_spend_monthly,
     compute_ad_spend_summary,
 )
@@ -1087,8 +1088,10 @@ def _ad_spend_error_redirect(reason: str) -> RedirectResponse:
 def ad_spend_view(
     request: Request,
     scope: str = "month",
-    start_date: str | None = None,   # ISO YYYY-MM-DD; scope=range only
+    start_date: str | None = None,   # ISO YYYY-MM-DD; scope=range/daily only
     end_date: str | None = None,
+    year: int | None = None,         # fiscal_* scopes only
+    month: int | None = None,        # fiscal_* scopes only
     db: Session = Depends(get_db),
 ):
     """Ad Spend & Campaign KPIs, with three scopes:
@@ -1133,9 +1136,19 @@ def ad_spend_view(
             # bump by one day to cover all of end_date.
             end = datetime(ed.year, ed.month, ed.day) + timedelta(days=1)
 
+    # Fiscal scopes reuse the monthly KPI table, computed over Smashbox fiscal
+    # periods (29th–28th) instead of calendar months.
+    fiscal_modes = {"fiscal_month": "month", "fiscal_ytd": "ytd", "fiscal_year": "year"}
+
     daily = None
     monthly = None
-    if scope == "daily":
+    fiscal_year = fiscal_month = None
+    if scope in fiscal_modes:
+        latest = db.execute(select(func.max(GmvMaxDailyMetric.metric_date))).scalar()
+        fiscal_year = year or (latest.year if latest else today_local().year)
+        fiscal_month = month or (latest.month if latest else today_local().month)
+        monthly = compute_ad_spend_fiscal(db, fiscal_year, fiscal_month, fiscal_modes[scope])
+    elif scope == "daily":
         if range_error is None and sd is not None and ed is not None:
             daily = compute_ad_spend_daily(db, sd, ed)
         # Repaint the pickers with the resolved (possibly defaulted) dates.
@@ -1153,6 +1166,8 @@ def ad_spend_view(
             "scope": scope,
             "start_date": start_date,
             "end_date": end_date,
+            "fiscal_year": fiscal_year,
+            "fiscal_month": fiscal_month,
             "range_error": range_error,
             "all_time": scope == "all-time",
             "error": request.query_params.get("error"),

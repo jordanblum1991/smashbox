@@ -24,6 +24,7 @@ from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
 from app.models.order import Order
+from app.reports.fiscal_calendar import fiscal_months_for, fiscal_window
 from app.reports.gmv_max_campaign_kpis import GmvMaxCampaignKpis, compute_gmv_max_campaign_kpis
 
 
@@ -186,6 +187,58 @@ class AdSpendMonthly:
     campaign_total: GmvMaxCampaignKpis | None = None
 
 
+def _window_kpi(
+    db: Session, year: int, month: int, start_dt: datetime, end_dt: datetime,
+) -> "tuple[AdSpendMonthKpi, Decimal] | None":
+    """Campaign KPIs + ROAS for one [start_dt, end_dt) window, labeled
+    (year, month). Returns (row, net_customer_sales), or None when the window
+    has no GMV-Max activity. Shared by the calendar-month and fiscal views so
+    the per-period math is identical."""
+    from app.reports.monthly_pnl import compute_window_pnl
+
+    camp = compute_gmv_max_campaign_kpis(db, start_dt, end_dt)
+    if not camp.has_data:
+        return None
+    net = compute_window_pnl(db, start_dt, end_dt).net_customer_sales
+    roas = (net / camp.ad_cost) if camp.ad_cost else Decimal("0")
+    return (
+        AdSpendMonthKpi(
+            year=year, month=month,
+            gross_spend=camp.ad_cost,
+            roas=roas,
+            sku_orders=camp.sku_orders,
+            cost_per_order=camp.cost_per_order if camp.sku_orders > 0 else None,
+            gross_revenue=camp.gross_revenue,
+            roi=camp.roi if camp.ad_cost > 0 else None,
+        ),
+        net,
+    )
+
+
+def _aggregate(pairs: "list[tuple[AdSpendMonthKpi, Decimal]]") -> AdSpendMonthly:
+    """Build the AdSpendMonthly (rows + totals) from per-period (row, net) pairs.
+    Totals are aggregated FROM the rows so the footer always ties to the listing."""
+    cent = Decimal("0.01")
+    rows = [k for k, _ in pairs]
+    sum_gross = sum((k.gross_spend for k in rows), Decimal("0"))
+    sum_net = sum((n for _, n in pairs), Decimal("0"))
+    sum_gr = sum((k.gross_revenue for k in rows), Decimal("0"))
+    sum_sku = sum((k.sku_orders for k in rows), 0)
+    total_roas = (sum_net / sum_gross) if sum_gross else Decimal("0")
+    campaign_total = GmvMaxCampaignKpis(
+        gross_revenue=sum_gr.quantize(cent),
+        sku_orders=sum_sku,
+        ad_cost=sum_gross.quantize(cent),
+        cost_per_order=(sum_gross / sum_sku).quantize(cent) if sum_sku else Decimal("0"),
+        roi=(sum_gr / sum_gross).quantize(cent) if sum_gross else Decimal("0"),
+        has_data=bool(rows),
+    )
+    return AdSpendMonthly(
+        rows=rows, total_gross=sum_gross, total_roas=total_roas,
+        campaign_total=campaign_total,
+    )
+
+
 def compute_ad_spend_monthly(
     db: Session,
     start: datetime | None = None,
@@ -201,8 +254,6 @@ def compute_ad_spend_monthly(
     range with day accuracy — each month is clamped to the window. With no window,
     all days are covered. ROAS net comes from the P&L engine over the same
     clamped window."""
-    from app.reports.monthly_pnl import compute_window_pnl
-
     d_lo, d_hi = db.execute(
         select(func.min(GmvMaxDailyMetric.metric_date), func.max(GmvMaxDailyMetric.metric_date))
     ).one()
@@ -212,10 +263,7 @@ def compute_ad_spend_monthly(
     w_start = start.date() if start is not None else d_lo
     w_end = end.date() if end is not None else (d_hi + timedelta(days=1))   # exclusive
 
-    rows: list[AdSpendMonthKpi] = []
-    sum_gross = sum_net = sum_gr = sum_adcost = Decimal("0")
-    sum_sku = 0
-    any_data = False
+    pairs: list[tuple[AdSpendMonthKpi, Decimal]] = []
     y, m = w_start.year, w_start.month
     while date(y, m, 1) < w_end:
         m_start = date(y, m, 1)
@@ -223,47 +271,38 @@ def compute_ad_spend_monthly(
         clo = max(m_start, w_start)            # clamp the month to the window
         chi = min(m_end, w_end)                # [clo, chi)
         if clo < chi:
-            camp = compute_gmv_max_campaign_kpis(db, datetime.combine(clo, datetime.min.time()),
-                                                 datetime.combine(chi, datetime.min.time()))
-            if camp.has_data:
-                net = compute_window_pnl(
-                    db, datetime.combine(clo, datetime.min.time()),
-                    datetime.combine(chi, datetime.min.time()),
-                ).net_customer_sales
-                roas = (net / camp.ad_cost) if camp.ad_cost else Decimal("0")
-                rows.append(AdSpendMonthKpi(
-                    year=y, month=m,
-                    gross_spend=camp.ad_cost,
-                    roas=roas,
-                    sku_orders=camp.sku_orders,
-                    cost_per_order=camp.cost_per_order if camp.sku_orders > 0 else None,
-                    gross_revenue=camp.gross_revenue,
-                    roi=camp.roi if camp.ad_cost > 0 else None,
-                ))
-                any_data = True
-                sum_gross += camp.ad_cost
-                sum_net += net
-                sum_sku += camp.sku_orders
-                sum_gr += camp.gross_revenue
-                sum_adcost += camp.ad_cost
+            res = _window_kpi(
+                db, y, m,
+                datetime.combine(clo, datetime.min.time()),
+                datetime.combine(chi, datetime.min.time()),
+            )
+            if res is not None:
+                pairs.append(res)
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
-    cent = Decimal("0.01")
-    total_roas = (sum_net / sum_gross) if sum_gross else Decimal("0")
-    # Campaign totals aggregated from the shown rows — Cost is the same source as
-    # Total Gross Spend, so the footer ties to the listing for any window.
-    campaign_total = GmvMaxCampaignKpis(
-        gross_revenue=sum_gr.quantize(cent),
-        sku_orders=sum_sku,
-        ad_cost=sum_adcost.quantize(cent),
-        cost_per_order=(sum_adcost / sum_sku).quantize(cent) if sum_sku else Decimal("0"),
-        roi=(sum_gr / sum_adcost).quantize(cent) if sum_adcost else Decimal("0"),
-        has_data=any_data,
-    )
-    return AdSpendMonthly(
-        rows=rows, total_gross=sum_gross, total_roas=total_roas,
-        campaign_total=campaign_total,
-    )
+    return _aggregate(pairs)
+
+
+def compute_ad_spend_fiscal(
+    db: Session, year: int, month: int, mode: str,
+) -> AdSpendMonthly:
+    """GMV Max campaign KPIs over Smashbox FISCAL periods (29th → 28th), with the
+    same columns as the monthly view. `mode` selects the span:
+      'month' → one fiscal-month row    'ytd' → fiscal Jan..month    'year' → 12
+    Each fiscal month is computed over its own [start, end) window via the shared
+    `_window_kpi`, so the numbers match the P&L fiscal view to the cent. Fiscal
+    months with no GMV-Max activity are omitted (mirrors the calendar view)."""
+    pairs: list[tuple[AdSpendMonthKpi, Decimal]] = []
+    for mm in fiscal_months_for(mode, month):
+        start_d, end_incl = fiscal_window(year, mm)
+        res = _window_kpi(
+            db, year, mm,
+            datetime(start_d.year, start_d.month, start_d.day),
+            datetime(end_incl.year, end_incl.month, end_incl.day) + timedelta(days=1),  # exclusive
+        )
+        if res is not None:
+            pairs.append(res)
+    return _aggregate(pairs)
 
 
 # ---------------------------------------------------------------------------

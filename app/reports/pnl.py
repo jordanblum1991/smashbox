@@ -18,6 +18,7 @@ from enum import Enum
 
 from sqlalchemy.orm import Session
 
+from app.reports.fiscal_calendar import fiscal_window
 from app.reports.monthly_pnl import (
     MonthlyPnL,
     _add_month,
@@ -87,21 +88,11 @@ def _format_date_short(d: date) -> str:
 
 
 # ---- Smashbox fiscal calendar (29th → 28th, labeled by closing month) -------
+# Window math lives in app/reports/fiscal_calendar.py (shared with Ad Spend).
 
 def _fiscal_window(year: int, month: int) -> tuple[date, date]:
-    """(start_inclusive, end_inclusive) for 'Fiscal <month> <year>' under
-    convention A — the period that CLOSES on the 28th of `month`.
-
-    start = the day after the previous month's 28th, i.e. normally the 29th.
-    The one wrinkle is fiscal March in a non-leap year: February has no 29th,
-    so "the day after Feb 28" is Mar 1 — handled automatically by date math.
-    The 28th-end is always exact, and crossing the year boundary (fiscal
-    January starts Dec 29 of the prior year) falls out of the prev-month step.
-    """
-    end_incl = date(year, month, 28)
-    prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
-    start = date(prev_y, prev_m, 28) + timedelta(days=1)
-    return start, end_incl
+    """Back-compat shim — see app.reports.fiscal_calendar.fiscal_window."""
+    return fiscal_window(year, month)
 
 
 def _fiscal_month_pnl(db: Session, year: int, month: int) -> MonthlyPnL:

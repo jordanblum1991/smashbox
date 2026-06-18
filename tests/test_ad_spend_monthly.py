@@ -14,7 +14,11 @@ from app.db import Base, SessionLocal, engine
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
 from app.models.order import Order, OrderType
-from app.reports.ad_spend import compute_ad_spend_daily, compute_ad_spend_monthly
+from app.reports.ad_spend import (
+    compute_ad_spend_daily,
+    compute_ad_spend_fiscal,
+    compute_ad_spend_monthly,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -123,6 +127,38 @@ def test_daily_one_row_per_active_day_with_attributed_kpis():
     assert view.total.ad_cost == Decimal("150.00")
     assert view.total.sku_orders == 7
     assert view.total.gross_revenue == Decimal("420.00")
+
+
+def test_fiscal_month_aggregates_29th_through_28th():
+    with SessionLocal() as db:
+        b = _batch(db)
+        _daily(db, b.id, date(2026, 4, 28), "50.00", 9, "200.00")    # prior fiscal month
+        _daily(db, b.id, date(2026, 4, 29), "100.00", 5, "300.00")   # fiscal May opens
+        _daily(db, b.id, date(2026, 5, 28), "50.00", 2, "120.00")    # fiscal May closes
+        _daily(db, b.id, date(2026, 5, 29), "999.00", 99, "9999.00") # next fiscal month
+        db.commit()
+        view = compute_ad_spend_fiscal(db, 2026, 5, "month")
+    assert len(view.rows) == 1                       # one combined fiscal-month row
+    r = view.rows[0]
+    assert r.year == 2026 and r.month == 5
+    assert r.gross_spend == Decimal("150.00")        # Apr 29 + May 28 only
+    assert r.sku_orders == 7
+    assert r.gross_revenue == Decimal("420.00")
+    assert view.total_gross == Decimal("150.00")
+
+
+def test_fiscal_year_assigns_dec29_to_next_fiscal_year():
+    with SessionLocal() as db:
+        b = _batch(db)
+        # Dec 29 2025 belongs to fiscal Jan 2026 (FY2026 opens Dec 29 2025).
+        _daily(db, b.id, date(2025, 12, 29), "80.00", 4, "200.00")
+        _daily(db, b.id, date(2026, 11, 29), "60.00", 3, "150.00")   # fiscal Dec 2026
+        _daily(db, b.id, date(2025, 12, 28), "777.00", 7, "7777.00") # FY2025, excluded
+        db.commit()
+        view = compute_ad_spend_fiscal(db, 2026, 12, "year")
+    months = {r.month for r in view.rows}
+    assert 1 in months and 12 in months              # fiscal Jan + fiscal Dec have data
+    assert view.total_gross == Decimal("140.00")     # 80 + 60; the Dec 28 2025 row excluded
 
 
 def test_daily_window_is_inclusive_of_end_day():
