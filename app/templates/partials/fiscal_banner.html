@@ -1,0 +1,21 @@
+{% import "partials/ui.html" as ui %}
+{# Accent callout shown when a report is scoped to a Smashbox fiscal period
+   (29th–28th). `banner` is {label, range} or None. Shared by the P&L and Ad
+   Spend pages so the treatment is identical. #}
+{% macro fiscal_banner(banner) %}
+{% if banner %}
+<section aria-label="Fiscal period"
+         class="mb-6 flex items-center gap-3.5 overflow-hidden rounded-xl border border-indigo-200 bg-indigo-50/70 px-5 py-3 shadow-sm print:border-slate-300 print:bg-white">
+  <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white">
+    {{ ui.icon("calendar", "h-5 w-5") }}
+  </span>
+  <div class="min-w-0">
+    <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-700">Fiscal Period · 29th–28th cycle</div>
+    <div class="mt-0.5 text-base font-semibold tracking-tight text-indigo-900">
+      {{ banner.label }}
+      <span class="ml-1 font-normal text-indigo-700">· {{ banner.range }}</span>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endmacro %}

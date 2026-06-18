@@ -139,6 +139,11 @@ def test_fiscal_month_scope_renders(client):
     assert "Fiscal Month — GMV Max KPIs" in r.text
     assert "$150.00" in r.text                  # Apr 29 + May 28; May 29 excluded
     assert "scope=fiscal_year" in r.text         # the Fiscal ▾ dropdown is present
+    # Accent callout banner names the fiscal window.
+    assert "Fiscal Period" in r.text
+    assert "Apr 29, 2026" in r.text and "May 28, 2026" in r.text
+    # ...and it's absent on the default (calendar) view.
+    assert "Fiscal Period" not in client.get("/reports/ad-spend").text
 
 
 def test_reimbursements_explainer_does_not_claim_shop_ads_is_included(client):
