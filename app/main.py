@@ -11,6 +11,7 @@ from app.config import settings
 from app.db import Base, SessionLocal, engine
 from app.models import register_models  # noqa: F401  (side-effect: registers tables)
 from app.models.user import User, UserRole
+from app.routers import ad_budget as ad_budget_router
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
 from app.routers import gmv_max_reimbursements as gmv_max_reimbursements_router
@@ -332,6 +333,7 @@ async def healthz() -> PlainTextResponse:
 
 app.include_router(auth_router.router)
 app.include_router(admin_router.router)
+app.include_router(ad_budget_router.router)
 app.include_router(gmv_max_reimbursements_router.router)
 app.include_router(purchase_invoices_router.router)
 app.include_router(purchase_orders_router.router)

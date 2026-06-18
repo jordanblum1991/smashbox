@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}{{ budget.label }} · Ad Budget · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="TikTok Ads · Ad Budget",
+  title=budget.label,
+  period=budget.start_date.strftime("%b %d, %Y") ~ " – " ~ budget.end_date.strftime("%b %d, %Y"),
+  accent_bar=true,
+) %}
+  <a href="/admin/ad-budget" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">← All budgets</a>
+  <a href="/admin/ad-budget/{{ budget.id }}.csv" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">CSV</a>
+  <button onclick="window.print()" type="button" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Print</button>
+{% endcall %}
+
+{% if error %}<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"><strong>Error:</strong> {{ error }}</div>{% endif %}
+{% if notice %}<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{{ notice }}</div>{% endif %}
+
+{% if view.not_started %}
+{% call ui.banner(tone="info", title="Budget hasn't started yet") %}
+  Starts <strong>{{ budget.start_date.strftime("%b %d, %Y") }}</strong> — the full {{ view.budget_amount | money }} is available
+  {% if view.total_promotions > 0 %}(less {{ view.total_promotions | money }} already assigned to promotions){% endif %}.
+  Daily spend will appear here once the period begins.
+{% endcall %}
+{% elif view.is_over_budget %}
+{% call ui.banner(tone="error", title="Over budget") %}
+  Committed {{ view.total_committed | money }} of a {{ view.budget_amount | money }} budget —
+  <strong>over by {{ (-view.available) | money }}</strong>.
+{% endcall %}
+{% endif %}
+
+<!-- Summary cards -->
+<section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {{ ui.kpi("Allocated budget", view.budget_amount | money, "For this period") }}
+  {{ ui.kpi("Ad spent (GMV-Max)", view.total_ad_spend | money, "%.0f%% of budget" % view.pct_used) }}
+  {{ ui.kpi("Promotions", view.total_promotions | money, "Manually assigned") }}
+  <div class="{{ 'kpi-over' if view.is_over_budget }}">
+    {{ ui.kpi("Available remaining", view.available | money, "Budget − spent − promotions", tone=("neg" if view.is_over_budget else "pos")) }}
+  </div>
+</section>
+
+<!-- Pace strip -->
+{% if not view.not_started %}
+<section class="mb-6 flex flex-wrap gap-x-8 gap-y-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm">
+  <div><span class="text-slate-500">Through</span> <span class="font-medium text-slate-900">{{ view.as_of.strftime("%b %d, %Y") }}</span></div>
+  <div><span class="text-slate-500">Days</span> <span class="font-medium text-slate-900">{{ view.days_elapsed }} / {{ view.days_total }}</span> <span class="text-slate-400">({{ view.days_remaining }} left)</span></div>
+  <div><span class="text-slate-500">Avg / day</span> <span class="font-medium text-slate-900">{{ view.avg_daily_spend | money }}</span></div>
+  <div><span class="text-slate-500">Projected at this pace</span>
+    <span class="font-medium {{ 'text-rose-600' if view.projected_total > view.budget_amount else 'text-slate-900' }}">{{ view.projected_total | money }}</span></div>
+</section>
+{% endif %}
+
+<!-- Daily running table -->
+{% if view.rows %}
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Daily running</h2>
+    <p class="mt-0.5 text-xs text-slate-500">Ad spend per day + promotions, with available budget remaining after each day.</p>
+  </header>
+  <div class="max-h-[28rem] overflow-y-auto print:max-h-none print:overflow-visible">
+    <table class="w-full text-sm">
+      <thead class="sticky top-0 border-b border-slate-200 bg-slate-50/95 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500 backdrop-blur">
+        <tr>
+          <th class="px-4 py-2">Date</th>
+          <th class="px-4 py-2 text-right">Ad Spend</th>
+          <th class="px-4 py-2 text-right">Promotions</th>
+          <th class="px-4 py-2 text-right">Committed</th>
+          <th class="px-4 py-2 text-right">Available</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in view.rows %}
+        <tr class="hover:bg-slate-50/60">
+          <td class="px-4 py-1.5 whitespace-nowrap font-medium text-slate-900">{{ r.day.strftime("%a %b %d") }}</td>
+          <td class="px-4 py-1.5 text-right tabular-nums {{ 'text-slate-300' if r.ad_spend == 0 else 'text-slate-700' }}">{{ r.ad_spend | money }}</td>
+          <td class="px-4 py-1.5 text-right tabular-nums {{ 'text-slate-300' if r.promotions == 0 else 'text-amber-700' }}">{{ r.promotions | money }}</td>
+          <td class="px-4 py-1.5 text-right tabular-nums text-slate-600">{{ r.committed_to_date | money }}</td>
+          <td class="px-4 py-1.5 text-right tabular-nums font-medium {{ 'text-rose-600' if r.available < 0 else 'text-slate-900' }}">{{ r.available | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<!-- Promotions -->
+<section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Promotions <span class="ml-1 text-sm font-normal text-slate-500">({{ view.promotions | length }})</span></h2>
+    <p class="mt-0.5 text-xs text-slate-500">Manual carve-outs from this budget. Each reduces available budget from its date.</p>
+  </header>
+  {% if view.promotions %}
+  <table class="w-full text-sm">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <tr><th class="px-4 py-2">Date</th><th class="px-4 py-2">Name</th><th class="px-4 py-2">Note</th><th class="px-4 py-2 text-right">Amount</th><th class="px-4 py-2 print:hidden"></th></tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for p in view.promotions %}
+      <tr>
+        <td class="px-4 py-2 whitespace-nowrap text-slate-600">{{ p.promo_date.strftime("%b %d, %Y") }}</td>
+        <td class="px-4 py-2 font-medium text-slate-900">{{ p.name }}</td>
+        <td class="px-4 py-2 text-slate-500">{{ p.note or "—" }}</td>
+        <td class="px-4 py-2 text-right tabular-nums text-slate-900">{{ p.amount | money }}</td>
+        <td class="px-4 py-2 text-right print:hidden">
+          <form action="/admin/ad-budget/{{ budget.id }}/promotions/{{ p.id }}/delete" method="post" class="inline"
+                onsubmit="return confirm('Remove this promotion?')">
+            <button type="submit" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="px-6 py-4 text-sm text-slate-500">No promotions assigned.</p>
+  {% endif %}
+  <!-- Add promotion -->
+  <form action="/admin/ad-budget/{{ budget.id }}/promotions" method="post"
+        class="flex flex-wrap items-end gap-3 border-t border-slate-200 bg-slate-50/40 px-6 py-4 print:hidden">
+    <label class="block"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Name</span>
+      <input type="text" name="name" required placeholder="Promotion name" class="mt-1 w-48 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"></label>
+    <label class="block"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+      <input type="number" name="amount" step="0.01" min="0" required placeholder="0.00" class="mt-1 w-28 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-right text-sm tabular-nums focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"></label>
+    <label class="block"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Date</span>
+      <input type="text" name="promo_date" data-datepicker="single" autocomplete="off" required placeholder="YYYY-MM-DD" class="mt-1 w-36 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"></label>
+    <label class="block flex-1 min-w-[10rem]"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Note (optional)</span>
+      <input type="text" name="note" placeholder="e.g. Spring sale reserve" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"></label>
+    <button type="submit" class="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">Add promotion</button>
+  </form>
+</section>
+
+<!-- Edit budget -->
+<details class="rounded-2xl border border-slate-200 bg-white shadow-sm print:hidden">
+  <summary class="cursor-pointer px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50/60">Edit budget</summary>
+  <form action="/admin/ad-budget/{{ budget.id }}/edit" method="post" class="flex flex-wrap items-end gap-3 border-t border-slate-200 px-6 py-4">
+    <label class="block"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Label</span>
+      <input type="text" name="label" value="{{ budget.label }}" required class="mt-1 w-48 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"></label>
+    <label class="block"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Start</span>
+      <input type="text" name="start_date" value="{{ budget.start_date.isoformat() }}" data-datepicker="single" autocomplete="off" required class="mt-1 w-36 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"></label>
+    <label class="block"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">End</span>
+      <input type="text" name="end_date" value="{{ budget.end_date.isoformat() }}" data-datepicker="single" autocomplete="off" required class="mt-1 w-36 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"></label>
+    <label class="block"><span class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Amount ($)</span>
+      <input type="number" name="amount" value="{{ '%.2f' % budget.amount }}" step="0.01" min="0" required class="mt-1 w-32 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-right text-sm tabular-nums"></label>
+    <button type="submit" class="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">Save</button>
+  </form>
+</details>
+{% endblock %}
