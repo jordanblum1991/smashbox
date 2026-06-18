@@ -72,6 +72,24 @@ def _ym(year: int | None, month: int | None) -> tuple[int, int]:
     return year or today.year, month or today.month
 
 
+_FISCAL_PERIOD_MODES = {
+    PeriodKind.FISCAL_MONTH: "month",
+    PeriodKind.FISCAL_YTD: "ytd",
+    PeriodKind.FISCAL_YEAR: "year",
+}
+
+
+def _fiscal_banner_for(period_kind, year: int, month: int | None) -> dict | None:
+    """Accent-banner payload {label, range} when a report is scoped to a fiscal
+    period, else None. Shared by the P&L and (via scope) Ad Spend pages."""
+    mode = _FISCAL_PERIOD_MODES.get(period_kind)
+    if mode is None:
+        return None
+    from app.reports.fiscal_calendar import fiscal_label, fiscal_range_str
+    m = month or 1
+    return {"label": fiscal_label(year, m, mode), "range": fiscal_range_str(year, m, mode)}
+
+
 @router.get("/reports/pnl")
 def pnl_view(
     request: Request,
@@ -135,7 +153,8 @@ def pnl_view(
         request,
         "reports/pnl.html",
         {"view": view, "PeriodKind": PeriodKind, "trends": trends, "charts": charts,
-         "error": error, "freshness": compute_freshness(db)},
+         "error": error, "freshness": compute_freshness(db),
+         "fiscal_banner": _fiscal_banner_for(view.period_kind, view.year, view.month)},
     )
 
 
@@ -1143,11 +1162,18 @@ def ad_spend_view(
     daily = None
     monthly = None
     fiscal_year = fiscal_month = None
+    fiscal_banner = None
     if scope in fiscal_modes:
+        from app.reports.fiscal_calendar import fiscal_label, fiscal_range_str
         latest = db.execute(select(func.max(GmvMaxDailyMetric.metric_date))).scalar()
         fiscal_year = year or (latest.year if latest else today_local().year)
         fiscal_month = month or (latest.month if latest else today_local().month)
-        monthly = compute_ad_spend_fiscal(db, fiscal_year, fiscal_month, fiscal_modes[scope])
+        mode = fiscal_modes[scope]
+        monthly = compute_ad_spend_fiscal(db, fiscal_year, fiscal_month, mode)
+        fiscal_banner = {
+            "label": fiscal_label(fiscal_year, fiscal_month, mode),
+            "range": fiscal_range_str(fiscal_year, fiscal_month, mode),
+        }
     elif scope == "daily":
         if range_error is None and sd is not None and ed is not None:
             daily = compute_ad_spend_daily(db, sd, ed)
@@ -1168,6 +1194,7 @@ def ad_spend_view(
             "end_date": end_date,
             "fiscal_year": fiscal_year,
             "fiscal_month": fiscal_month,
+            "fiscal_banner": fiscal_banner,
             "range_error": range_error,
             "all_time": scope == "all-time",
             "error": request.query_params.get("error"),

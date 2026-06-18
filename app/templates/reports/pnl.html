@@ -39,6 +39,9 @@
 {% set fiscal_enabled = true %}
 {% include "partials/period_selector.html" %}
 
+{% import "partials/fiscal_banner.html" as fb %}
+{{ fb.fiscal_banner(fiscal_banner) }}
+
 <!-- Last Imported — data freshness per file kind -->
 <section aria-label="Data freshness" class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 print:hidden">
   <div class="mb-3 flex items-center justify-between">

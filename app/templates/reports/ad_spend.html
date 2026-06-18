@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
+{% import "partials/fiscal_banner.html" as fb %}
 {% block title %}Ad Spend & Campaign KPIs · Smashbox{% endblock %}
 
 {% block content %}
@@ -93,6 +94,8 @@
   <noscript><button type="submit" class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Apply</button></noscript>
 </form>
 {% endif %}
+
+{{ fb.fiscal_banner(fiscal_banner) }}
 
 {% if scope == 'daily' %}
 {# Daily → one row per day in the chosen range. Campaign-attributed only

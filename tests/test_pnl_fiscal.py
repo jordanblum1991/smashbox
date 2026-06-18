@@ -149,6 +149,14 @@ def test_pnl_page_renders_fiscal_year_multicolumn(client):
     assert "Dec 29, 2025 – Dec 28, 2026" in r.text
 
 
+def test_fiscal_period_banner_shows_only_for_fiscal_scopes(client):
+    fiscal = client.get("/reports/pnl?period=fiscal_month&year=2026&month=5").text
+    assert "Fiscal Period" in fiscal                       # accent callout present
+    assert "Apr 29, 2026" in fiscal and "May 28, 2026" in fiscal
+    calendar_view = client.get("/reports/pnl?period=month&year=2026&month=5").text
+    assert "Fiscal Period" not in calendar_view            # not on calendar months
+
+
 def test_fiscal_options_on_pnl_but_not_dashboard(client):
     pnl = client.get("/reports/pnl").text
     assert 'value="fiscal_month"' in pnl
