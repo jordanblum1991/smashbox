@@ -12,6 +12,8 @@
 {% set kind = view.period_kind.value %}
 {% set sy = view.year %}
 {% set sm = view.month or 1 %}
+{# Fiscal options are opt-in per caller (P&L sets this; Dashboard doesn't). #}
+{% set fiscal_enabled = fiscal_enabled if fiscal_enabled is defined else false %}
 
 {# For range mode, derive a default end (y, m) from the breakdown's last entry. #}
 {% if view.monthly_breakdown %}
@@ -54,6 +56,11 @@
         <option value="year"   {% if kind == "year"   %}selected{% endif %}>Full year</option>
         <option value="range"  {% if kind == "range"  %}selected{% endif %}>Custom range (months)</option>
         <option value="custom" {% if kind == "custom" %}selected{% endif %}>Custom date range</option>
+        {% if fiscal_enabled %}
+        <option value="fiscal_month" {% if kind == "fiscal_month" %}selected{% endif %}>Fiscal month (29th–28th)</option>
+        <option value="fiscal_ytd"   {% if kind == "fiscal_ytd"   %}selected{% endif %}>Fiscal YTD through month</option>
+        <option value="fiscal_year"  {% if kind == "fiscal_year"  %}selected{% endif %}>Fiscal year</option>
+        {% endif %}
       </select>
 
       {# Month / YTD / Year: a single (year, month) pair. Month disabled for Year. #}
@@ -66,7 +73,7 @@
           {% endfor %}
         </select>
         <select name="month" onchange="this.form.submit()"
-                {% if kind == 'year' %}disabled{% endif %}
+                {% if kind in ('year', 'fiscal_year') %}disabled{% endif %}
                 class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400">
           {% for mm in range(1, 13) %}
           <option value="{{ mm }}" {% if mm == sm %}selected{% endif %}>{{ mm | month_short }}</option>

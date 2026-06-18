@@ -35,6 +35,12 @@ class PeriodKind(str, Enum):
     YEAR = "year"
     RANGE = "range"
     CUSTOM = "custom"          # arbitrary [start_date, end_date] day window
+    # Smashbox fiscal calendar: each fiscal month runs the 29th → 28th and is
+    # LABELED by its closing month (convention A). Fiscal May 2026 = Apr 29 –
+    # May 28; Fiscal Year 2026 = Dec 29 2025 – Dec 28 2026.
+    FISCAL_MONTH = "fiscal_month"
+    FISCAL_YTD = "fiscal_ytd"
+    FISCAL_YEAR = "fiscal_year"
 
 
 @dataclass
@@ -78,6 +84,37 @@ def _format_date_short(d: date) -> str:
     """Date suffix for the CUSTOM-mode title: 'Mar 28, 2026'. Manual build
     because %-d / %#d differ across platforms; avoid strftime for the day."""
     return f"{calendar.month_abbr[d.month]} {d.day}, {d.year}"
+
+
+# ---- Smashbox fiscal calendar (29th → 28th, labeled by closing month) -------
+
+def _fiscal_window(year: int, month: int) -> tuple[date, date]:
+    """(start_inclusive, end_inclusive) for 'Fiscal <month> <year>' under
+    convention A — the period that CLOSES on the 28th of `month`.
+
+    start = the day after the previous month's 28th, i.e. normally the 29th.
+    The one wrinkle is fiscal March in a non-leap year: February has no 29th,
+    so "the day after Feb 28" is Mar 1 — handled automatically by date math.
+    The 28th-end is always exact, and crossing the year boundary (fiscal
+    January starts Dec 29 of the prior year) falls out of the prev-month step.
+    """
+    end_incl = date(year, month, 28)
+    prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
+    start = date(prev_y, prev_m, 28) + timedelta(days=1)
+    return start, end_incl
+
+
+def _fiscal_month_pnl(db: Session, year: int, month: int) -> MonthlyPnL:
+    """One fiscal month's P&L over its [start, end) window. Anchored to the
+    closing month (date(year, month, 1)) so a multi-month breakdown labels the
+    column by the fiscal label — e.g. 'May' for the Apr 29 – May 28 period."""
+    start, end_incl = _fiscal_window(year, month)
+    return compute_window_pnl(
+        db,
+        datetime(start.year, start.month, start.day),
+        datetime(end_incl.year, end_incl.month, end_incl.day) + timedelta(days=1),  # exclusive
+        month_anchor=date(year, month, 1),
+    )
 
 
 def compute_pnl_view(
@@ -124,6 +161,40 @@ def compute_pnl_view(
             title_suffix=str(y),
             period_kind=period,
             year=y, month=None,
+            total=_sum(months_list, y),
+            monthly_breakdown=months_list,
+        )
+
+    if period == PeriodKind.FISCAL_MONTH:
+        start, end_incl = _fiscal_window(y, m)
+        return PnLView(
+            title_suffix=f"Fiscal {month_label(y, m)} "
+                         f"({_format_date_short(start)} – {_format_date_short(end_incl)})",
+            period_kind=period, year=y, month=m,
+            total=_fiscal_month_pnl(db, y, m),
+            monthly_breakdown=None,
+        )
+
+    if period == PeriodKind.FISCAL_YTD:
+        months_list = [_fiscal_month_pnl(db, y, mm) for mm in range(1, m + 1)]
+        fy_start, _ = _fiscal_window(y, 1)
+        _, end_incl = _fiscal_window(y, m)
+        return PnLView(
+            title_suffix=f"Fiscal YTD through {month_label(y, m)} "
+                         f"({_format_date_short(fy_start)} – {_format_date_short(end_incl)})",
+            period_kind=period, year=y, month=m,
+            total=_sum(months_list, y),
+            monthly_breakdown=months_list,
+        )
+
+    if period == PeriodKind.FISCAL_YEAR:
+        months_list = [_fiscal_month_pnl(db, y, mm) for mm in range(1, 13)]
+        fy_start, _ = _fiscal_window(y, 1)
+        _, fy_end = _fiscal_window(y, 12)
+        return PnLView(
+            title_suffix=f"Fiscal Year {y} "
+                         f"({_format_date_short(fy_start)} – {_format_date_short(fy_end)})",
+            period_kind=period, year=y, month=None,
             total=_sum(months_list, y),
             monthly_breakdown=months_list,
         )
@@ -181,6 +252,19 @@ def window_for(view: PnLView) -> tuple[datetime, datetime]:
     if view.period_kind == PeriodKind.MONTH:
         start = datetime(view.year, view.month, 1)
         return start, _add_month(start)
+    if view.period_kind in (PeriodKind.FISCAL_MONTH, PeriodKind.FISCAL_YTD,
+                            PeriodKind.FISCAL_YEAR):
+        # Fiscal windows can't be derived from the (calendar-anchored) breakdown,
+        # so resolve them directly. YTD/Year both open at the fiscal year start.
+        fy_start, _ = _fiscal_window(view.year, 1)
+        if view.period_kind == PeriodKind.FISCAL_MONTH:
+            fy_start, _ = _fiscal_window(view.year, view.month)
+        end_month = view.month if view.period_kind != PeriodKind.FISCAL_YEAR else 12
+        _, end_incl = _fiscal_window(view.year, end_month)
+        return (
+            datetime(fy_start.year, fy_start.month, fy_start.day),
+            datetime(end_incl.year, end_incl.month, end_incl.day) + timedelta(days=1),
+        )
     months = view.monthly_breakdown or []
     first = months[0].month
     last = months[-1].month

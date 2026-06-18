@@ -36,6 +36,7 @@
 {% endcall %}
 
 {% set selector_action = "/reports/pnl" %}
+{% set fiscal_enabled = true %}
 {% include "partials/period_selector.html" %}
 
 <!-- Last Imported — data freshness per file kind -->
@@ -81,7 +82,7 @@
 {# -------- single-column statement (redesigned) — used for single month
        AND custom day range. Both render the same accounting-style table; no
        monthly breakdown. -------- #}
-{% if view.period_kind.value in ("month", "custom") %}
+{% if view.period_kind.value in ("month", "custom", "fiscal_month") %}
 
 {# ---- Macros ---- #}
 {# Accounting-style dollar: positive → $X.XX  ·  negative → ($X.XX) #}
@@ -267,7 +268,7 @@
 
 {# -------- year / ytd / range: per-month columns + totals -------- #}
 {% else %}
-{% set total_label = "Year" if view.period_kind.value == "year" else "YTD" %}
+{% set total_label = {"year": "Year", "fiscal_year": "Fiscal Year", "fiscal_ytd": "Fiscal YTD"}.get(view.period_kind.value, "YTD") %}
 {% set months = view.monthly_breakdown %}
 
 {# ---- Monthly trend charts (zero-dep inline SVG) — visualize the series the

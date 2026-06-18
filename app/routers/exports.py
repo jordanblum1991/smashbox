@@ -372,7 +372,11 @@ def export_pnl_xlsx(
     if view.monthly_breakdown:
         months = view.monthly_breakdown
         include_total_col = True
-        total_label = "Year" if view.period_kind == PeriodKind.YEAR else "YTD"
+        total_label = {
+            PeriodKind.YEAR: "Year",
+            PeriodKind.FISCAL_YEAR: "Fiscal Year",
+            PeriodKind.FISCAL_YTD: "Fiscal YTD",
+        }.get(view.period_kind, "YTD")
     else:
         months = [pnl]
         include_total_col = False
