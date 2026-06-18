@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Ad Budget · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="TikTok Ads",
+  title="Ad Budget",
+  subtitle="Track allocated ad budget vs. actual GMV-Max spend, with running available balance.",
+  accent_bar=true,
+) %}
+  <a href="/admin/ad-budget/new"
+     class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800">
+    {{ ui.icon("plus", "h-4 w-4") }} New budget
+  </a>
+{% endcall %}
+
+{% if error %}<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"><strong>Error:</strong> {{ error }}</div>{% endif %}
+{% if notice %}<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{{ notice }}</div>{% endif %}
+
+{% if budgets %}
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <table class="w-full text-sm">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-4 py-2.5">Budget</th>
+        <th class="px-4 py-2.5">Period</th>
+        <th class="px-4 py-2.5 text-right">Allocated</th>
+        <th class="px-4 py-2.5 text-right">Spent</th>
+        <th class="px-4 py-2.5 text-right">Promotions</th>
+        <th class="px-4 py-2.5 text-right">Available</th>
+        <th class="px-4 py-2.5">Status</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for b in budgets %}
+      {% set s = summaries[b.id] %}
+      <tr class="hover:bg-slate-50/60 {% if b.id == current_id %}bg-sky-50/40{% endif %}">
+        <td class="px-4 py-2.5">
+          <a href="/admin/ad-budget/{{ b.id }}" class="font-medium text-sky-700 hover:text-sky-900">{{ b.label }}</a>
+          {% if b.id == current_id %}<span class="ml-1 rounded-full bg-sky-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-900">Current</span>{% endif %}
+        </td>
+        <td class="px-4 py-2.5 whitespace-nowrap text-slate-600">{{ b.start_date.strftime("%b %d, %Y") }} – {{ b.end_date.strftime("%b %d, %Y") }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-slate-900">{{ s.budget_amount | money }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ s.total_ad_spend | money }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-slate-700">{{ s.total_promotions | money }}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums font-semibold {{ 'text-rose-600' if s.is_over_budget else 'text-slate-900' }}">{{ s.available | money }}</td>
+        <td class="px-4 py-2.5">
+          {% if s.not_started %}<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">Not started</span>
+          {% elif s.is_over_budget %}<span class="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-rose-700">Over budget</span>
+          {% else %}<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">{{ "%.0f" % s.pct_used }}% used</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+{% call ui.banner(tone="info", title="No budgets yet") %}
+  Create your first ad budget to start tracking spend. The program starts <strong>July 1, 2026</strong> —
+  the new-budget form defaults to that start date.
+  <a href="/admin/ad-budget/new" class="ml-1 font-medium underline underline-offset-2">Create a budget →</a>
+{% endcall %}
+{% endif %}
+{% endblock %}

@@ -1,4 +1,5 @@
 """Importing this module registers all ORM models with SQLAlchemy's metadata."""
+from app.models.ad_budget import AdBudget, AdBudgetPromotion
 from app.models.ad_credit import AdCredit
 from app.models.ad_spend import AdSpend
 from app.models.bundle import Bundle, BundleComponent
@@ -32,6 +33,8 @@ from app.models.tiktok_daily_metric import TikTokDailyMetric
 from app.models.user import User, UserRole
 
 __all__ = [
+    "AdBudget",
+    "AdBudgetPromotion",
     "AdCredit",
     "AdSpend",
     "Adjustment",
