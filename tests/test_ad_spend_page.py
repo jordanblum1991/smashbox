@@ -128,6 +128,19 @@ def test_no_data_shows_empty_state(client):
     assert "No GMV Max campaign data yet" in r.text
 
 
+def test_fiscal_month_scope_renders(client):
+    with SessionLocal() as db:
+        _seed_day(db, date(2026, 4, 29), cost=100, sku=5, gr=300)   # in fiscal May
+        _seed_day(db, date(2026, 5, 28), cost=50, sku=2, gr=120)    # in fiscal May
+        _seed_day(db, date(2026, 5, 29), cost=999, sku=99, gr=9999) # next fiscal month
+        db.commit()
+    r = client.get("/reports/ad-spend?scope=fiscal_month&year=2026&month=5")
+    assert r.status_code == 200
+    assert "Fiscal Month — GMV Max KPIs" in r.text
+    assert "$150.00" in r.text                  # Apr 29 + May 28; May 29 excluded
+    assert "scope=fiscal_year" in r.text         # the Fiscal ▾ dropdown is present
+
+
 def test_reimbursements_explainer_does_not_claim_shop_ads_is_included(client):
     """AdSpend (this page's Gross Ad Spend) is GMV-Max only — Shop Ads comes
     from settlement and lives only in the P&L. The explainer must not claim
