@@ -74,7 +74,7 @@
     </thead>
     <tbody>
       {% for b in view.buckets %}
-      <tr class="border-b border-slate-100 {{ 'bg-slate-50 text-slate-400' if b.in_progress }}">
+      <tr class="border-b border-slate-100 {{ 'bg-slate-50' if b.in_progress }}">
         <td class="px-4 py-2 font-medium text-slate-700">
           {{ b.label }}
           {% if b.in_progress %}<span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">in progress</span>{% endif %}
