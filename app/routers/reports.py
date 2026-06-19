@@ -61,6 +61,7 @@ from app.reports.samples_by_creator import compute_samples_by_creator_view
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
+from app.reports.sales_report import GRANULARITIES, compute_sales_report
 from app.services.data_freshness import compute_freshness
 from app.services.reporting_tz import today_local
 from app.templating import strip_size, templates, title_case
@@ -163,6 +164,17 @@ def ytd_pnl_legacy(year: int | None = None):
     qs = "period=year"
     if year: qs += f"&year={year}"
     return RedirectResponse(url=f"/reports/pnl?{qs}", status_code=307)
+
+
+@router.get("/reports/sales")
+def sales_view(request: Request, granularity: str = "daily", db: Session = Depends(get_db)):
+    """Sales velocity — revenue/units/orders per day/week/month with trend."""
+    view = compute_sales_report(db, granularity)
+    window_label = f"{view.window_start:%b %d} – {view.window_end:%b %d, %Y}"
+    return templates.TemplateResponse(
+        request, "reports/sales.html",
+        {"view": view, "granularities": GRANULARITIES, "window_label": window_label},
+    )
 
 
 @router.get("/reports/samples")

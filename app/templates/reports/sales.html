@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Sales · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Smashbox TikTok Shop",
+  title="Sales",
+  period=window_label,
+  subtitle="PAID orders · Seller-Center GMV",
+  accent_bar=true,
+) %}
+  <a href="/reports/sales.csv?granularity={{ view.granularity }}"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ ui.icon("download", "h-3.5 w-3.5") }}
+    Download CSV
+  </a>
+{% endcall %}
+
+{# Granularity toggle #}
+<div class="mb-4 inline-flex overflow-hidden rounded-lg border border-slate-200 print:hidden">
+  {% for g in granularities %}
+  <a href="/reports/sales?granularity={{ g }}"
+     class="px-3.5 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if g == view.granularity else 'text-slate-600 hover:bg-slate-100' }}">
+    {{ g | capitalize }}
+  </a>
+  {% endfor %}
+</div>
+
+{# Summary cards #}
+<section class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Total Revenue</div>
+    <div class="mt-1 flex items-baseline gap-2">
+      <span class="text-lg font-semibold text-slate-900">{{ view.total_revenue | money }}</span>
+      {% if view.revenue_delta %}{{ ui.delta_chip(view.revenue_delta, polarity="higher_better") }}{% endif %}
+    </div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Units</div>
+    <div class="mt-1 flex items-baseline gap-2">
+      <span class="text-lg font-semibold text-slate-900">{{ view.total_units }}</span>
+      {% if view.units_delta %}{{ ui.delta_chip(view.units_delta, polarity="higher_better") }}{% endif %}
+    </div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Orders</div>
+    <div class="mt-1 text-lg font-semibold text-slate-900">{{ view.total_orders }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Avg AOV</div>
+    <div class="mt-1 text-lg font-semibold text-slate-900">{{ view.avg_aov | money }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Avg Daily Revenue</div>
+    <div class="mt-1 text-lg font-semibold text-slate-900">{{ view.avg_daily_revenue | money }}</div>
+    {% if view.peak %}<div class="mt-0.5 text-[11px] text-slate-500">Peak {{ view.peak.label }}: {{ view.peak.revenue | money }}</div>{% endif %}
+  </div>
+</section>
+
+{# CHART_PLACEHOLDER — bar chart inserted in Task 3 #}
+
+{# Velocity table #}
+<div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-slate-500">
+        <th class="px-4 py-2 font-semibold">Period</th>
+        <th class="px-4 py-2 text-right font-semibold">Revenue</th>
+        <th class="px-4 py-2 text-right font-semibold">Units</th>
+        <th class="px-4 py-2 text-right font-semibold">Orders</th>
+        <th class="px-4 py-2 text-right font-semibold">AOV</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in view.buckets %}
+      <tr class="border-b border-slate-100 {{ 'bg-slate-50 text-slate-400' if b.in_progress }}">
+        <td class="px-4 py-2 font-medium text-slate-700">
+          {{ b.label }}
+          {% if b.in_progress %}<span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">in progress</span>{% endif %}
+        </td>
+        <td class="px-4 py-2 text-right tabular-nums text-slate-900">{{ b.revenue | money }}</td>
+        <td class="px-4 py-2 text-right tabular-nums text-slate-700">{{ b.units }}</td>
+        <td class="px-4 py-2 text-right tabular-nums text-slate-700">{{ b.orders }}</td>
+        <td class="px-4 py-2 text-right tabular-nums text-slate-700">{{ b.aov | money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
