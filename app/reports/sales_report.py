@@ -13,6 +13,8 @@ Pure computation — reads the ORM, returns dataclasses.
 """
 from __future__ import annotations
 
+import calendar as _calendar
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -22,9 +24,11 @@ from sqlalchemy.orm import Session
 
 from app.models.order import Order, OrderLine, OrderType
 from app.reports.dashboard_trends import Delta, compute_delta
+from app.reports.fiscal_calendar import fiscal_months_for, fiscal_window
 from app.services.reporting_tz import now_local, placed_local_date, placed_window, today_local
 
 GRANULARITIES = ("daily", "weekly", "monthly")
+FISCAL_MODES = ("fiscal_month", "fiscal_ytd", "fiscal_year")
 _CENTS = Decimal("0.01")
 
 
@@ -117,25 +121,70 @@ def _span_starts(granularity: str, win_start: date, win_end: date) -> list[date]
     return out
 
 
-def compute_sales_report(db: Session, granularity: str = "daily", *,
-                         as_of: date | None = None) -> SalesReportView:
-    if granularity not in GRANULARITIES:
-        granularity = "daily"
-    today = as_of or today_local()
-    win_start, win_end = _window_for(granularity, today)
+@dataclass
+class _BucketDef:
+    key: str
+    label: str
+    start: date
 
-    # Pre-seed every bucket in range so zero-sale periods render (continuous line).
+
+def _calendar_plan(granularity: str, win_start: date, win_end: date) -> tuple[list["_BucketDef"], Callable[[date], str]]:
+    """Bucket defs + a date→key mapper for daily/weekly/monthly over the window."""
+    defs = [_BucketDef(_key(granularity, s), _label(granularity, s), s)
+            for s in _span_starts(granularity, win_start, win_end)]
+
+    def key_of(d: date) -> str:
+        return _key(granularity, _bucket_start(granularity, d))
+
+    return defs, key_of
+
+
+def current_fiscal_ym(today: date) -> tuple[int, int]:
+    """(fiscal_year, fiscal_month) containing `today`. A fiscal month closes on
+    the 28th, so days 1–28 belong to that calendar month's fiscal period and
+    days 29–31 roll into the next fiscal month (which may cross the year)."""
+    if today.day <= 28:
+        return today.year, today.month
+    return (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+
+
+def _fiscal_month_plan(fiscal_year: int, months: list[int]) -> tuple[list["_BucketDef"], Callable[[date], "str | None"]]:
+    """One bucket per fiscal month (29th–28th), labeled by closing month, plus a
+    date→key mapper that finds the fiscal month whose window contains a date."""
+    defs: list[_BucketDef] = []
+    windows: list[tuple[str, date, date]] = []
+    for mm in months:
+        s, e = fiscal_window(fiscal_year, mm)
+        k = f"F{fiscal_year}-{mm:02d}"
+        defs.append(_BucketDef(k, f"{_calendar.month_abbr[mm]} {fiscal_year}", s))
+        windows.append((k, s, e))
+
+    def key_of(d: date):
+        for k, s, e in windows:
+            if s <= d <= e:
+                return k
+        return None
+
+    return defs, key_of
+
+
+def _summarize(db: Session, defs: list[_BucketDef], key_of,
+               win_start: date, win_end: date, granularity_value: str,
+               today: date) -> SalesReportView:
+    """Seed the given buckets, sum PAID orders in [win_start, win_end] into them
+    via key_of(placed_local_date), and compute totals / deltas / peak. The single
+    aggregation core shared by every scope so they can't drift."""
+    if win_start > win_end:
+        raise ValueError(f"win_start {win_start} is after win_end {win_end}")
+    today_key = key_of(today)
     buckets: dict[str, SalesBucket] = {}
     order_keys: list[str] = []
-    today_key = _key(granularity, _bucket_start(granularity, today))
-    for start in _span_starts(granularity, win_start, win_end):
-        k = _key(granularity, start)
-        buckets[k] = SalesBucket(key=k, label=_label(granularity, start), start=start,
-                                 revenue=Decimal("0"), units=0, orders=0,
-                                 in_progress=(k == today_key))
-        order_keys.append(k)
+    for d in defs:
+        buckets[d.key] = SalesBucket(key=d.key, label=d.label, start=d.start,
+                                     revenue=Decimal("0"), units=0, orders=0,
+                                     in_progress=(d.key == today_key))
+        order_keys.append(d.key)
 
-    # Shop-local [win_start, win_end+1day) → source-tz bounds for the placed_at filter.
     q_start = datetime(win_start.year, win_start.month, win_start.day)
     q_end = datetime(win_end.year, win_end.month, win_end.day) + timedelta(days=1)
     src_start, src_end = placed_window(q_start, q_end)
@@ -161,8 +210,7 @@ def compute_sales_report(db: Session, granularity: str = "daily", *,
     ).all()
 
     for r in rows:
-        k = _key(granularity, _bucket_start(granularity, placed_local_date(r.placed_at)))
-        b = buckets.get(k)
+        b = buckets.get(key_of(placed_local_date(r.placed_at)))
         if b is None:
             continue
         b.revenue += (r.gross_sales + r.shipping_revenue
@@ -183,7 +231,6 @@ def compute_sales_report(db: Session, granularity: str = "daily", *,
     avg_daily_revenue = (total_revenue / days).quantize(_CENTS) if days else Decimal("0")
     avg_daily_units = round(total_units / days, 1) if days else 0.0
 
-    # Trend: compare the last two COMPLETE buckets (exclude the in-progress one).
     complete = [b for b in ordered if not b.in_progress]
     revenue_delta = units_delta = None
     if len(complete) >= 2:
@@ -197,10 +244,43 @@ def compute_sales_report(db: Session, granularity: str = "daily", *,
         peak = None
 
     return SalesReportView(
-        granularity=granularity, buckets=ordered,
+        granularity=granularity_value, buckets=ordered,
         total_revenue=total_revenue, total_units=total_units, total_orders=total_orders,
         avg_aov=avg_aov, window_start=win_start, window_end=win_end, days_in_window=days,
         avg_daily_revenue=avg_daily_revenue, avg_daily_units=avg_daily_units,
         revenue_delta=revenue_delta, units_delta=units_delta, peak=peak,
         as_of=now_local(),
     )
+
+
+def compute_sales_report(db: Session, granularity: str = "daily", *,
+                         start: date | None = None, end: date | None = None,
+                         fiscal_year: int | None = None, fiscal_month: int | None = None,
+                         as_of: date | None = None) -> SalesReportView:
+    today = as_of or today_local()
+
+    if granularity in FISCAL_MODES:
+        cur_y, cur_m = current_fiscal_ym(today)
+        fy = fiscal_year or cur_y
+        fm = fiscal_month or cur_m
+        if granularity == "fiscal_month":
+            win_start, win_end = fiscal_window(fy, fm)
+            defs, key_of = _calendar_plan("daily", win_start, win_end)
+        else:
+            mode = "ytd" if granularity == "fiscal_ytd" else "year"
+            months = fiscal_months_for(mode, fm)
+            win_start, _ = fiscal_window(fy, months[0])
+            _, win_end = fiscal_window(fy, months[-1])
+            defs, key_of = _fiscal_month_plan(fy, months)
+        return _summarize(db, defs, key_of, win_start, win_end, granularity, today)
+
+    if granularity not in GRANULARITIES:
+        granularity = "daily"
+    if (start is None) != (end is None):
+        raise ValueError("start and end must both be set or both be omitted")
+    if start is not None and end is not None:
+        win_start, win_end = start, end
+    else:
+        win_start, win_end = _window_for(granularity, today)
+    defs, key_of = _calendar_plan(granularity, win_start, win_end)
+    return _summarize(db, defs, key_of, win_start, win_end, granularity, today)

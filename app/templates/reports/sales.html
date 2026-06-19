@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
+{% import "partials/fiscal_banner.html" as fb %}
 {% block title %}Sales · Smashbox{% endblock %}
 
 {% block content %}
@@ -10,22 +11,62 @@
   subtitle="PAID orders · Seller-Center GMV",
   accent_bar=true,
 ) %}
-  <a href="/reports/sales.csv?granularity={{ view.granularity }}"
+  <a href="/reports/sales.csv?granularity={{ granularity }}{% if start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}{% if fiscal_year %}&year={{ fiscal_year }}&month={{ fiscal_month }}{% endif %}"
      class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
     {{ ui.icon("download", "h-3.5 w-3.5") }}
     Download CSV
   </a>
 {% endcall %}
 
-{# Granularity toggle #}
-<div class="mb-4 inline-flex overflow-hidden rounded-lg border border-slate-200 print:hidden">
+{% set is_fiscal = granularity in ('fiscal_month', 'fiscal_ytd', 'fiscal_year') %}
+{# Scope controls — calendar toggle + Fiscal dropdown (mirrors Ad Spend). #}
+<div class="mb-4 flex flex-wrap items-center gap-1 text-sm print:hidden">
   {% for g in granularities %}
-  <a href="/reports/sales?granularity={{ g }}"
-     class="px-3.5 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if g == view.granularity else 'text-slate-600 hover:bg-slate-100' }}">
-    {{ g | capitalize }}
-  </a>
+  <a href="/reports/sales?granularity={{ g }}{% if start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}"
+     class="rounded-md px-4 py-1.5 font-medium {{ 'bg-slate-900 text-white' if g == granularity else 'text-slate-600 hover:bg-slate-100' }}">{{ g | capitalize }}</a>
   {% endfor %}
+  <details class="group relative">
+    <summary class="flex cursor-pointer list-none items-center gap-1 rounded-md px-4 py-1.5 font-medium {{ 'bg-slate-900 text-white' if is_fiscal else 'text-slate-600 hover:bg-slate-100' }}">
+      Fiscal <span class="text-[10px] transition-transform group-open:rotate-180">▾</span>
+    </summary>
+    <div class="absolute left-0 top-full z-20 mt-1 w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+      <a href="/reports/sales?granularity=fiscal_month" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_month' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal month</a>
+      <a href="/reports/sales?granularity=fiscal_ytd" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_ytd' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal YTD</a>
+      <a href="/reports/sales?granularity=fiscal_year" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_year' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal year</a>
+    </div>
+  </details>
 </div>
+
+{% if error %}<div class="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 print:hidden">{{ error }}</div>{% endif %}
+
+{% if not is_fiscal %}
+{# Custom date range — buckets the span by the active granularity. #}
+<form method="get" action="/reports/sales" class="mb-5 flex flex-wrap items-center gap-2 text-sm print:hidden">
+  <input type="hidden" name="granularity" value="{{ granularity }}">
+  <span class="text-xs text-slate-500">Range</span>
+  <input type="text" name="start_date" value="{{ start_date }}" placeholder="YYYY-MM-DD"
+         class="w-32 rounded-md border border-slate-300 px-2 py-1">
+  <span class="text-slate-400">→</span>
+  <input type="text" name="end_date" value="{{ end_date }}" placeholder="YYYY-MM-DD"
+         class="w-32 rounded-md border border-slate-300 px-2 py-1">
+  <button type="submit" class="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white">Apply</button>
+  {% if start_date and end_date %}<a href="/reports/sales?granularity={{ granularity }}" class="text-slate-500 hover:text-slate-700">Clear</a>{% endif %}
+</form>
+{% else %}
+{# Fiscal year/month picker (month disabled for the fiscal-year scope). #}
+<form method="get" action="/reports/sales" class="mb-5 flex flex-wrap items-center gap-2 text-sm print:hidden">
+  <input type="hidden" name="granularity" value="{{ granularity }}">
+  <span class="text-xs text-slate-500">Fiscal {{ 'year' if granularity == 'fiscal_year' else ('YTD through' if granularity == 'fiscal_ytd' else 'month') }}</span>
+  <select name="year" onchange="this.form.submit()" class="rounded-md border border-slate-300 px-2 py-1">
+    {% for y in fiscal_years %}<option value="{{ y }}" {% if y == fiscal_year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+  </select>
+  <select name="month" onchange="this.form.submit()" {% if granularity == 'fiscal_year' %}disabled{% endif %} class="rounded-md border border-slate-300 px-2 py-1">
+    {% for mm in range(1, 13) %}<option value="{{ mm }}" {% if mm == fiscal_month %}selected{% endif %}>{{ mm | month_short }}</option>{% endfor %}
+  </select>
+  <noscript><button type="submit" class="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white">Apply</button></noscript>
+</form>
+{{ fb.fiscal_banner(fiscal_banner) }}
+{% endif %}
 
 {# Summary cards #}
 <section class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
