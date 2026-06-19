@@ -34,3 +34,23 @@ def test_sync_button_calls_service_and_redirects(client, monkeypatch):
     assert r.status_code == 303
     assert r.headers["location"] == "/uploads"
     assert called.get("hit") is True
+
+
+def test_uploads_page_renders_last_gmv_sync_status(client):
+    from datetime import datetime
+    from app.db import SessionLocal
+    from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
+    with SessionLocal() as db:
+        db.add(ImportBatch(
+            kind=ImportFileKind.TIKTOK_GMV_MAX,
+            status=ImportBatchStatus.COMPLETED,
+            original_filename="TikTok GMV-Max API sync · 2026-06-19 06:10",
+            stored_path="",
+            rows_imported=35,
+        ))
+        db.commit()
+    r = client.get("/uploads")
+    assert r.status_code == 200
+    assert "completed" in r.text
+    # the populated status block shows the sync timestamp line
+    assert "UTC" in r.text
