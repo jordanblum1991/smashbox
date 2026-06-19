@@ -59,7 +59,10 @@ def test_by_month_view_renders_table(client):
     assert "All-Time" in r.text               # toggle + totals row
     # Blended-ROAS relabel + scope footnote (honest labeling, not "ROAS").
     assert "Blended ROAS" in r.text
-    assert "not</em> campaign-attributed" in r.text or "not campaign-attributed" in r.text
+    # ROI column is the campaign-attributed multiple — surfaced as Attributed ROAS,
+    # and the footnote contrasts it with the (not-attributed) Blended ROAS.
+    assert "Attributed ROAS" in r.text
+    assert "campaign-attributed" in r.text
     assert "/reports/ad-spend/reimbursements" in r.text   # cross-link to full spend breakdown
 
 
@@ -210,7 +213,7 @@ def test_daily_csv_exports_per_day(client):
     r = client.get("/reports/ad-spend-daily.csv?start_date=2026-05-10&end_date=2026-05-10")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
-    assert "Date,SKU Orders,Cost per Order,Gross Revenue,ROI,Gross Spend" in r.text
+    assert "Date,SKU Orders,Cost per Order,Gross Revenue,Attributed ROAS,Gross Spend" in r.text
     assert "2026-05-10" in r.text
 
 
