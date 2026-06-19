@@ -61,6 +61,7 @@ from app.reports.samples_by_creator import compute_samples_by_creator_view
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
+from app.reports.sales_report import GRANULARITIES, compute_sales_report
 from app.services.data_freshness import compute_freshness
 from app.services.reporting_tz import today_local
 from app.templating import strip_size, templates, title_case
@@ -163,6 +164,19 @@ def ytd_pnl_legacy(year: int | None = None):
     qs = "period=year"
     if year: qs += f"&year={year}"
     return RedirectResponse(url=f"/reports/pnl?{qs}", status_code=307)
+
+
+@router.get("/reports/sales")
+def sales_view(request: Request, granularity: str = "daily", db: Session = Depends(get_db)):
+    """Sales velocity — revenue/units/orders per day/week/month with trend."""
+    view = compute_sales_report(db, granularity)
+    window_label = f"{view.window_start:%b %d} – {view.window_end:%b %d, %Y}"
+    chart = bar_chart([float(b.revenue) for b in view.buckets])
+    return templates.TemplateResponse(
+        request, "reports/sales.html",
+        {"view": view, "granularities": GRANULARITIES,
+         "window_label": window_label, "chart": chart},
+    )
 
 
 @router.get("/reports/samples")
@@ -439,6 +453,26 @@ def ad_spend_daily_csv(
         ["Date", "SKU Orders", "Cost per Order", "Gross Revenue", "Attributed ROAS",
          "Gross Spend (GMV-Max)"],
         f"ad_spend_daily_{sd.isoformat()}_to_{ed.isoformat()}.csv",
+    )
+
+
+@router.get("/reports/sales.csv")
+def sales_csv(granularity: str = "daily", db: Session = Depends(get_db)) -> Response:
+    """Sales velocity table as CSV (mirrors the /reports/sales table)."""
+    view = compute_sales_report(db, granularity)
+
+    def rows():
+        for b in view.buckets:
+            yield [
+                b.label, b.start.isoformat(), f"{b.revenue:.2f}",
+                b.units, b.orders, f"{b.aov:.2f}",
+                "yes" if b.in_progress else "",
+            ]
+
+    return _csv_response(
+        rows(),
+        ["Period", "Start", "Revenue", "Units", "Orders", "AOV", "In Progress"],
+        f"sales_{view.granularity}.csv",
     )
 
 
