@@ -86,3 +86,9 @@ def test_sales_csv_exports_velocity_table(client):
     rows = list(csv.reader(io.StringIO(r.text)))
     assert rows[0] == ["Period", "Start", "Revenue", "Units", "Orders", "AOV", "In Progress"]
     assert len(rows) >= 2          # header + at least one bucket
+
+
+def test_nav_has_sales_link(client):
+    r = client.get("/reports/sales")
+    assert r.status_code == 200
+    assert 'href="/reports/sales"' in r.text     # top-level nav link present
