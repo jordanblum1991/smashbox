@@ -129,7 +129,39 @@
     });
   })();
 </script>
+
 {% endif %}
+
+{# ── Live GMV-Max feed (TikTok Marketing API) ──────────────────────────── #}
+<div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm mb-8">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <h3 class="flex items-center gap-2 text-sm font-semibold text-slate-800">
+        {{ ui.icon("refresh-cw", "h-4 w-4 text-slate-500") }}
+        Live GMV-Max feed (TikTok API)
+      </h3>
+      <p class="mt-0.5 text-xs text-slate-500">Pulls daily GMV-Max ad spend, orders &amp; attributed revenue straight from TikTok into the Ad Spend report — no CSV needed.</p>
+    </div>
+    <form action="/uploads/sync-gmv-max" method="post" id="gmv-sync-form">
+      <button type="submit"
+        class="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
+        Sync GMV-Max now
+      </button>
+    </form>
+  </div>
+  {% if last_gmv_sync %}
+    <div class="mt-3 flex items-center gap-2 text-xs">
+      <span class="rounded px-1.5 py-0.5 font-medium
+        {% if last_gmv_sync.status.value == 'completed' %}bg-emerald-50 text-emerald-700
+        {% elif last_gmv_sync.status.value == 'failed' %}bg-rose-50 text-rose-700
+        {% else %}bg-slate-100 text-slate-600{% endif %}">{{ last_gmv_sync.status.value }}</span>
+      <span class="text-sm text-slate-700">{{ last_gmv_sync.uploaded_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+      {% if last_gmv_sync.error_message %}
+        <span class="text-slate-500">· {{ last_gmv_sync.error_message.split("\n")[0] }}</span>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
 
 <form id="upload-form" action="/uploads" method="post" enctype="multipart/form-data"
       class="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
