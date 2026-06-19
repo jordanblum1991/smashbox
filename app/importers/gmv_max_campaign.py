@@ -70,6 +70,13 @@ def import_dataframe(df: pd.DataFrame, db: Session, batch: ImportBatch) -> Impor
     result = ImportResult()
     if df.empty:
         return result
+    required = {"metric_date", "cost", "sku_orders", "gross_revenue"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"import_dataframe: missing required columns: {sorted(missing)}. "
+            f"Got: {list(df.columns)}"
+        )
     for _, row in df.iterrows():
         day = row["metric_date"]
         try:
@@ -80,13 +87,13 @@ def import_dataframe(df: pd.DataFrame, db: Session, batch: ImportBatch) -> Impor
     return result
 
 
-def _upsert_row(db: Session, day, row, batch: ImportBatch) -> GmvMaxDailyMetric:
+def _upsert_row(db: Session, day, row: pd.Series, batch: ImportBatch) -> GmvMaxDailyMetric:
     payload = dict(
         import_batch_id=batch.id,
         metric_date=day,
-        cost=row["cost"],
-        sku_orders=int(row["sku_orders"]),
-        gross_revenue=row["gross_revenue"],
+        cost=_num(row["cost"]),
+        sku_orders=_count(row["sku_orders"]),
+        gross_revenue=_num(row["gross_revenue"]),
     )
     existing = db.execute(
         select(GmvMaxDailyMetric).where(GmvMaxDailyMetric.metric_date == day)
@@ -98,6 +105,19 @@ def _upsert_row(db: Session, day, row, batch: ImportBatch) -> GmvMaxDailyMetric:
     for k, v in payload.items():
         setattr(existing, k, v)
     return existing
+
+
+def _num(v) -> Decimal:
+    """Null/NaN-safe Decimal for the seam (callers may pass sparse rows)."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return Decimal("0")
+    return v if isinstance(v, Decimal) else Decimal(str(v))
+
+
+def _count(v) -> int:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return 0
+    return int(v)
 
 
 # ---------- helpers ---------------------------------------------------------

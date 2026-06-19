@@ -63,3 +63,18 @@ def test_import_dataframe_upserts_same_day():
         assert rows[0].cost == Decimal("111.00")
         assert rows[0].sku_orders == 7
         assert rows[0].import_batch_id == b2.id
+
+
+def test_import_dataframe_empty_frame():
+    with SessionLocal() as db:
+        b = _batch(db)
+        res = import_dataframe(pd.DataFrame([]), db, b)
+        assert res.rows_imported == 0
+        assert res.rows_skipped == 0
+
+
+def test_import_dataframe_rejects_missing_columns():
+    with SessionLocal() as db:
+        b = _batch(db)
+        with pytest.raises(ValueError, match="missing required columns"):
+            import_dataframe(pd.DataFrame([{"metric_date": None}]), db, b)
