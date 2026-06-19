@@ -38,34 +38,62 @@ COL = {
 
 class GmvMaxCampaignImporter(BaseImporter):
     def run(self, path: Path, db: Session, batch: ImportBatch) -> ImportResult:
-        result = ImportResult()
-
         df = pd.read_excel(path, dtype=str)
         missing = [c for c in (COL["date"], COL["cost"]) if c not in df.columns]
         if missing:
             raise ValueError(f"GMV Max campaign file missing required columns: {missing}")
 
+        rows = []
         for _, row in df.iterrows():
             day = _parse_date(row.get(COL["date"]))
             if day is None:
                 # Blank cells and the footer TOTAL row ("-") are skipped silently.
                 continue
-            try:
-                _upsert(db, day, row, batch)
-                result.rows_imported += 1
-            except Exception as exc:  # noqa: BLE001
-                result.skip(f"{day}: {exc}")
+            rows.append({
+                "metric_date": day,
+                "cost": _dec(row.get(COL["cost"])),
+                "sku_orders": _int(row.get(COL["sku_orders"])),
+                "gross_revenue": _dec(row.get(COL["gross_revenue"])),
+            })
+        return import_dataframe(pd.DataFrame(rows), db, batch)
 
+
+def import_dataframe(df: pd.DataFrame, db: Session, batch: ImportBatch) -> ImportResult:
+    """Upsert by-day GMV-Max metrics from an already-normalized frame.
+
+    The shared core of both ingestion paths: the CSV/XLSX importer (`run`, which
+    reads a file first) and the API sync (`app/services/gmv_max_sync.py`, which
+    builds the frame from `/gmv_max/report/get/`). Columns must be normalized to
+    `metric_date` (date) / `cost` (Decimal) / `sku_orders` (int) /
+    `gross_revenue` (Decimal). Idempotent on `metric_date`: a re-run overwrites
+    each day in place, so TikTok's revisions to recent days flow through."""
+    result = ImportResult()
+    if df.empty:
         return result
+    required = {"metric_date", "cost", "sku_orders", "gross_revenue"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"import_dataframe: missing required columns: {sorted(missing)}. "
+            f"Got: {list(df.columns)}"
+        )
+    for _, row in df.iterrows():
+        day = row["metric_date"]
+        try:
+            _upsert_row(db, day, row, batch)
+            result.rows_imported += 1
+        except Exception as exc:  # noqa: BLE001
+            result.skip(f"{day}: {exc}")
+    return result
 
 
-def _upsert(db: Session, day, row: pd.Series, batch: ImportBatch) -> GmvMaxDailyMetric:
+def _upsert_row(db: Session, day, row: pd.Series, batch: ImportBatch) -> GmvMaxDailyMetric:
     payload = dict(
         import_batch_id=batch.id,
         metric_date=day,
-        cost=_dec(row.get(COL["cost"])),
-        sku_orders=_int(row.get(COL["sku_orders"])),
-        gross_revenue=_dec(row.get(COL["gross_revenue"])),
+        cost=_num(row["cost"]),
+        sku_orders=_count(row["sku_orders"]),
+        gross_revenue=_num(row["gross_revenue"]),
     )
     existing = db.execute(
         select(GmvMaxDailyMetric).where(GmvMaxDailyMetric.metric_date == day)
@@ -77,6 +105,19 @@ def _upsert(db: Session, day, row: pd.Series, batch: ImportBatch) -> GmvMaxDaily
     for k, v in payload.items():
         setattr(existing, k, v)
     return existing
+
+
+def _num(v) -> Decimal:
+    """Null/NaN-safe Decimal for the seam (callers may pass sparse rows)."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return Decimal("0")
+    return v if isinstance(v, Decimal) else Decimal(str(v))
+
+
+def _count(v) -> int:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return 0
+    return int(v)
 
 
 # ---------- helpers ---------------------------------------------------------

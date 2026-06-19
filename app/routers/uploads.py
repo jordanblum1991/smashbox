@@ -17,6 +17,7 @@ from app.models.import_batch import (
 )
 from app.models.shop import Shop
 from app.services.batch_deletion import delete_batch
+from app.services.gmv_max_sync import sync_gmv_max
 from app.services.inventory_sync import sync_inventory_from_sap
 from app.services.sample_classification import reconcile_sample_classifications
 from app.services.scheduler import apply_inventory_schedule
@@ -113,6 +114,13 @@ def uploads_page(request: Request, db: Session = Depends(get_db)):
          if (b.original_filename or "").startswith("SAP")),
         None,
     )
+    # Last GMV-Max API sync = most recent TIKTOK_GMV_MAX batch produced by the
+    # API (its filename starts with "TikTok GMV-Max API"), for the feed card.
+    last_gmv_sync = next(
+        (b for b in batches_by_kind[ImportFileKind.TIKTOK_GMV_MAX]
+         if (b.original_filename or "").startswith("TikTok GMV-Max API")),
+        None,
+    )
     return templates.TemplateResponse(
         request,
         "uploads.html",
@@ -122,6 +130,7 @@ def uploads_page(request: Request, db: Session = Depends(get_db)):
             "kinds": list(ImportFileKind),
             "shop": shop,
             "last_sap_sync": last_sap_sync,
+            "last_gmv_sync": last_gmv_sync,
             "valid_days": _VALID_DAYS,
         },
     )
@@ -132,6 +141,14 @@ async def sync_inventory_sap(db: Session = Depends(get_db)):
     """Manual 'Sync inventory from SAP' button. Runs the network + import work in
     a worker thread so the event loop isn't blocked, then returns to /uploads."""
     await run_in_threadpool(sync_inventory_from_sap, db, source="manual")
+    return RedirectResponse("/uploads", status_code=303)
+
+
+@router.post("/uploads/sync-gmv-max")
+async def sync_gmv_max_button(db: Session = Depends(get_db)):
+    """Manual 'Sync GMV-Max' button. Runs the API pull + import in a worker thread
+    so the event loop isn't blocked, then returns to /uploads."""
+    await run_in_threadpool(sync_gmv_max, db)
     return RedirectResponse("/uploads", status_code=303)
 
 

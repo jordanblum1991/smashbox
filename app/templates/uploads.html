@@ -129,7 +129,61 @@
     });
   })();
 </script>
+
 {% endif %}
+
+{# ── Live GMV-Max feed (TikTok Marketing API) ──────────────────────────── #}
+<section id="gmv-sync" class="mb-8 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="flex items-center justify-between border-b border-slate-200 px-6 py-3">
+    <div>
+      <h2 class="flex items-center gap-2 text-base font-semibold text-slate-900">
+        {{ ui.icon("refresh-cw", "h-4 w-4 text-sky-600") }}
+        Live GMV-Max feed (TikTok API)
+      </h2>
+      <p class="mt-0.5 text-xs text-slate-500">Pulls daily GMV-Max ad spend, orders &amp; attributed revenue straight from TikTok into the Ad Spend report — no CSV needed.</p>
+    </div>
+    <form action="/uploads/sync-gmv-max" method="post" id="gmv-sync-form">
+      <button type="submit" id="gmv-sync-btn"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-500">
+        {{ ui.icon("refresh-cw", "h-3.5 w-3.5") }}
+        Sync GMV-Max now
+      </button>
+    </form>
+  </header>
+  <div class="px-6 py-4">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Last sync</div>
+    {% if last_gmv_sync %}
+    <div class="mt-1 flex items-center gap-2">
+      <span class="rounded px-2 py-0.5 text-xs
+        {% if last_gmv_sync.status.value == 'completed' %}bg-emerald-50 text-emerald-700
+        {% elif last_gmv_sync.status.value == 'failed' %}bg-rose-50 text-rose-700
+        {% else %}bg-slate-100 text-slate-600{% endif %}">{{ last_gmv_sync.status.value }}</span>
+      {% if last_gmv_sync.uploaded_at %}
+      <span class="text-sm text-slate-700">{{ last_gmv_sync.uploaded_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+      {% endif %}
+      {% if last_gmv_sync.error_message %}
+      <span class="text-xs text-slate-500">· {{ last_gmv_sync.error_message.split("\n")[0] }}</span>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="mt-1 text-sm text-slate-500">Never synced yet — click the button to pull now.</p>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+  // Disable the GMV-Max sync button + show progress text on submit.
+  (function () {
+    var form = document.getElementById("gmv-sync-form");
+    if (!form) return;
+    form.addEventListener("submit", function () {
+      var btn = document.getElementById("gmv-sync-btn");
+      btn.disabled = true;
+      btn.classList.add("cursor-wait", "opacity-75");
+      btn.textContent = "Syncing…";
+    });
+  })();
+</script>
 
 <form id="upload-form" action="/uploads" method="post" enctype="multipart/form-data"
       class="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
