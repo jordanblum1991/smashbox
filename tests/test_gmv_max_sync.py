@@ -101,3 +101,24 @@ def test_sync_no_campaigns_completes_zero(monkeypatch):
         assert batch.status == ImportBatchStatus.COMPLETED
         assert batch.rows_imported == 0
         assert "no gmv-max campaigns" in (batch.error_message or "").lower()
+
+
+def test_sync_multi_chunk_does_not_double_count(monkeypatch):
+    # lookback 40 days from 2026-06-10 => two chunks (May 1-30, May 31-Jun 10).
+    # The stub returns the same single May-10 row for BOTH chunk calls; the
+    # per-chunk window filter must keep it only for the chunk it falls in.
+    rows = [{"stat_day": "2026-05-10", "cost": Decimal("100.00"),
+             "orders": 5, "gross_revenue": Decimal("300.00")}]
+    with SessionLocal() as db:
+        _connect(db)
+        _stub_api(monkeypatch, campaigns=[{"campaign_id": "1"}],
+                  stores=["STORE_A"], report_rows=rows)
+        # Confirm we actually exercise >1 chunk for this window.
+        chunks = sync_mod._date_chunks(date(2026, 4, 30), date(2026, 6, 10))
+        assert len(chunks) >= 2
+        batch = sync_mod.sync_gmv_max(db, lookback_days=41, today=date(2026, 6, 10))
+        assert batch.status == ImportBatchStatus.COMPLETED
+        all_rows = db.query(GmvMaxDailyMetric).all()
+        assert len(all_rows) == 1
+        assert all_rows[0].cost == Decimal("100.00")     # NOT 200 — no double count
+        assert all_rows[0].sku_orders == 5

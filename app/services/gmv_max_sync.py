@@ -81,10 +81,11 @@ def sync_gmv_max(db: Session, *, lookback_days: int = 35,
     start, end = today - timedelta(days=lookback_days), today
     ts = _utc_now_naive()
 
+    fname = f"TikTok GMV-Max API sync · {ts:%Y-%m-%d %H:%M}"
     batch = ImportBatch(
         kind=ImportFileKind.TIKTOK_GMV_MAX,
         status=ImportBatchStatus.PROCESSING,
-        original_filename=f"TikTok GMV-Max API sync · {ts:%Y-%m-%d %H:%M}",
+        original_filename=fname,
         stored_path="",
     )
     db.add(batch)
@@ -105,6 +106,8 @@ def sync_gmv_max(db: Session, *, lookback_days: int = 35,
             found_campaigns = True
             store_ids = mapi.gmv_max_store_ids(token, adv, campaigns)
             if not store_ids:
+                logger.warning(
+                    "GMV-Max: advertiser %s has campaigns but no store_ids resolved", adv)
                 continue
             for chunk_start, chunk_end in _date_chunks(start, end):
                 chunk_rows = mapi.get_gmv_max_report(
@@ -140,16 +143,26 @@ def sync_gmv_max(db: Session, *, lookback_days: int = 35,
         logger.info(note)
     except _SyncSkip as skip:
         db.rollback()
-        batch.status = ImportBatchStatus.FAILED
-        batch.error_message = str(skip)
-        batch.completed_at = _utc_now_naive()
+        batch = ImportBatch(
+            kind=ImportFileKind.TIKTOK_GMV_MAX,
+            status=ImportBatchStatus.FAILED,
+            original_filename=fname,
+            stored_path="",
+            error_message=str(skip),
+            completed_at=_utc_now_naive(),
+        )
         db.add(batch)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        batch.status = ImportBatchStatus.FAILED
-        batch.error_message = f"GMV-Max API sync failed: {exc}"
-        batch.completed_at = _utc_now_naive()
+        batch = ImportBatch(
+            kind=ImportFileKind.TIKTOK_GMV_MAX,
+            status=ImportBatchStatus.FAILED,
+            original_filename=fname,
+            stored_path="",
+            error_message=f"GMV-Max API sync failed: {exc}",
+            completed_at=_utc_now_naive(),
+        )
         db.add(batch)
         db.commit()
         logger.exception("GMV-Max API sync failed")
