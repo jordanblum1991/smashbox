@@ -61,7 +61,9 @@ from app.reports.samples_by_creator import compute_samples_by_creator_view
 from app.reports.settlement_only_orders import find_settlement_only_orders
 from app.reports.unmapped_skus import find_unmapped_skus
 from app.reports.ytd_pnl import compute_ytd_pnl
-from app.reports.sales_report import GRANULARITIES, compute_sales_report
+from app.reports.sales_report import (
+    FISCAL_MODES, GRANULARITIES, compute_sales_report, current_fiscal_ym,
+)
 from app.services.data_freshness import compute_freshness
 from app.services.reporting_tz import today_local
 from app.templating import strip_size, templates, title_case
@@ -166,17 +168,52 @@ def ytd_pnl_legacy(year: int | None = None):
     return RedirectResponse(url=f"/reports/pnl?{qs}", status_code=307)
 
 
-@router.get("/reports/sales")
-def sales_view(request: Request, granularity: str = "daily", db: Session = Depends(get_db)):
-    """Sales velocity — revenue/units/orders per day/week/month with trend."""
-    view = compute_sales_report(db, granularity)
+def _sales_view_data(db, granularity, start_date, end_date, year, month):
+    """Resolve a sales report + template context for the given query scope.
+    Shared by the page and the CSV so they never diverge."""
+    today = today_local()
+    error = None
+    fiscal_banner = fy = fm = None
+
+    if granularity in FISCAL_MODES:
+        cur_y, cur_m = current_fiscal_ym(today)
+        fy, fm = year or cur_y, month or cur_m
+        view = compute_sales_report(db, granularity, fiscal_year=fy, fiscal_month=fm)
+        fiscal_banner = fiscal_banner_payload(granularity, fy, fm)
+    else:
+        if granularity not in GRANULARITIES:
+            granularity = "daily"
+        start = end = None
+        if start_date and end_date:
+            try:
+                start, end = date.fromisoformat(start_date), date.fromisoformat(end_date)
+                if start > end:
+                    error, start, end = "Start date must be on or before end date.", None, None
+            except ValueError:
+                error, start, end = "Dates must be in YYYY-MM-DD format.", None, None
+        view = compute_sales_report(db, granularity, start=start, end=end)
+
     window_label = f"{view.window_start:%b %d} – {view.window_end:%b %d, %Y}"
-    chart = bar_chart([float(b.revenue) for b in view.buckets])
-    return templates.TemplateResponse(
-        request, "reports/sales.html",
-        {"view": view, "granularities": GRANULARITIES,
-         "window_label": window_label, "chart": chart},
-    )
+    cur_y, _ = current_fiscal_ym(today)
+    return {
+        "view": view, "granularities": GRANULARITIES, "granularity": granularity,
+        "window_label": window_label,
+        "chart": bar_chart([float(b.revenue) for b in view.buckets]),
+        "start_date": start_date or "", "end_date": end_date or "",
+        "fiscal_banner": fiscal_banner, "fiscal_year": fy, "fiscal_month": fm,
+        "fiscal_years": list(range(cur_y - 2, cur_y + 1)), "error": error,
+    }
+
+
+@router.get("/reports/sales")
+def sales_view(request: Request, granularity: str = "daily",
+               start_date: str | None = None, end_date: str | None = None,
+               year: int | None = None, month: int | None = None,
+               db: Session = Depends(get_db)):
+    """Sales velocity — calendar (daily/weekly/monthly, optional custom range) or
+    fiscal (month->daily, YTD/year->fiscal-month) scopes."""
+    ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
+    return templates.TemplateResponse(request, "reports/sales.html", ctx)
 
 
 @router.get("/reports/samples")
@@ -457,22 +494,29 @@ def ad_spend_daily_csv(
 
 
 @router.get("/reports/sales.csv")
-def sales_csv(granularity: str = "daily", db: Session = Depends(get_db)) -> Response:
-    """Sales velocity table as CSV (mirrors the /reports/sales table)."""
-    view = compute_sales_report(db, granularity)
+def sales_csv(granularity: str = "daily",
+              start_date: str | None = None, end_date: str | None = None,
+              year: int | None = None, month: int | None = None,
+              db: Session = Depends(get_db)) -> Response:
+    """Sales velocity table as CSV (mirrors the on-screen scope)."""
+    ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
+    view = ctx["view"]
 
     def rows():
         for b in view.buckets:
-            yield [
-                b.label, b.start.isoformat(), f"{b.revenue:.2f}",
-                b.units, b.orders, f"{b.aov:.2f}",
-                "yes" if b.in_progress else "",
-            ]
+            yield [b.label, b.start.isoformat(), f"{b.revenue:.2f}",
+                   b.units, b.orders, f"{b.aov:.2f}", "yes" if b.in_progress else ""]
 
+    if granularity in FISCAL_MODES:
+        suffix = f"{granularity}_{ctx['fiscal_year']}"
+    elif ctx["start_date"] and ctx["end_date"] and not ctx["error"]:
+        suffix = f"{ctx['start_date']}_to_{ctx['end_date']}"
+    else:
+        suffix = view.granularity
     return _csv_response(
         rows(),
         ["Period", "Start", "Revenue", "Units", "Orders", "AOV", "In Progress"],
-        f"sales_{view.granularity}.csv",
+        f"sales_{suffix}.csv",
     )
 
 
