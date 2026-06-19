@@ -127,3 +127,24 @@ def test_fiscal_year_csv_exports(client):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     assert "fiscal_year" in r.headers["content-disposition"]
+
+
+def test_out_of_range_fiscal_month_does_not_500(client):
+    # Hand-edited URL with month=13 must not crash — falls back gracefully.
+    r = client.get("/reports/sales?granularity=fiscal_month&year=2026&month=13")
+    assert r.status_code == 200
+    assert "Start date" not in r.text or r.status_code == 200   # no 500
+    # CSV path too
+    rc = client.get("/reports/sales.csv?granularity=fiscal_year&year=99999")
+    assert rc.status_code == 200
+
+
+def test_valid_fiscal_params_still_work(client):
+    from datetime import date as _d
+    from decimal import Decimal as _D
+    with SessionLocal() as db:
+        _seed(db, _d(2026, 5, 10), 100, 1)
+        db.commit()
+    r = client.get("/reports/sales?granularity=fiscal_month&year=2026&month=5")
+    assert r.status_code == 200
+    assert "Fiscal" in r.text

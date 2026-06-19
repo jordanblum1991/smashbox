@@ -177,7 +177,10 @@ def _sales_view_data(db, granularity, start_date, end_date, year, month):
 
     if granularity in FISCAL_MODES:
         cur_y, cur_m = current_fiscal_ym(today)
-        fy, fm = year or cur_y, month or cur_m
+        fy = year if (year is not None and 2000 <= year <= 2100) else cur_y
+        fm = month if (month is not None and 1 <= month <= 12) else cur_m
+        if (year is not None and fy != year) or (month is not None and fm != month):
+            error = "Invalid fiscal period — showing the current one."
         view = compute_sales_report(db, granularity, fiscal_year=fy, fiscal_month=fm)
         fiscal_banner = fiscal_banner_payload(granularity, fy, fm)
     else:
