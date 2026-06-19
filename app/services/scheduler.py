@@ -33,12 +33,22 @@ _scheduler: AsyncIOScheduler | None = None
 
 
 def _run_inventory_sync_job() -> None:
-    """Scheduler entry point: own DB session, never propagate exceptions (the
-    sync service already records failures on an ImportBatch)."""
+    """Scheduler entry point: own DB session, never propagate exceptions. Runs the
+    SAP inventory sync AND the GMV-Max API pull on the same weekday schedule; each
+    is independent so one failing never aborts the other (both also record their
+    own failures)."""
+    from app.services.gmv_max_sync import sync_gmv_max
     from app.services.inventory_sync import sync_inventory_from_sap
 
     with SessionLocal() as db:
-        sync_inventory_from_sap(db, source="scheduled")
+        try:
+            sync_inventory_from_sap(db, source="scheduled")
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduled SAP inventory sync failed")
+        try:
+            sync_gmv_max(db)
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduled GMV-Max sync failed")
 
 
 def _run_tiktok_sync_job() -> None:
