@@ -456,6 +456,26 @@ def ad_spend_daily_csv(
     )
 
 
+@router.get("/reports/sales.csv")
+def sales_csv(granularity: str = "daily", db: Session = Depends(get_db)) -> Response:
+    """Sales velocity table as CSV (mirrors the /reports/sales table)."""
+    view = compute_sales_report(db, granularity)
+
+    def rows():
+        for b in view.buckets:
+            yield [
+                b.label, b.start.isoformat(), f"{b.revenue:.2f}",
+                b.units, b.orders, f"{b.aov:.2f}",
+                "yes" if b.in_progress else "",
+            ]
+
+    return _csv_response(
+        rows(),
+        ["Period", "Start", "Revenue", "Units", "Orders", "AOV", "In Progress"],
+        f"sales_{view.granularity}.csv",
+    )
+
+
 @router.get("/reports/reconciliation.csv")
 def reconciliation_csv(
     year: int | None = None, month: int | None = None,

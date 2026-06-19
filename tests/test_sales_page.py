@@ -73,3 +73,16 @@ def test_sales_page_has_revenue_chart(client):
     assert r.status_code == 200
     assert "Revenue velocity" in r.text     # chart section heading
     assert "<svg" in r.text                  # inline-SVG bar chart rendered
+
+
+def test_sales_csv_exports_velocity_table(client):
+    with SessionLocal() as db:
+        _seed(db, date.today(), 100, 2)
+        db.commit()
+    r = client.get("/reports/sales.csv?granularity=daily")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    rows = list(csv.reader(io.StringIO(r.text)))
+    assert rows[0] == ["Period", "Start", "Revenue", "Units", "Orders", "AOV", "In Progress"]
+    assert len(rows) >= 2          # header + at least one bucket
