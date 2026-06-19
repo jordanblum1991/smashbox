@@ -1,14 +1,16 @@
 """TikTok sync orchestration — per-stream, incremental, watermarked.
 
-For each stream (orders / settlements / payouts) it: reads the watermark, pulls
-everything since, feeds it through that stream's `import_dataframes` seam, then
-advances the watermark and records the run status. Reused by a manual "Sync now"
-button and (once connected) the weekday scheduler.
+For each stream (orders / settlements / payouts / analytics) it: reads the
+watermark, pulls everything since, feeds it through that stream's importer seam,
+then advances the watermark and records the run status. Reused by a manual "Sync
+now" button and the weekday scheduler.
 
-The actual API fetch (`_fetch_stream`) is the one piece that needs the live,
-approved TikTok connection — it's a single seam, built + verified against real
-responses then. Until then a run records each stream as "pending" rather than
-failing, so the framework + status panel are usable now.
+All four streams are LIVE against the approved Shop API (built + validated on
+prod 2026-06-15; see app/services/tiktok_fetchers.py). `_fetch_stream` dispatches
+each to its fetcher; the `NotImplementedError` it can raise is only the fallback
+for an unrecognised stream name, NOT a not-yet-built state. When the shop isn't
+connected, `run_sync` records each stream as "pending" (not failed) so the
+framework + status panel stay usable.
 """
 from __future__ import annotations
 
@@ -74,9 +76,9 @@ def _fetch_stream(db: Session, stream: str, cred, since) -> int:
     stream's DataFrame shape, and feed the matching importer seam. Returns rows
     imported.
 
-    Orders are live (see app.services.tiktok_fetchers). Settlements and payouts
-    still raise NotImplementedError so a run records them as 'pending' until
-    their fetchers are built — keeping the orchestration + status panel usable."""
+    All four streams (orders / settlements / payouts / analytics) are live — see
+    app.services.tiktok_fetchers. The trailing NotImplementedError fires only for
+    an unrecognised stream name."""
     if stream == "orders":
         from app.services.tiktok_fetchers import fetch_orders
         return fetch_orders(db, cred, since)
