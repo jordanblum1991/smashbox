@@ -117,25 +117,39 @@ def _span_starts(granularity: str, win_start: date, win_end: date) -> list[date]
     return out
 
 
-def compute_sales_report(db: Session, granularity: str = "daily", *,
-                         as_of: date | None = None) -> SalesReportView:
-    if granularity not in GRANULARITIES:
-        granularity = "daily"
-    today = as_of or today_local()
-    win_start, win_end = _window_for(granularity, today)
+@dataclass
+class _BucketDef:
+    key: str
+    label: str
+    start: date
 
-    # Pre-seed every bucket in range so zero-sale periods render (continuous line).
+
+def _calendar_plan(granularity: str, win_start: date, win_end: date):
+    """Bucket defs + a date→key mapper for daily/weekly/monthly over the window."""
+    defs = [_BucketDef(_key(granularity, s), _label(granularity, s), s)
+            for s in _span_starts(granularity, win_start, win_end)]
+
+    def key_of(d: date) -> str:
+        return _key(granularity, _bucket_start(granularity, d))
+
+    return defs, key_of
+
+
+def _summarize(db: Session, defs: list[_BucketDef], key_of,
+               win_start: date, win_end: date, granularity_value: str,
+               today: date) -> SalesReportView:
+    """Seed the given buckets, sum PAID orders in [win_start, win_end] into them
+    via key_of(placed_local_date), and compute totals / deltas / peak. The single
+    aggregation core shared by every scope so they can't drift."""
+    today_key = key_of(today)
     buckets: dict[str, SalesBucket] = {}
     order_keys: list[str] = []
-    today_key = _key(granularity, _bucket_start(granularity, today))
-    for start in _span_starts(granularity, win_start, win_end):
-        k = _key(granularity, start)
-        buckets[k] = SalesBucket(key=k, label=_label(granularity, start), start=start,
-                                 revenue=Decimal("0"), units=0, orders=0,
-                                 in_progress=(k == today_key))
-        order_keys.append(k)
+    for d in defs:
+        buckets[d.key] = SalesBucket(key=d.key, label=d.label, start=d.start,
+                                     revenue=Decimal("0"), units=0, orders=0,
+                                     in_progress=(d.key == today_key))
+        order_keys.append(d.key)
 
-    # Shop-local [win_start, win_end+1day) → source-tz bounds for the placed_at filter.
     q_start = datetime(win_start.year, win_start.month, win_start.day)
     q_end = datetime(win_end.year, win_end.month, win_end.day) + timedelta(days=1)
     src_start, src_end = placed_window(q_start, q_end)
@@ -161,8 +175,7 @@ def compute_sales_report(db: Session, granularity: str = "daily", *,
     ).all()
 
     for r in rows:
-        k = _key(granularity, _bucket_start(granularity, placed_local_date(r.placed_at)))
-        b = buckets.get(k)
+        b = buckets.get(key_of(placed_local_date(r.placed_at)))
         if b is None:
             continue
         b.revenue += (r.gross_sales + r.shipping_revenue
@@ -183,7 +196,6 @@ def compute_sales_report(db: Session, granularity: str = "daily", *,
     avg_daily_revenue = (total_revenue / days).quantize(_CENTS) if days else Decimal("0")
     avg_daily_units = round(total_units / days, 1) if days else 0.0
 
-    # Trend: compare the last two COMPLETE buckets (exclude the in-progress one).
     complete = [b for b in ordered if not b.in_progress]
     revenue_delta = units_delta = None
     if len(complete) >= 2:
@@ -197,10 +209,24 @@ def compute_sales_report(db: Session, granularity: str = "daily", *,
         peak = None
 
     return SalesReportView(
-        granularity=granularity, buckets=ordered,
+        granularity=granularity_value, buckets=ordered,
         total_revenue=total_revenue, total_units=total_units, total_orders=total_orders,
         avg_aov=avg_aov, window_start=win_start, window_end=win_end, days_in_window=days,
         avg_daily_revenue=avg_daily_revenue, avg_daily_units=avg_daily_units,
         revenue_delta=revenue_delta, units_delta=units_delta, peak=peak,
         as_of=now_local(),
     )
+
+
+def compute_sales_report(db: Session, granularity: str = "daily", *,
+                         start: date | None = None, end: date | None = None,
+                         as_of: date | None = None) -> SalesReportView:
+    today = as_of or today_local()
+    if granularity not in GRANULARITIES:
+        granularity = "daily"
+    if start is not None and end is not None:
+        win_start, win_end = start, end
+    else:
+        win_start, win_end = _window_for(granularity, today)
+    defs, key_of = _calendar_plan(granularity, win_start, win_end)
+    return _summarize(db, defs, key_of, win_start, win_end, granularity, today)

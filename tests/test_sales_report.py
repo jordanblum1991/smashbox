@@ -150,3 +150,31 @@ def test_weekly_rolls_up_within_iso_week():
     assert wk.revenue == Decimal("150.00")   # 100 + 50
     assert wk.units == 3                       # 1 + 2
     assert wk.orders == 2
+
+
+def test_custom_range_limits_buckets_daily():
+    with SessionLocal() as db:
+        _seed(db, date(2026, 3, 10), gross=100, units=1)
+        _seed(db, date(2026, 5, 20), gross=50, units=1)   # outside the range
+        db.commit()
+        view = compute_sales_report(db, "daily",
+                                    start=date(2026, 3, 1), end=date(2026, 3, 31),
+                                    as_of=date(2026, 6, 1))
+    assert view.window_start == date(2026, 3, 1)
+    assert view.window_end == date(2026, 3, 31)
+    keys = [b.key for b in view.buckets]
+    assert "2026-03-10" in keys
+    assert "2026-05-20" not in keys
+    assert view.total_revenue == Decimal("100.00")
+
+
+def test_custom_range_weekly_buckets_the_span():
+    with SessionLocal() as db:
+        _seed(db, date(2026, 3, 3), gross=100, units=1)
+        _seed(db, date(2026, 3, 17), gross=40, units=1)
+        db.commit()
+        view = compute_sales_report(db, "weekly",
+                                    start=date(2026, 3, 1), end=date(2026, 3, 28),
+                                    as_of=date(2026, 6, 1))
+    assert view.total_revenue == Decimal("140.00")
+    assert all(b.start.weekday() == 0 for b in view.buckets)   # weekly = Mondays
