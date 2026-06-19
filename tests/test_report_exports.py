@@ -31,8 +31,8 @@ def test_ad_spend_csv(client: TestClient):
     assert r.headers["content-type"].startswith("text/csv")
     assert "attachment" in r.headers["content-disposition"]
     assert _rows(r)[0] == [
-        "Year", "Month", "Gross Spend (GMV-Max)", "ROAS", "SKU Orders",
-        "Cost per Order", "Gross Revenue", "ROI",
+        "Year", "Month", "Gross Spend (GMV-Max)", "Blended ROAS", "SKU Orders",
+        "Cost per Order", "Gross Revenue", "Attributed ROAS",
     ]
 
 

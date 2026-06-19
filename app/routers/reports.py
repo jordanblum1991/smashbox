@@ -390,8 +390,8 @@ def ad_spend_csv(
 
     return _csv_response(
         rows(),
-        ["Year", "Month", "Gross Spend (GMV-Max)", "ROAS", "SKU Orders",
-         "Cost per Order", "Gross Revenue", "ROI"],
+        ["Year", "Month", "Gross Spend (GMV-Max)", "Blended ROAS", "SKU Orders",
+         "Cost per Order", "Gross Revenue", "Attributed ROAS"],
         fname,
     )
 
@@ -418,7 +418,7 @@ def ad_spend_daily_csv(
             sd = sd or (ed - timedelta(days=29))
     if sd is None or ed is None:
         return _csv_response(iter([]), ["Date", "SKU Orders", "Cost per Order",
-                                        "Gross Revenue", "ROI", "Gross Spend (GMV-Max)"],
+                                        "Gross Revenue", "Attributed ROAS", "Gross Spend (GMV-Max)"],
                              "ad_spend_daily.csv")
     if sd > ed:
         sd, ed = ed, sd
@@ -436,7 +436,7 @@ def ad_spend_daily_csv(
 
     return _csv_response(
         rows(),
-        ["Date", "SKU Orders", "Cost per Order", "Gross Revenue", "ROI",
+        ["Date", "SKU Orders", "Cost per Order", "Gross Revenue", "Attributed ROAS",
          "Gross Spend (GMV-Max)"],
         f"ad_spend_daily_{sd.isoformat()}_to_{ed.isoformat()}.csv",
     )

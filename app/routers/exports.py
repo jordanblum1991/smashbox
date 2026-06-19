@@ -146,7 +146,7 @@ def export_ad_spend_xlsx(
 
     ws.write("A1", "Smashbox — Ad Spend & Campaign KPIs", bold)
     headers = ["Month", "SKU Orders", "Cost per Order", "Gross Revenue",
-               "ROI", "Total Gross Spend", "ROAS"]
+               "Attributed ROAS", "Total Gross Spend", "Blended ROAS"]
     for c, h in enumerate(headers):
         ws.write(2, c, h, hdr)
 
@@ -166,7 +166,7 @@ def export_ad_spend_xlsx(
         else:
             ws.write(r, 3, "—")
         if row.roi is not None:
-            ws.write_number(r, 4, float(row.roi), num2)
+            ws.write_number(r, 4, float(row.roi), roas_fmt)
         else:
             ws.write(r, 4, "—")
         ws.write_number(r, 5, float(row.gross_spend), money)
@@ -179,7 +179,7 @@ def export_ad_spend_xlsx(
         ws.write_number(r, 1, ct.sku_orders, t)
         ws.write_number(r, 2, float(ct.cost_per_order), t_money) if ct.sku_orders > 0 else ws.write(r, 2, "—", t)
         ws.write_number(r, 3, float(ct.gross_revenue), t_money)
-        ws.write_number(r, 4, float(ct.roi), t_num2) if ct.ad_cost > 0 else ws.write(r, 4, "—", t)
+        ws.write_number(r, 4, float(ct.roi), t_roas) if ct.ad_cost > 0 else ws.write(r, 4, "—", t)
     else:
         for c in (1, 2, 3, 4):
             ws.write(r, c, "—", t)
