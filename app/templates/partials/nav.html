@@ -28,6 +28,7 @@
       {% set overdue_ap = request.state.overdue_ap if request.state is defined and request.state.overdue_ap is defined else {"count": 0, "total": 0} %}
       {% set inv_alerts = request.state.inventory_alerts if request.state is defined and request.state.inventory_alerts is defined else {"count": 0} %}
       {% set action_items = request.state.action_items if request.state is defined and request.state.action_items is defined else 0 %}
+      {% set _user = request.state.user if request.state is defined and request.state.user is defined else none %}
       {% for href, label in primary_links_left %}
         <a href="{{ href }}"
            class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
@@ -79,6 +80,12 @@
             {{ label }}
           </a>
           {% endfor %}
+          {% if _user and _user.role.value == 'admin' %}
+          <a href="/admin/ad-budget"
+             class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+            Ad Budget
+          </a>
+          {% endif %}
         </div>
       </div>
 
@@ -119,7 +126,6 @@
       </a>
 
       {# Authenticated user chip + sign-out. Only renders when SessionAuth is on. #}
-      {% set _user = request.state.user if request.state is defined and request.state.user is defined else none %}
       {% if _user %}
       <div class="group relative ml-2">
         <button type="button"
@@ -159,10 +165,6 @@
             <a href="/admin/gmv-max-reimbursements"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
               GMV Max Reimbursements
-            </a>
-            <a href="/admin/ad-budget"
-               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              Ad Budget
             </a>
             <a href="/admin/invoices"
                class="flex items-center justify-between rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
