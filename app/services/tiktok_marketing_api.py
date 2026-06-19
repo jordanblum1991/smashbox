@@ -40,6 +40,7 @@ def authorize_url(state: str) -> str:
 
 def _unwrap(resp) -> dict:
     """Unwrap TikTok's {code, message, data} envelope. code 0 == success."""
+    resp.raise_for_status()
     body = resp.json()
     if body.get("code") not in (0, "0", None):
         raise RuntimeError(f"TikTok Marketing API error {body.get('code')}: {body.get('message')}")
@@ -202,7 +203,7 @@ def list_gmv_max_campaigns(access_token: str, advertiser_id: str) -> list[dict]:
             "page": page, "page_size": 100,
         }, access_token)
         out.extend(data.get("list") or [])
-        total = int((data.get("page_info") or {}).get("total_page") or 1)
+        total = _int_metric((data.get("page_info") or {}).get("total_page")) or 1
         if page >= total:
             break
         page += 1
@@ -257,7 +258,7 @@ def get_gmv_max_report(access_token: str, advertiser_id: str, store_ids: list[st
                 "orders": _int_metric(mets.get("orders")),
                 "gross_revenue": _to_decimal(mets.get("gross_revenue")),
             })
-        total = int((data.get("page_info") or {}).get("total_page") or 1)
+        total = _int_metric((data.get("page_info") or {}).get("total_page")) or 1
         if page >= total:
             break
         page += 1
