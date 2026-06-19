@@ -103,14 +103,12 @@ def test_custom_range_scopes_the_page(client):
     assert "Mar 01" in r.text or "Mar 1" in r.text
 
 
-@pytest.mark.xfail(reason="banner/error rendered in Task 4", strict=False)
 def test_bad_range_shows_error_and_falls_back(client):
     r = client.get("/reports/sales?granularity=daily&start_date=2026-03-10&end_date=2026-03-01")
     assert r.status_code == 200
     assert "Start date must be on or before end date" in r.text  # banner/error text asserted in Task 4
 
 
-@pytest.mark.xfail(reason="banner/error rendered in Task 4", strict=False)
 def test_fiscal_month_scope_renders_banner(client):
     with SessionLocal() as db:
         _seed(db, date(2026, 5, 10), 100, 1)
