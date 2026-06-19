@@ -97,7 +97,7 @@ def test_trend_delta_excludes_in_progress_bucket():
     # delta compares 14th (150) vs 13th (100) -> +50%, NOT touching the 999.
     assert view.revenue_delta is not None
     assert view.revenue_delta.state == "up"
-    assert "50" in view.revenue_delta.label
+    assert view.revenue_delta.pct == Decimal("50.0")
 
 
 def test_peak_is_highest_revenue_bucket_and_none_when_empty():
@@ -117,7 +117,8 @@ def test_peak_is_highest_revenue_bucket_and_none_when_empty():
     assert empty.total_revenue == Decimal("0.00")
     # All-zero window: no prior bucket had orders, so compute_delta returns
     # state='new' (not None) — still means "no meaningful trend signal".
-    assert empty.revenue_delta is None or empty.revenue_delta.state in ("new", "flat")
+    # All-zero window: prior bucket has no orders → compute_delta returns "new"
+    assert empty.revenue_delta is not None and empty.revenue_delta.state == "new"
     assert len(empty.buckets) == 30          # window still fully seeded with zeros
 
 
@@ -134,3 +135,18 @@ def test_monthly_revenue_ties_to_monthly_pnl_gmv():
         may = next(b for b in view.buckets if b.key == "2026-05")
         pnl = compute_monthly_pnl(db, 2026, 5)
     assert may.revenue == pnl.gmv
+
+
+def test_weekly_rolls_up_within_iso_week():
+    from datetime import timedelta
+    ref = date(2026, 5, 15)
+    monday = ref - timedelta(days=ref.weekday())     # Monday of ref's ISO week
+    with SessionLocal() as db:
+        _seed(db, monday, gross=100, units=1)
+        _seed(db, monday + timedelta(days=2), gross=50, units=2)   # same ISO week
+        db.commit()
+        view = compute_sales_report(db, "weekly", as_of=ref)
+    wk = next(b for b in view.buckets if b.key == monday.isoformat())
+    assert wk.revenue == Decimal("150.00")   # 100 + 50
+    assert wk.units == 3                       # 1 + 2
+    assert wk.orders == 2
