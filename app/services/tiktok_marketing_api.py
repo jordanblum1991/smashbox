@@ -177,6 +177,100 @@ def advertiser_id_list(cred: TikTokMarketingCredential) -> list[str]:
     return [cred.advertiser_id] if cred.advertiser_id else []
 
 
+def _api_get(path: str, params: dict, access_token: str) -> dict:
+    """Single GET seam for Marketing-API reads — returns the unwrapped `data`
+    dict. Isolated so tests stub it instead of hitting the network."""
+    import httpx
+
+    r = httpx.get(
+        f"{BASE}{path}", params=params,
+        headers={"Access-Token": access_token}, timeout=_TIMEOUT,
+    )
+    return _unwrap(r)
+
+
+def list_gmv_max_campaigns(access_token: str, advertiser_id: str) -> list[dict]:
+    """All GMV-Max campaigns for the advertiser (paginated). Each row carries
+    campaign_id / campaign_name / status — NOT a store id (see gmv_max_store_ids)."""
+    out: list[dict] = []
+    page = 1
+    while True:
+        data = _api_get("/gmv_max/campaign/get/", {
+            "advertiser_id": advertiser_id,
+            "filtering": json.dumps(
+                {"gmv_max_promotion_types": ["PRODUCT_GMV_MAX", "LIVE_GMV_MAX"]}),
+            "page": page, "page_size": 100,
+        }, access_token)
+        out.extend(data.get("list") or [])
+        total = int((data.get("page_info") or {}).get("total_page") or 1)
+        if page >= total:
+            break
+        page += 1
+    return out
+
+
+def gmv_max_store_ids(access_token: str, advertiser_id: str,
+                      campaigns: list[dict]) -> list[str]:
+    """Distinct TikTok-Shop store ids backing the GMV-Max campaigns. The report
+    endpoint is store-keyed (returns all campaigns for a store), so we only need
+    the unique set — one store today. Reads each campaign's `/campaign/gmv_max/
+    info/` top-level `store_id`."""
+    stores: list[str] = []
+    for c in campaigns:
+        cid = str(c.get("campaign_id") or "").strip()
+        if not cid:
+            continue
+        data = _api_get("/campaign/gmv_max/info/",
+                        {"advertiser_id": advertiser_id, "campaign_id": cid}, access_token)
+        sid = str(data.get("store_id") or "").strip()
+        if sid and sid not in stores:
+            stores.append(sid)
+    return stores
+
+
+def get_gmv_max_report(access_token: str, advertiser_id: str, store_ids: list[str],
+                       start_date: str, end_date: str) -> list[dict]:
+    """Daily GMV-Max metrics per campaign for [start_date, end_date] (<=30 days,
+    inclusive, YYYY-MM-DD). Returns
+    [{stat_day(str), cost(Decimal), orders(int), gross_revenue(Decimal)}],
+    paginated. Caller sums across campaigns/days."""
+    out: list[dict] = []
+    page = 1
+    while True:
+        data = _api_get("/gmv_max/report/get/", {
+            "advertiser_id": advertiser_id,
+            "store_ids": json.dumps(list(store_ids)),
+            "dimensions": json.dumps(["campaign_id", "stat_time_day"]),
+            "metrics": json.dumps(["cost", "orders", "gross_revenue"]),
+            "start_date": start_date, "end_date": end_date,
+            "page": page, "page_size": 1000,
+        }, access_token)
+        for item in data.get("list") or []:
+            dims = item.get("dimensions") or {}
+            mets = item.get("metrics") or {}
+            stat = (dims.get("stat_time_day") or "")[:10]
+            if not stat:
+                continue
+            out.append({
+                "stat_day": stat,
+                "cost": _to_decimal(mets.get("cost")),
+                "orders": _int_metric(mets.get("orders")),
+                "gross_revenue": _to_decimal(mets.get("gross_revenue")),
+            })
+        total = int((data.get("page_info") or {}).get("total_page") or 1)
+        if page >= total:
+            break
+        page += 1
+    return out
+
+
+def _int_metric(v) -> int:
+    try:
+        return int(Decimal(str(v)))
+    except (InvalidOperation, TypeError, ValueError):
+        return 0
+
+
 # Reuses TikTokSyncState under its own stream key, separate from the Shop
 # streams (orders/settlements/payouts/analytics) since it's a different auth.
 ADS_STREAM = "ads"
