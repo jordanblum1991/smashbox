@@ -58,7 +58,17 @@
   </div>
 </section>
 
-{# CHART_PLACEHOLDER — bar chart inserted in Task 3 #}
+{# Revenue velocity — zero-dep inline-SVG bar chart (reuses ui.barchart). #}
+{% if chart %}
+{% set tips = namespace(t=[]) %}
+{% for b in view.buckets %}
+  {% set tips.t = tips.t + [b.label ~ ": " ~ (b.revenue | money)] %}
+{% endfor %}
+<section aria-label="Revenue velocity" class="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
+  <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Revenue velocity</div>
+  <div class="mt-2">{{ ui.barchart(chart, tooltips=tips.t, pos_tone="info", neg_tone="neg") }}</div>
+</section>
+{% endif %}
 
 {# Velocity table #}
 <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">

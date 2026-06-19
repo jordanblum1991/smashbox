@@ -63,3 +63,13 @@ def test_invalid_granularity_falls_back_to_daily(client):
 def test_no_data_renders_empty_state(client):
     r = client.get("/reports/sales")
     assert r.status_code == 200
+
+
+def test_sales_page_has_revenue_chart(client):
+    with SessionLocal() as db:
+        _seed(db, date.today(), 100, 1)
+        db.commit()
+    r = client.get("/reports/sales")
+    assert r.status_code == 200
+    assert "Revenue velocity" in r.text     # chart section heading
+    assert "<svg" in r.text                  # inline-SVG bar chart rendered

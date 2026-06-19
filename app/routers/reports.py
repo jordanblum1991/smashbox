@@ -171,9 +171,11 @@ def sales_view(request: Request, granularity: str = "daily", db: Session = Depen
     """Sales velocity — revenue/units/orders per day/week/month with trend."""
     view = compute_sales_report(db, granularity)
     window_label = f"{view.window_start:%b %d} – {view.window_end:%b %d, %Y}"
+    chart = bar_chart([float(b.revenue) for b in view.buckets])
     return templates.TemplateResponse(
         request, "reports/sales.html",
-        {"view": view, "granularities": GRANULARITIES, "window_label": window_label},
+        {"view": view, "granularities": GRANULARITIES,
+         "window_label": window_label, "chart": chart},
     )
 
 
