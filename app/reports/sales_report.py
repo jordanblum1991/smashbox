@@ -13,6 +13,8 @@ Pure computation — reads the ORM, returns dataclasses.
 """
 from __future__ import annotations
 
+import calendar as _calendar
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -22,9 +24,11 @@ from sqlalchemy.orm import Session
 
 from app.models.order import Order, OrderLine, OrderType
 from app.reports.dashboard_trends import Delta, compute_delta
+from app.reports.fiscal_calendar import fiscal_months_for, fiscal_window
 from app.services.reporting_tz import now_local, placed_local_date, placed_window, today_local
 
 GRANULARITIES = ("daily", "weekly", "monthly")
+FISCAL_MODES = ("fiscal_month", "fiscal_ytd", "fiscal_year")
 _CENTS = Decimal("0.01")
 
 
@@ -124,7 +128,7 @@ class _BucketDef:
     start: date
 
 
-def _calendar_plan(granularity: str, win_start: date, win_end: date):
+def _calendar_plan(granularity: str, win_start: date, win_end: date) -> tuple[list["_BucketDef"], Callable[[date], str]]:
     """Bucket defs + a date→key mapper for daily/weekly/monthly over the window."""
     defs = [_BucketDef(_key(granularity, s), _label(granularity, s), s)
             for s in _span_starts(granularity, win_start, win_end)]
@@ -135,12 +139,43 @@ def _calendar_plan(granularity: str, win_start: date, win_end: date):
     return defs, key_of
 
 
+def current_fiscal_ym(today: date) -> tuple[int, int]:
+    """(fiscal_year, fiscal_month) containing `today`. A fiscal month closes on
+    the 28th, so days 1–28 belong to that calendar month's fiscal period and
+    days 29–31 roll into the next fiscal month (which may cross the year)."""
+    if today.day <= 28:
+        return today.year, today.month
+    return (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+
+
+def _fiscal_month_plan(fiscal_year: int, months: list[int]) -> tuple[list["_BucketDef"], Callable[[date], "str | None"]]:
+    """One bucket per fiscal month (29th–28th), labeled by closing month, plus a
+    date→key mapper that finds the fiscal month whose window contains a date."""
+    defs: list[_BucketDef] = []
+    windows: list[tuple[str, date, date]] = []
+    for mm in months:
+        s, e = fiscal_window(fiscal_year, mm)
+        k = f"F{fiscal_year}-{mm:02d}"
+        defs.append(_BucketDef(k, f"{_calendar.month_abbr[mm]} {fiscal_year}", s))
+        windows.append((k, s, e))
+
+    def key_of(d: date):
+        for k, s, e in windows:
+            if s <= d <= e:
+                return k
+        return None
+
+    return defs, key_of
+
+
 def _summarize(db: Session, defs: list[_BucketDef], key_of,
                win_start: date, win_end: date, granularity_value: str,
                today: date) -> SalesReportView:
     """Seed the given buckets, sum PAID orders in [win_start, win_end] into them
     via key_of(placed_local_date), and compute totals / deltas / peak. The single
     aggregation core shared by every scope so they can't drift."""
+    if win_start > win_end:
+        raise ValueError(f"win_start {win_start} is after win_end {win_end}")
     today_key = key_of(today)
     buckets: dict[str, SalesBucket] = {}
     order_keys: list[str] = []
@@ -220,10 +255,29 @@ def _summarize(db: Session, defs: list[_BucketDef], key_of,
 
 def compute_sales_report(db: Session, granularity: str = "daily", *,
                          start: date | None = None, end: date | None = None,
+                         fiscal_year: int | None = None, fiscal_month: int | None = None,
                          as_of: date | None = None) -> SalesReportView:
     today = as_of or today_local()
+
+    if granularity in FISCAL_MODES:
+        cur_y, cur_m = current_fiscal_ym(today)
+        fy = fiscal_year or cur_y
+        fm = fiscal_month or cur_m
+        if granularity == "fiscal_month":
+            win_start, win_end = fiscal_window(fy, fm)
+            defs, key_of = _calendar_plan("daily", win_start, win_end)
+        else:
+            mode = "ytd" if granularity == "fiscal_ytd" else "year"
+            months = fiscal_months_for(mode, fm)
+            win_start, _ = fiscal_window(fy, months[0])
+            _, win_end = fiscal_window(fy, months[-1])
+            defs, key_of = _fiscal_month_plan(fy, months)
+        return _summarize(db, defs, key_of, win_start, win_end, granularity, today)
+
     if granularity not in GRANULARITIES:
         granularity = "daily"
+    if (start is None) != (end is None):
+        raise ValueError("start and end must both be set or both be omitted")
     if start is not None and end is not None:
         win_start, win_end = start, end
     else:

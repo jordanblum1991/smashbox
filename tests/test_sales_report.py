@@ -10,7 +10,7 @@ import pytest
 from app.db import Base, SessionLocal, engine
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.order import Order, OrderLine, OrderType
-from app.reports.sales_report import compute_sales_report
+from app.reports.sales_report import FISCAL_MODES, compute_sales_report, current_fiscal_ym
 
 _OID = itertools.count(1)
 
@@ -178,3 +178,62 @@ def test_custom_range_weekly_buckets_the_span():
                                     as_of=date(2026, 6, 1))
     assert view.total_revenue == Decimal("140.00")
     assert all(b.start.weekday() == 0 for b in view.buckets)   # weekly = Mondays
+
+
+def test_fiscal_month_renders_daily_bars_over_2928_window():
+    with SessionLocal() as db:
+        _seed(db, date(2026, 4, 29), gross=100, units=1)   # first day of fiscal May
+        _seed(db, date(2026, 5, 28), gross=70, units=1)    # last day of fiscal May
+        _seed(db, date(2026, 5, 29), gross=999, units=1)   # next fiscal month — excluded
+        db.commit()
+        view = compute_sales_report(db, "fiscal_month",
+                                    fiscal_year=2026, fiscal_month=5, as_of=date(2026, 6, 1))
+    assert view.window_start == date(2026, 4, 29)
+    assert view.window_end == date(2026, 5, 28)
+    keys = [b.key for b in view.buckets]
+    assert "2026-04-29" in keys and "2026-05-28" in keys
+    assert "2026-05-29" not in keys
+    assert view.total_revenue == Decimal("170.00")
+
+
+def test_fiscal_year_has_twelve_fiscal_month_buckets():
+    with SessionLocal() as db:
+        _seed(db, date(2026, 5, 10), gross=100, units=1)
+        db.commit()
+        view = compute_sales_report(db, "fiscal_year",
+                                    fiscal_year=2026, as_of=date(2026, 12, 31))
+    assert len(view.buckets) == 12
+    may = next(b for b in view.buckets if b.key == "F2026-05")
+    assert may.label == "May 2026"
+    assert may.revenue == Decimal("100.00")
+
+
+def test_fiscal_ytd_buckets_jan_through_month():
+    with SessionLocal() as db:
+        _seed(db, date(2026, 5, 10), gross=100, units=1)
+        db.commit()
+        view = compute_sales_report(db, "fiscal_ytd",
+                                    fiscal_year=2026, fiscal_month=6, as_of=date(2026, 6, 30))
+    assert len(view.buckets) == 6
+    keys = [b.key for b in view.buckets]
+    assert keys[0] == "F2026-01" and keys[-1] == "F2026-06"
+
+
+def test_fiscal_year_month_bucket_ties_to_fiscal_month_scope_total():
+    with SessionLocal() as db:
+        _seed(db, date(2026, 4, 29), gross=200, units=2, shipping_revenue=10,
+              seller_funded_outlandish=5)
+        _seed(db, date(2026, 5, 28), gross=120, units=1, platform_discount_total=8)
+        db.commit()
+        year_view = compute_sales_report(db, "fiscal_year", fiscal_year=2026,
+                                         as_of=date(2026, 12, 31))
+        month_view = compute_sales_report(db, "fiscal_month", fiscal_year=2026,
+                                          fiscal_month=5, as_of=date(2026, 12, 31))
+    may_bucket = next(b for b in year_view.buckets if b.key == "F2026-05")
+    assert may_bucket.revenue == month_view.total_revenue
+
+
+def test_current_fiscal_ym_maps_day_after_28_to_next_month():
+    assert current_fiscal_ym(date(2026, 5, 28)) == (2026, 5)
+    assert current_fiscal_ym(date(2026, 5, 29)) == (2026, 6)
+    assert current_fiscal_ym(date(2026, 12, 31)) == (2027, 1)
