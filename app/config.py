@@ -88,6 +88,15 @@ class Settings(BaseSettings):
     # https://smashbox.fly.dev — set as the PUBLIC_BASE_URL secret in prod.
     public_base_url: str = ""
 
+    # --- Sync-failure email alerts (stdlib smtplib). All blank by default, so
+    #     alerting is a no-op until these Fly secrets are set. ---
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    sync_alert_from: str = ""              # falls back to smtp_user in the mailer
+    sync_alert_to: str = ""               # comma-separated recipients
+
     @property
     def google_oauth_enabled(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
@@ -116,6 +125,22 @@ class Settings(BaseSettings):
     @property
     def tiktok_marketing_oauth_enabled(self) -> bool:
         return bool(self.tiktok_marketing_app_id and self.tiktok_marketing_secret)
+
+    @property
+    def sync_alert_to_list(self) -> list[str]:
+        """Recipients, parsed from the comma-separated setting; falls back to the
+        initial admin email when unset."""
+        raw = [a.strip() for a in (self.sync_alert_to or "").split(",") if a.strip()]
+        if raw:
+            return raw
+        return [self.initial_admin_email] if self.initial_admin_email else []
+
+    @property
+    def sync_alerts_enabled(self) -> bool:
+        """Alerting fires only when SMTP is fully configured AND there's a
+        recipient — so dev/tests/unconfigured prod are a clean no-op."""
+        return bool(self.smtp_host and self.smtp_user and self.smtp_password
+                    and self.sync_alert_to_list)
 
     @property
     def tiktok_ads_redirect_uri(self) -> str:
