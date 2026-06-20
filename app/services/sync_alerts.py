@@ -54,7 +54,7 @@ def evaluate_sync_alerts(db: Session) -> list[AlertCondition]:
     out: list[AlertCondition] = []
 
     cred = tiktok_api.get_credential(db)
-    if cred is not None and getattr(cred, "shop_cipher", None):
+    if cred is not None and cred.shop_cipher:
         states = db.query(TikTokSyncState).all()
         for s in states:
             if s.last_status == "error":
@@ -88,6 +88,8 @@ def run_alert_check(db: Session) -> None:
     to = settings.sync_alert_to_list
     link = (settings.public_base_url or "").rstrip("/") + "/reports/recon-health"
 
+    # Each alert key is independent: a send failure for one key does NOT roll back
+    # another key's transition — only successfully-emailed transitions are committed.
     for key, cond in active.items():
         row = existing.get(key)
         if row is not None and row.state == "alerting":
@@ -108,7 +110,9 @@ def run_alert_check(db: Session) -> None:
     for key, row in existing.items():
         if row.state != "alerting" or key in active:
             continue
-        body = f"{row.message or ''}\n\nRecovered at {now:%Y-%m-%d %H:%M} UTC\n{link}"
+        body = (f"{key} has recovered.\n\n"
+                f"Previous failure: {row.message or 'n/a'}\n\n"
+                f"Recovered at {now:%Y-%m-%d %H:%M} UTC\n{link}")
         try:
             mailer.send_email(f"✅ Smashbox sync recovered: {key}", body, to=to)
         except Exception:  # noqa: BLE001
