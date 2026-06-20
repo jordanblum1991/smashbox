@@ -32,6 +32,15 @@ TIKTOK_JOB_ID = "tiktok_api_sync"
 _scheduler: AsyncIOScheduler | None = None
 
 
+def _run_alert_check(db) -> None:
+    """Evaluate sync health and fire/clear email alerts. Never raises."""
+    try:
+        from app.services.sync_alerts import run_alert_check
+        run_alert_check(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("sync alert check failed")
+
+
 def _run_inventory_sync_job() -> None:
     """Scheduler entry point: own DB session, never propagate exceptions. Runs the
     SAP inventory sync AND the GMV-Max API pull on the same weekday schedule; each
@@ -49,22 +58,22 @@ def _run_inventory_sync_job() -> None:
             sync_gmv_max(db)
         except Exception:  # noqa: BLE001
             logger.exception("scheduled GMV-Max sync failed")
+        _run_alert_check(db)
 
 
 def _run_tiktok_sync_job() -> None:
-    """Scheduler entry point: pull all TikTok streams if the shop is connected.
-    Own DB session; run_sync never raises (it records per-stream status). Skips
-    cleanly when not yet connected, so the job can be registered up-front and
-    starts working the moment the shop authorizes."""
+    """Scheduler entry point: pull all TikTok streams if connected, then run the
+    alert check. Own DB session; never propagate exceptions."""
     from app.services import tiktok_api, tiktok_sync
 
     with SessionLocal() as db:
         cred = tiktok_api.get_credential(db)
         if cred is None or not cred.shop_cipher:
             logger.info("tiktok auto-sync skipped — shop not connected")
-            return
-        summary = tiktok_sync.run_sync(db, source="scheduled")
-        logger.info("tiktok auto-sync complete: %s", summary)
+        else:
+            summary = tiktok_sync.run_sync(db, source="scheduled")
+            logger.info("tiktok auto-sync complete: %s", summary)
+        _run_alert_check(db)
 
 
 def apply_tiktok_schedule(shop: Shop) -> None:

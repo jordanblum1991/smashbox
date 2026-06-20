@@ -1,4 +1,5 @@
 """Upload endpoint — accepts a file + kind, dispatches to the right importer."""
+import logging
 import shutil
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -6,8 +7,11 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app.auth import require_admin
 from app.config import settings
 from app.db import get_db
+
+logger = logging.getLogger(__name__)
 from app.importers import IMPORTERS
 from app.models.import_batch import (
     ImportBatch,
@@ -150,6 +154,27 @@ async def sync_gmv_max_button(db: Session = Depends(get_db)):
     so the event loop isn't blocked, then returns to /uploads."""
     await run_in_threadpool(sync_gmv_max, db)
     return RedirectResponse("/uploads", status_code=303)
+
+
+@router.post("/admin/sync-alerts/test", dependencies=[Depends(require_admin)])
+async def sync_alerts_test(db: Session = Depends(get_db)):
+    """Send a test alert email to verify SMTP config (admin only)."""
+    from app.config import settings
+    from app.services import mailer
+
+    if not settings.sync_alerts_enabled:
+        return RedirectResponse("/uploads?alert_test=disabled", status_code=303)
+    try:
+        await run_in_threadpool(
+            mailer.send_email,
+            "Smashbox sync alerts — test",
+            "This is a test of the Smashbox sync-failure alerts. SMTP is configured correctly.",
+            to=settings.sync_alert_to_list,
+        )
+        return RedirectResponse("/uploads?alert_test=sent", status_code=303)
+    except Exception:  # noqa: BLE001
+        logger.exception("sync alert test email failed")
+        return RedirectResponse("/uploads?alert_test=failed", status_code=303)
 
 
 @router.post("/uploads/inventory-sync-settings")
