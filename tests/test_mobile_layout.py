@@ -24,3 +24,18 @@ def test_main_container_uses_responsive_padding(client):
     html = client.get("/").text
     # Mobile gets tighter px-4; sm+ restores px-6.
     assert "px-4 sm:px-6" in html
+
+
+def test_nav_has_desktop_bar_and_mobile_menu(client):
+    html = client.get("/").text
+    assert "hidden md:flex" in html          # desktop links gated to md+
+    assert "md:hidden" in html               # mobile hamburger
+    assert 'id="mobile-menu"' in html
+    assert html.count('href="/reports/pnl"') >= 2    # desktop bar + mobile menu
+    assert html.count('href="/reports/sales"') >= 2
+
+
+def test_nav_mobile_menu_has_grouped_sections(client):
+    html = client.get("/").text
+    for label in ("Samples", "Ads", "Inventory"):
+        assert label in html
