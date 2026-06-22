@@ -174,6 +174,7 @@
 {% if tab == 'skus' %}
 {# ── SKUs tab — per-SKU performance ───────────────────────────────────── #}
 {% set ins = sku.insights %}
+{% set skus_qs = period_qs ~ "&tab=skus&sort=" ~ sort ~ ("&show_inactive=1" if show_inactive else "") %}
 <section aria-label="SKU insights" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
   <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
     <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">🏆 Top seller</div>
@@ -206,11 +207,23 @@
   'stalled':'bg-amber-50 text-amber-700', 'inactive':'bg-slate-100 text-slate-400' } %}
 {% macro sort_th(label, key, align='right') %}
   <th class="px-3 py-2 text-{{ align }} font-semibold">
-    <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ key }}{% if show_inactive %}&show_inactive=1{% endif %}"
+    <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ key }}&per_page={{ per_page }}{% if show_inactive %}&show_inactive=1{% endif %}"
        class="hover:text-slate-900 {{ 'text-slate-900 underline' if sort == key else '' }}">{{ label }}</a>
   </th>
 {% endmacro %}
 
+<div class="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm print:hidden">
+  <div class="text-slate-500">
+    {% if total_rows %}Showing {{ row_start }}–{{ row_end }} of {{ total_rows }}{% else %}Showing 0 of 0{% endif %}
+  </div>
+  <div class="flex items-center gap-1">
+    <span class="text-xs text-slate-400">Per page</span>
+    {% for opt in per_page_options %}
+    <a href="/reports/sales?{{ skus_qs }}&per_page={{ opt }}"
+       class="rounded-md px-2 py-1 font-medium {{ 'bg-slate-900 text-white' if opt == per_page else 'text-slate-600 hover:bg-slate-100' }}">{{ opt }}</a>
+    {% endfor %}
+  </div>
+</div>
 <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
   <table class="min-w-full text-sm">
     <thead>
@@ -226,7 +239,7 @@
       </tr>
     </thead>
     <tbody>
-      {% for r in sku.rows %}
+      {% for r in page_rows %}
       <tr class="border-b border-slate-100">
         <td class="px-3 py-2"><div class="font-medium text-slate-800">{{ r.code }}</div><div class="truncate text-[11px] text-slate-500">{{ r.name }}</div></td>
         <td class="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{{ r.units }}</td>
@@ -244,11 +257,38 @@
   </table>
 </div>
 
+{% if total_pages > 1 %}
+<nav aria-label="SKU pages" class="mt-3 flex flex-wrap items-center justify-center gap-1 text-sm print:hidden">
+  {% if page > 1 %}
+  <a href="/reports/sales?{{ skus_qs }}&per_page={{ per_page }}&page={{ page - 1 }}" class="rounded-md px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-100">‹ Prev</a>
+  {% else %}
+  <span class="rounded-md px-3 py-1.5 font-medium text-slate-300">‹ Prev</span>
+  {% endif %}
+  {% if page_window[0] > 1 %}
+  <a href="/reports/sales?{{ skus_qs }}&per_page={{ per_page }}&page=1" class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100">1</a>
+  <span class="px-1 text-slate-400">…</span>
+  {% endif %}
+  {% for p in page_window %}
+  <a href="/reports/sales?{{ skus_qs }}&per_page={{ per_page }}&page={{ p }}"
+     class="rounded-md px-3 py-1.5 font-medium {{ 'bg-slate-900 text-white' if p == page else 'text-slate-600 hover:bg-slate-100' }}">{{ p }}</a>
+  {% endfor %}
+  {% if page_window[-1] < total_pages %}
+  <span class="px-1 text-slate-400">…</span>
+  <a href="/reports/sales?{{ skus_qs }}&per_page={{ per_page }}&page={{ total_pages }}" class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100">{{ total_pages }}</a>
+  {% endif %}
+  {% if page < total_pages %}
+  <a href="/reports/sales?{{ skus_qs }}&per_page={{ per_page }}&page={{ page + 1 }}" class="rounded-md px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-100">Next ›</a>
+  {% else %}
+  <span class="rounded-md px-3 py-1.5 font-medium text-slate-300">Next ›</span>
+  {% endif %}
+</nav>
+{% endif %}
+
 {# Inactive catalog SKUs — count always; rows behind a toggle. #}
 {% if sku.inactive_count %}
 <div class="mt-3 text-sm print:hidden">
   {% if show_inactive %}
-  <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ sort }}" class="text-slate-500 hover:text-slate-700">💤 Hide {{ sku.inactive_count }} inactive SKUs ▴</a>
+  <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ sort }}&per_page={{ per_page }}" class="text-slate-500 hover:text-slate-700">💤 Hide {{ sku.inactive_count }} inactive SKUs ▴</a>
   <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/50">
     <table class="min-w-full text-sm">
       <tbody>
@@ -259,7 +299,7 @@
     </table>
   </div>
   {% else %}
-  <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ sort }}&show_inactive=1" class="text-slate-500 hover:text-slate-700">💤 Show {{ sku.inactive_count }} inactive SKUs ▾</a>
+  <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ sort }}&per_page={{ per_page }}&show_inactive=1" class="text-slate-500 hover:text-slate-700">💤 Show {{ sku.inactive_count }} inactive SKUs ▾</a>
   {% endif %}
 </div>
 {% endif %}

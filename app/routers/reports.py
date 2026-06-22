@@ -208,14 +208,18 @@ def _sales_view_data(db, granularity, start_date, end_date, year, month):
     }
 
 
+PER_PAGE_OPTIONS = (10, 25, 50, 100)
+
+
 @router.get("/reports/sales")
 def sales_view(request: Request, granularity: str = "daily",
                start_date: str | None = None, end_date: str | None = None,
                year: int | None = None, month: int | None = None,
                tab: str = "overview", sort: str = "units", show_inactive: int = 0,
+               per_page: int = 25, page: int = 1,
                db: Session = Depends(get_db)):
     """Sales report — Overview (velocity) or SKUs (per-SKU performance) tab, over
-    the calendar/custom-range/fiscal period scopes."""
+    the calendar/custom-range/fiscal period scopes. The SKU table is paginated."""
     ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
     ctx["tab"] = "skus" if tab == "skus" else "overview"
     ctx["sort"] = sort
@@ -223,7 +227,30 @@ def sales_view(request: Request, granularity: str = "daily",
     if ctx["tab"] == "skus":
         from app.reports.sku_performance import compute_sku_performance
         v = ctx["view"]
-        ctx["sku"] = compute_sku_performance(db, start=v.window_start, end=v.window_end, sort=sort)
+        sku = compute_sku_performance(db, start=v.window_start, end=v.window_end, sort=sort)
+        ctx["sku"] = sku
+        # Paginate the active rows (insights / % / totals stay over the full set).
+        pp = per_page if per_page in PER_PAGE_OPTIONS else 25
+        total = len(sku.rows)
+        total_pages = max(1, -(-total // pp))         # ceil division
+        pg = min(max(page, 1), total_pages)
+        start_i = (pg - 1) * pp
+        ctx["page_rows"] = sku.rows[start_i:start_i + pp]
+        ctx["per_page"] = pp
+        ctx["page"] = pg
+        ctx["total_rows"] = total
+        ctx["total_pages"] = total_pages
+        ctx["per_page_options"] = PER_PAGE_OPTIONS
+        ctx["row_start"] = start_i + 1 if total else 0
+        ctx["row_end"] = min(start_i + pp, total)
+        # Windowed page numbers (<=7), centered on the current page.
+        if total_pages <= 7:
+            ctx["page_window"] = list(range(1, total_pages + 1))
+        else:
+            lo = max(1, pg - 3)
+            hi = min(total_pages, lo + 6)
+            lo = max(1, hi - 6)
+            ctx["page_window"] = list(range(lo, hi + 1))
     return templates.TemplateResponse(request, "reports/sales.html", ctx)
 
 
