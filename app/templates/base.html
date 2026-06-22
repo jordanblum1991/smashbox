@@ -14,10 +14,10 @@
 </head>
 <body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
   {% include "partials/nav.html" %}
-  <main class="mx-auto max-w-7xl px-6 py-8 print:max-w-none print:px-0 print:py-0">
+  <main class="mx-auto max-w-7xl px-4 sm:px-6 py-8 print:max-w-none print:px-0 print:py-0">
     {% block content %}{% endblock %}
   </main>
-  <footer class="mx-auto max-w-7xl px-6 pb-10 text-xs text-slate-400 print:hidden">
+  <footer class="mx-auto max-w-7xl px-4 sm:px-6 pb-10 text-xs text-slate-400 print:hidden">
     Smashbox internal · {{ today.year if today else "" }}
   </footer>
 

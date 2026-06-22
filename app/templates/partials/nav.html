@@ -1,11 +1,11 @@
 {% import "partials/ui.html" as ui %}
 <nav class="border-b border-slate-200 bg-white print:hidden">
-  <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+  <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3 relative">
     <a href="/" class="flex items-center gap-2">
       <span class="inline-block h-7 w-7 rounded-md bg-slate-900"></span>
       <span class="text-base font-semibold tracking-tight">Smashbox</span>
     </a>
-    <div class="flex items-center gap-1 text-sm">
+    <div class="hidden md:flex items-center gap-1 text-sm">
       {% set primary_links_left = [
         ("/", "Dashboard"),
         ("/reports/pnl", "P&L"),
@@ -201,5 +201,73 @@
       </div>
       {% endif %}
     </div>
+
+      {# ── Mobile menu (hamburger → vertical tap-list). md:hidden; desktop bar
+         above is hidden md:flex. Reuses the same link {% set %} vars. ── #}
+      <details id="mobile-menu" class="group md:hidden">
+        <summary class="flex cursor-pointer list-none items-center rounded-md p-2 text-slate-600 hover:bg-slate-100">
+          <span class="sr-only">Menu</span>
+          {{ ui.icon("menu", "h-6 w-6 group-open:hidden") }}
+          {{ ui.icon("x", "h-6 w-6 hidden group-open:block") }}
+        </summary>
+        <div class="absolute inset-x-0 top-full z-30 mt-1 max-h-[80vh] overflow-y-auto border-y border-slate-200 bg-white px-4 py-3 shadow-lg">
+          {% for href, label in primary_links_left %}
+          <a href="{{ href }}" class="block rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">{{ label }}</a>
+          {% endfor %}
+          <a href="/action-center" class="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+            <span>Action Center</span>
+            {% if action_items > 0 %}<span class="ml-2 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ action_items }}</span>{% endif %}
+          </a>
+
+          <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Samples</div>
+          {% for href, label in sample_links %}
+          <a href="{{ href }}" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">{{ label }}</a>
+          {% endfor %}
+
+          <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ads</div>
+          {% for href, label in ad_spend_links %}
+          <a href="{{ href }}" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">{{ label }}</a>
+          {% endfor %}
+          {% if _user and _user.role.value == 'admin' %}
+          <a href="/admin/ad-budget" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Ad Budget</a>
+          {% endif %}
+
+          <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Inventory</div>
+          {% for href, label in inventory_links %}
+          <a href="{{ href }}" class="flex items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
+            <span>{{ label }}</span>
+            {% if href == "/reports/demand-planning" and inv_alerts.count > 0 %}<span class="ml-2 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ inv_alerts.count }}</span>{% endif %}
+          </a>
+          {% endfor %}
+
+          <a href="/uploads" class="mt-3 flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">
+            {{ ui.icon("upload", "h-4 w-4") }} Import
+          </a>
+
+          {% if _user %}
+          <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Account</div>
+          <a href="/account" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">User Accounts</a>
+          {% if _user.role.value == 'admin' %}
+          <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin</div>
+          <a href="/admin/catalog" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Product Catalog</a>
+          <a href="/admin/tiktok" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">API Connection</a>
+          <a href="/admin/tiktok-ads" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">TikTok Ad Spend</a>
+          <a href="/admin/gmv-max-reimbursements" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">GMV Max Reimbursements</a>
+          <a href="/admin/invoices" class="flex items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
+            <span>Invoices &amp; AP</span>
+            {% if overdue_ap.count > 0 %}<span class="ml-2 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ overdue_ap.count }}</span>{% endif %}
+          </a>
+          <a href="/reports/recon-health?tab=recon" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Reconciliation</a>
+          <a href="/reports/recon-health?tab=data-health" class="flex items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
+            <span>Data Health</span>
+            {% if health_total > 0 %}<span class="ml-2 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ health_total }}</span>{% endif %}
+          </a>
+          {% endif %}
+          <form action="/logout" method="post" class="mt-2 border-t border-slate-100 pt-2">
+            <button type="submit" class="block w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Sign out</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
   </div>
 </nav>
