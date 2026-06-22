@@ -36,7 +36,7 @@
 {% endif %}
 
 {# Scope: per-month breakdown, combined all-time total, or a date range. #}
-<div class="mb-4 flex flex-wrap rounded-lg border border-slate-200 bg-white p-1 shadow-sm print:hidden">
+<div class="mb-4 inline-flex flex-wrap rounded-lg border border-slate-200 bg-white p-1 shadow-sm print:hidden">
   <a href="/reports/ad-spend"
      class="rounded-md px-4 py-1.5 text-sm font-medium {{ 'bg-slate-900 text-white' if scope == 'month' else 'text-slate-600 hover:bg-slate-100' }}">By month</a>
   <a href="/reports/ad-spend?scope=all-time"
