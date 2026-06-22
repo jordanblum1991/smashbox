@@ -18,11 +18,17 @@
   </a>
 {% endcall %}
 
+{# Period query-string only (granularity + range/fiscal). NOT a complete query:
+   each link appends its own &tab=… and &sort=… so the active tab/sort survives navigation. #}
+{% set period_qs = "granularity=" ~ granularity
+   ~ (("&start_date=" ~ start_date ~ "&end_date=" ~ end_date) if (start_date and end_date) else "")
+   ~ (("&year=" ~ fiscal_year ~ "&month=" ~ fiscal_month) if fiscal_year else "") %}
+
 {% set is_fiscal = granularity in ('fiscal_month', 'fiscal_ytd', 'fiscal_year') %}
 {# Scope controls — calendar toggle + Fiscal dropdown (mirrors Ad Spend). #}
 <div class="mb-4 flex flex-wrap items-center gap-1 text-sm print:hidden">
   {% for g in granularities %}
-  <a href="/reports/sales?granularity={{ g }}{% if start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}"
+  <a href="/reports/sales?granularity={{ g }}{% if start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}&tab={{ tab }}"
      class="rounded-md px-4 py-1.5 font-medium {{ 'bg-slate-900 text-white' if g == granularity else 'text-slate-600 hover:bg-slate-100' }}">{{ g | capitalize }}</a>
   {% endfor %}
   <details class="group relative">
@@ -30,9 +36,9 @@
       Fiscal <span class="text-[10px] transition-transform group-open:rotate-180">▾</span>
     </summary>
     <div class="absolute left-0 top-full z-20 mt-1 w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-      <a href="/reports/sales?granularity=fiscal_month" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_month' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal month</a>
-      <a href="/reports/sales?granularity=fiscal_ytd" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_ytd' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal YTD</a>
-      <a href="/reports/sales?granularity=fiscal_year" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_year' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal year</a>
+      <a href="/reports/sales?granularity=fiscal_month&tab={{ tab }}" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_month' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal month</a>
+      <a href="/reports/sales?granularity=fiscal_ytd&tab={{ tab }}" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_ytd' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal YTD</a>
+      <a href="/reports/sales?granularity=fiscal_year&tab={{ tab }}" class="block rounded-md px-3 py-1.5 {{ 'bg-slate-100 font-medium text-slate-900' if granularity == 'fiscal_year' else 'text-slate-700 hover:bg-slate-50' }}">Fiscal year</a>
     </div>
   </details>
 </div>
@@ -50,7 +56,7 @@
   <input type="text" name="end_date" value="{{ end_date }}" placeholder="YYYY-MM-DD"
          class="w-32 rounded-md border border-slate-300 px-2 py-1">
   <button type="submit" class="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white">Apply</button>
-  {% if start_date and end_date %}<a href="/reports/sales?granularity={{ granularity }}" class="text-slate-500 hover:text-slate-700">Clear</a>{% endif %}
+  {% if start_date and end_date %}<a href="/reports/sales?granularity={{ granularity }}&tab={{ tab }}" class="text-slate-500 hover:text-slate-700">Clear</a>{% endif %}
 </form>
 {% else %}
 {# Fiscal year/month picker (month disabled for the fiscal-year scope). #}
@@ -68,6 +74,18 @@
 {{ fb.fiscal_banner(fiscal_banner) }}
 {% endif %}
 
+{# Report tabs — Overview (velocity) / SKUs (per-SKU performance) / Timing (soon). #}
+<div class="mb-5 flex items-center gap-1 border-b border-slate-200 text-sm print:hidden">
+  <a href="/reports/sales?{{ period_qs }}&tab=overview"
+     class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab != 'skus' else 'border-transparent text-slate-500 hover:text-slate-800' }}">Overview</a>
+  <a href="/reports/sales?{{ period_qs }}&tab=skus"
+     class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'skus' else 'border-transparent text-slate-500 hover:text-slate-800' }}">SKUs</a>
+  <span class="-mb-px cursor-not-allowed border-b-2 border-transparent px-3 py-2 font-medium text-slate-300" title="Coming soon">Timing
+    <span class="ml-1 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">soon</span>
+  </span>
+</div>
+
+{% if tab != 'skus' %}
 {# Summary cards #}
 <section class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
   <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -151,4 +169,99 @@
     </tbody>
   </table>
 </div>
+{% endif %}
+
+{% if tab == 'skus' %}
+{# ── SKUs tab — per-SKU performance ───────────────────────────────────── #}
+{% set ins = sku.insights %}
+<section aria-label="SKU insights" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">🏆 Top seller</div>
+    <div class="mt-1 truncate text-sm font-semibold text-slate-900">{% if ins.top_seller %}{{ ins.top_seller.code }}{% else %}—{% endif %}</div>
+    <div class="text-[11px] text-slate-500">{% if ins.top_seller %}{{ ins.top_seller.units }} units{% endif %}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">📈 Biggest riser</div>
+    <div class="mt-1 truncate text-sm font-semibold text-slate-900">{% if ins.biggest_riser %}{{ ins.biggest_riser.code }}{% else %}—{% endif %}</div>
+    <div class="text-[11px] text-emerald-600">{% if ins.biggest_riser and ins.biggest_riser.momentum %}{{ ins.biggest_riser.momentum.label }}{% endif %}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">📉 Biggest faller</div>
+    <div class="mt-1 truncate text-sm font-semibold text-slate-900">{% if ins.biggest_faller %}{{ ins.biggest_faller.code }}{% else %}—{% endif %}</div>
+    <div class="text-[11px] text-rose-600">{% if ins.biggest_faller and ins.biggest_faller.momentum %}{{ ins.biggest_faller.momentum.label }}{% endif %}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">🆕 New</div>
+    <div class="mt-1 text-lg font-semibold text-slate-900">{{ ins.new_count }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">⏸️ Stalled</div>
+    <div class="mt-1 text-lg font-semibold text-slate-900">{{ ins.stalled_count }}</div>
+  </div>
+</section>
+
+{% set badge = {
+  'new':'bg-sky-50 text-sky-700', 'rising':'bg-emerald-50 text-emerald-700',
+  'steady':'bg-slate-100 text-slate-600', 'declining':'bg-rose-50 text-rose-700',
+  'stalled':'bg-amber-50 text-amber-700', 'inactive':'bg-slate-100 text-slate-400' } %}
+{% macro sort_th(label, key, align='right') %}
+  <th class="px-3 py-2 text-{{ align }} font-semibold">
+    <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ key }}{% if show_inactive %}&show_inactive=1{% endif %}"
+       class="hover:text-slate-900 {{ 'text-slate-900 underline' if sort == key else '' }}">{{ label }}</a>
+  </th>
+{% endmacro %}
+
+<div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-slate-500">
+        <th class="px-3 py-2 font-semibold">SKU</th>
+        {{ sort_th("Units", "units") }}
+        {{ sort_th("Net Sales", "net_sales") }}
+        {{ sort_th("Orders", "orders") }}
+        <th class="px-3 py-2 text-right font-semibold">%</th>
+        {{ sort_th("Momentum", "momentum") }}
+        <th class="px-3 py-2 text-right font-semibold">Trend</th>
+        <th class="px-3 py-2 text-right font-semibold">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in sku.rows %}
+      <tr class="border-b border-slate-100">
+        <td class="px-3 py-2"><div class="font-medium text-slate-800">{{ r.code }}</div><div class="truncate text-[11px] text-slate-500">{{ r.name }}</div></td>
+        <td class="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{{ r.units }}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.net_sales | money }}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.orders }}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-slate-500">{{ r.pct_units }}%</td>
+        <td class="px-3 py-2 text-right">{% if r.momentum %}{{ ui.delta_chip(r.momentum, polarity="higher_better") }}{% endif %}</td>
+        <td class="px-3 py-2 text-right">{{ ui.sparkline(r.spark, tone="info") }}</td>
+        <td class="px-3 py-2 text-right"><span class="rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize {{ badge[r.status] }}">{{ r.status }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">No SKU sales in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# Inactive catalog SKUs — count always; rows behind a toggle. #}
+{% if sku.inactive_count %}
+<div class="mt-3 text-sm print:hidden">
+  {% if show_inactive %}
+  <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ sort }}" class="text-slate-500 hover:text-slate-700">💤 Hide {{ sku.inactive_count }} inactive SKUs ▴</a>
+  <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/50">
+    <table class="min-w-full text-sm">
+      <tbody>
+        {% for r in sku.inactive_rows %}
+        <tr class="border-b border-slate-100"><td class="px-3 py-1.5 text-slate-500">{{ r.code }}</td><td class="px-3 py-1.5 truncate text-[11px] text-slate-400">{{ r.name }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <a href="/reports/sales?{{ period_qs }}&tab=skus&sort={{ sort }}&show_inactive=1" class="text-slate-500 hover:text-slate-700">💤 Show {{ sku.inactive_count }} inactive SKUs ▾</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
 {% endblock %}

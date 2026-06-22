@@ -212,10 +212,18 @@ def _sales_view_data(db, granularity, start_date, end_date, year, month):
 def sales_view(request: Request, granularity: str = "daily",
                start_date: str | None = None, end_date: str | None = None,
                year: int | None = None, month: int | None = None,
+               tab: str = "overview", sort: str = "units", show_inactive: int = 0,
                db: Session = Depends(get_db)):
-    """Sales velocity — calendar (daily/weekly/monthly, optional custom range) or
-    fiscal (month->daily, YTD/year->fiscal-month) scopes."""
+    """Sales report — Overview (velocity) or SKUs (per-SKU performance) tab, over
+    the calendar/custom-range/fiscal period scopes."""
     ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
+    ctx["tab"] = "skus" if tab == "skus" else "overview"
+    ctx["sort"] = sort
+    ctx["show_inactive"] = bool(show_inactive)
+    if ctx["tab"] == "skus":
+        from app.reports.sku_performance import compute_sku_performance
+        v = ctx["view"]
+        ctx["sku"] = compute_sku_performance(db, start=v.window_start, end=v.window_end, sort=sort)
     return templates.TemplateResponse(request, "reports/sales.html", ctx)
 
 
