@@ -21,6 +21,7 @@ from app.services.reporting_tz import placed_local_date, placed_window
 
 _CENTS = Decimal("0.01")
 RISING_PCT = Decimal("25")               # ±25% momentum band
+# Lifecycle dead band: |Δ%| <= 25 reads "steady" even though the momentum chip still shows the exact up/down change.
 SORTS = ("units", "net_sales", "orders", "momentum")
 
 
@@ -111,7 +112,9 @@ def _sort_value(r: SkuPerfRow, sort: str):
 
 
 def compute_sku_performance(db: Session, *, start: date, end: date,
-                            sort: str = "units", as_of: date | None = None) -> SkuPerformanceView:
+                            sort: str = "units",
+                            as_of: date | None = None,  # reserved (future: flag in-progress window); unused today
+                            ) -> SkuPerformanceView:
     if sort not in SORTS:
         sort = "units"
     length = (end - start).days + 1
