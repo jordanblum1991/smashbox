@@ -1,0 +1,70 @@
+name: deadman-switch
+
+# External liveness monitor for the Smashbox Fly app. Runs on GitHub's infra so
+# it can alert even when Fly is fully down. Probes /status/sync (the scheduler
+# heartbeat); on a confirmed unreachable/503 it emails ops via stdlib smtplib.
+on:
+  schedule:
+    - cron: "0 * * * *"   # hourly
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe /status/sync (3 retries)
+        id: probe
+        run: |
+          URL="https://smashbox.fly.dev/status/sync"
+          ok=false
+          code="000"
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 20 "$URL" || echo "000")
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then ok=true; break; fi
+            sleep 45
+          done
+          {
+            echo "healthy=$ok"
+            echo "last_code=$code"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Email ops on failure (stdlib smtplib)
+        if: steps.probe.outputs.healthy != 'true'
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          LAST_CODE: ${{ steps.probe.outputs.last_code }}
+        run: |
+          python - <<'PY'
+          import os, smtplib
+          from email.message import EmailMessage
+
+          code = os.environ.get("LAST_CODE", "000")
+          cond = "unreachable (machine/app down)" if code in ("000", "") else f"HTTP {code} (scheduler stale)"
+          msg = EmailMessage()
+          msg["Subject"] = f"⚠ Smashbox DEAD-MAN'S-SWITCH: scheduler {cond}"
+          msg["From"] = os.environ["SMTP_USER"]
+          msg["To"] = "jordan@beautychoice.com, candice@beautychoice.com"
+          msg.set_content(
+              "The external monitor could not confirm the Smashbox scheduler is alive.\n\n"
+              f"Probe result: {cond}\n"
+              "Endpoint: https://smashbox.fly.dev/status/sync\n"
+              "Fly dashboard: https://fly.io/apps/smashbox\n\n"
+              "This means the machine is down OR the in-process scheduler thread died "
+              "(the in-app sync alerts cannot fire in that case)."
+          )
+          with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT") or "587"), timeout=30) as s:
+              s.starttls()
+              s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+              s.send_message(msg)
+          print("dead-man's-switch alert email sent")
+          PY
+
+      - name: Mark the run failed when unhealthy
+        if: steps.probe.outputs.healthy != 'true'
+        run: |
+          echo "::error::/status/sync unhealthy (last HTTP ${{ steps.probe.outputs.last_code }})"
+          exit 1

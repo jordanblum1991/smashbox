@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -280,7 +280,7 @@ async def attach_data_health(request: Request, call_next):
     request.state.recon_breaks = {"count": 0}
     # /healthz is a DB-free liveness probe — never run the diagnostic queries for
     # it, or a locked/slow DB would hang the probe and trigger a needless restart.
-    if not request.url.path.startswith(("/static", "/healthz")):
+    if not request.url.path.startswith(("/static", "/healthz", "/status")):
         try:
             from app.reports.inventory_alerts import get_inventory_alert_summary
             from app.reports.overdue_ap import compute_due_soon_ap, compute_overdue_ap
@@ -329,6 +329,17 @@ async def healthz() -> PlainTextResponse:
     can't fail the probe and trigger a restart that would interrupt that very
     import. Exempt from auth (see SessionAuthMiddleware.EXEMPT_PREFIXES)."""
     return PlainTextResponse("ok")
+
+
+@app.get("/status/sync", include_in_schema=False)
+async def status_sync() -> JSONResponse:
+    """External dead-man's-switch probe: reports whether the in-process scheduler
+    heartbeat is fresh. DB-free + auth-exempt (see EXEMPT_PREFIXES). 503 when stale
+    so a polling monitor can alert on a dead scheduler / down machine."""
+    from app.services.scheduler import heartbeat_status
+
+    s = heartbeat_status()
+    return JSONResponse(s, status_code=503 if s["status"] == "stale" else 200)
 
 
 app.include_router(auth_router.router)

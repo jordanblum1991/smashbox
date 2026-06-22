@@ -78,7 +78,7 @@ class SessionAuthMiddleware(BaseHTTPMiddleware):
 
     # `/auth/google/*` carries the OAuth round-trip, which by definition happens
     # before the user is signed in — so it must be reachable without a session.
-    EXEMPT_PREFIXES = ("/static/", "/login", "/logout", "/healthz", "/auth/google", "/auth/tiktok")
+    EXEMPT_PREFIXES = ("/static/", "/login", "/logout", "/healthz", "/auth/google", "/auth/tiktok", "/status")
 
     async def dispatch(self, request: Request, call_next):
         if not settings.session_secret:
@@ -119,7 +119,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
     """Pre-Phase-1 single-credential gate. Inert when basic_auth_password is
     empty. Slated for removal once all deploys are on SessionAuthMiddleware."""
 
-    EXEMPT_PREFIXES = ("/static/", "/healthz")
+    EXEMPT_PREFIXES = ("/static/", "/healthz", "/status")
 
     async def dispatch(self, request: Request, call_next):
         if not settings.basic_auth_password:

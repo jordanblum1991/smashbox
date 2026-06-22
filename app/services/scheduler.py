@@ -19,17 +19,44 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.db import SessionLocal
+from app.models.import_batch import _utc_now_naive
 from app.models.shop import Shop
 
 logger = logging.getLogger(__name__)
 
 INVENTORY_JOB_ID = "inventory_sap_sync"
 TIKTOK_JOB_ID = "tiktok_api_sync"
+HEARTBEAT_JOB_ID = "scheduler_heartbeat"
+HEARTBEAT_INTERVAL_MIN = 15   # heartbeat cadence
+HEARTBEAT_STALE_S = 3600      # /status/sync goes 503 past this age
 
 _scheduler: AsyncIOScheduler | None = None
+_heartbeat = None  # last proof-of-life, UTC-naive
+
+
+def record_heartbeat() -> None:
+    """Proof the scheduler thread is alive — called by the 15-min heartbeat job
+    and seeded at start_scheduler()."""
+    global _heartbeat
+    _heartbeat = _utc_now_naive()
+
+
+def heartbeat_status(*, now=None) -> dict:
+    """Freshness verdict for the external dead-man's-switch.
+      disabled — scheduler isn't running (dev/tests); never alarms.
+      ok       — heartbeat age < HEARTBEAT_STALE_S.
+      stale    — heartbeat too old, or absent while the scheduler is enabled.
+    """
+    if not settings.scheduler_enabled:
+        return {"status": "disabled"}
+    if _heartbeat is None:
+        return {"status": "stale", "heartbeat_age_s": None}
+    age = int(((now or _utc_now_naive()) - _heartbeat).total_seconds())
+    return {"status": "ok" if age < HEARTBEAT_STALE_S else "stale", "heartbeat_age_s": age}
 
 
 def _run_alert_check(db) -> None:
@@ -157,6 +184,15 @@ def start_scheduler() -> None:
 
     _scheduler = AsyncIOScheduler()
     _scheduler.start()
+    record_heartbeat()
+    _scheduler.add_job(
+        record_heartbeat,
+        trigger=IntervalTrigger(minutes=HEARTBEAT_INTERVAL_MIN),
+        id=HEARTBEAT_JOB_ID,
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
     with SessionLocal() as db:
         shop = _primary_shop(db)
         if shop is not None:
