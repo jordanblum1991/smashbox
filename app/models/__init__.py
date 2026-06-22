@@ -27,6 +27,7 @@ from app.models.tiktok_marketing_credential import TikTokMarketingCredential
 from app.models.tiktok_sync_state import TikTokSyncState
 from app.models.settlement import Adjustment, Settlement
 from app.models.shop import Shop
+from app.models.sync_alert import SyncAlert
 from app.models.sku import Sku
 from app.models.sku_alias import SkuAlias
 from app.models.tiktok_daily_metric import TikTokDailyMetric
@@ -66,6 +67,7 @@ __all__ = [
     "Settlement",
     "Shop",
     "Sku",
+    "SyncAlert",
     "TikTokCredential",
     "TikTokMarketingCredential",
     "TikTokSyncState",
