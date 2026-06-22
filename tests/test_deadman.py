@@ -70,3 +70,16 @@ def test_status_sync_reachable_without_redirect():
     from app.main import app
     r = TestClient(app).get("/status/sync", follow_redirects=False)
     assert r.status_code in (200, 503)
+
+
+def test_deadman_workflow_has_key_content():
+    """Guard the safety net's own content so a malformed/edited workflow that
+    would silently never alert is caught in CI."""
+    from pathlib import Path
+    wf = Path(".github/workflows/deadman.yml").read_text(encoding="utf-8")
+    assert "cron:" in wf and "0 * * * *" in wf          # hourly schedule
+    assert "workflow_dispatch" in wf                     # manual trigger
+    assert "/status/sync" in wf                          # probes the endpoint
+    assert "smtplib" in wf                               # stdlib mailer (no 3rd-party action)
+    assert "secrets.SMTP_PASSWORD" in wf                 # uses repo secrets
+    assert "jordan@beautychoice.com" in wf and "candice@beautychoice.com" in wf
