@@ -18,6 +18,8 @@
   </a>
 {% endcall %}
 
+{# Period query-string only (granularity + range/fiscal). NOT a complete query:
+   each link appends its own &tab=… and &sort=… so the active tab/sort survives navigation. #}
 {% set period_qs = "granularity=" ~ granularity
    ~ (("&start_date=" ~ start_date ~ "&end_date=" ~ end_date) if (start_date and end_date) else "")
    ~ (("&year=" ~ fiscal_year ~ "&month=" ~ fiscal_month) if fiscal_year else "") %}
