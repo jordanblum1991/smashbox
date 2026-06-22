@@ -36,10 +36,17 @@ primary_region = "lax"  # Los Angeles
     soft_limit = 50
     hard_limit = 100
 
-  # NOTE: a /healthz liveness check is intentionally NOT wired up yet. Fly caps
-  # the check grace_period at 60s, but cold start is ~57s — too thin a margin, so
-  # a slow boot could boot-loop. The app exposes /healthz (DB-free, auth-exempt)
-  # ready to use; enable the check here once cold-start time is safely under 60s.
+  # Liveness check: Fly auto-restarts the machine if /healthz stops responding
+  # (event loop hung but machine up). Measured boot-to-ready is ~10s (app import
+  # ~3.3s on prod + Fly microVM/image-pull ~9s; the old "~57s" note was wrong), so
+  # 30s grace is ~3x margin under the 60s cap. /healthz is DB-free + auth-exempt so
+  # a locked/slow DB can't fail it (no false restart).
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/healthz"
 
 # One shared-cpu-1x VM, 512MB RAM — plenty for an internal dashboard.
 [[vm]]
