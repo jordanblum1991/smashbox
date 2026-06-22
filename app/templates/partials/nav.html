@@ -245,9 +245,10 @@
           </a>
 
           {% if _user %}
+          <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Account</div>
+          <a href="/account" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">User Accounts</a>
           {% if _user.role.value == 'admin' %}
           <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin</div>
-          <a href="/account" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">User Accounts</a>
           <a href="/admin/catalog" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Product Catalog</a>
           <a href="/admin/tiktok" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">API Connection</a>
           <a href="/admin/tiktok-ads" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">TikTok Ad Spend</a>
