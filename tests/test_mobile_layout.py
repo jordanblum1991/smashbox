@@ -46,3 +46,13 @@ def test_pnl_percent_column_hidden_on_mobile(client):
     assert r.status_code == 200
     # The % column cells/header are gated to sm+ so mobile shows label + amount only.
     assert "hidden sm:table-cell" in r.text
+
+
+@pytest.mark.parametrize("url", ["/reports/ad-spend", "/reports/sales", "/"])
+def test_target_pages_render_after_mobile_pass(client, url):
+    assert client.get(url).status_code == 200
+
+
+def test_ad_spend_uses_responsive_padding(client):
+    # Ad Spend's heavy px-6 sections get a mobile-tighter variant.
+    assert "px-4 sm:px-6" in client.get("/reports/ad-spend").text
