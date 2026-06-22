@@ -56,7 +56,7 @@ jobs:
               "This means the machine is down OR the in-process scheduler thread died "
               "(the in-app sync alerts cannot fire in that case)."
           )
-          with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", "587")), timeout=30) as s:
+          with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT") or "587"), timeout=30) as s:
               s.starttls()
               s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
               s.send_message(msg)
