@@ -112,7 +112,7 @@
   <tr>
     <td class="py-1.5 {% if indent == 1 %}pl-6{% elif indent == 2 %}pl-12{% endif %} text-slate-700">{{ label }}</td>
     <td class="py-1.5 text-right tabular-nums text-slate-800">{{ acct(value) }}</td>
-    <td class="py-1.5 pr-1 text-right text-xs tabular-nums text-slate-400">{{ pct_of_sales(value) }}</td>
+    <td class="py-1.5 pr-1 text-right text-xs tabular-nums text-slate-400 hidden sm:table-cell">{{ pct_of_sales(value) }}</td>
   </tr>
 {% endmacro %}
 
@@ -124,7 +124,7 @@
       {% if accent == 'pos' %}text-emerald-700
       {% elif accent == 'neg' %}text-rose-700
       {% else %}text-slate-900{% endif %}">{{ acct(value) }}</td>
-    <td class="pt-3 pb-2 pr-1 text-right text-xs font-semibold tabular-nums text-slate-500">{{ pct_of_sales(value) }}</td>
+    <td class="pt-3 pb-2 pr-1 text-right text-xs font-semibold tabular-nums text-slate-500 hidden sm:table-cell">{{ pct_of_sales(value) }}</td>
   </tr>
 {% endmacro %}
 
@@ -136,20 +136,20 @@
 {% endmacro %}
 
 <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm print:rounded-none print:border-0 print:shadow-none">
-  <header class="border-b border-slate-200 bg-slate-50/60 px-6 py-3">
+  <header class="border-b border-slate-200 bg-slate-50/60 px-4 sm:px-6 py-3">
     <div class="flex items-baseline justify-between text-xs uppercase tracking-wider text-slate-500">
       <span class="font-semibold">Profit &amp; Loss Statement</span>
       <span>{{ view.title_suffix }}</span>
     </div>
   </header>
 
-  <div class="px-6 py-2">
+  <div class="px-4 sm:px-6 py-2">
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           <th class="py-2 text-left"></th>
           <th class="py-2 text-right">Amount</th>
-          <th class="py-2 pr-1 text-right">% of Net Sales</th>
+          <th class="py-2 pr-1 text-right hidden sm:table-cell">% of Net Sales</th>
         </tr>
       </thead>
       <tbody>

@@ -39,3 +39,10 @@ def test_nav_mobile_menu_has_grouped_sections(client):
     html = client.get("/").text
     for label in ("Samples", "Ads", "Inventory"):
         assert label in html
+
+
+def test_pnl_percent_column_hidden_on_mobile(client):
+    r = client.get("/reports/pnl")
+    assert r.status_code == 200
+    # The % column cells/header are gated to sm+ so mobile shows label + amount only.
+    assert "hidden sm:table-cell" in r.text
