@@ -29,11 +29,12 @@ below.
 - **Rolling-window options differ per report** (Sales is day-capable; Samples is
   month-granular):
   - **Sales:** `prev_month` · `mtd` · `prev_week` · `last_7` · `last_30` ·
-    `prev_fiscal_month`.
-  - **Samples:** `prev_month` · `mtd` · `prev_fiscal_month`. (Day-level windows and
-    fiscal don't map to a calendar-month-granular report cleanly; only month-level
-    options are offered. `prev_fiscal_month` resolves to the calendar month that the
-    fiscal month maps to — see resolver.)
+    `prev_fiscal_month`. (Sales handles `prev_fiscal_month` via its native fiscal
+    scope — `granularity=fiscal_month`, year/month of the previous fiscal month.)
+  - **Samples:** `prev_month` · `mtd` only. The fiscal month is a **29th–28th**
+    window (not calendar-aligned) and the Samples report is calendar-month-granular,
+    so `prev_fiscal_month` and day-level windows are **not** offered for Samples.
+    (Manual "Email report" still covers whatever scope is on the Samples page.)
 - **Config UI:** per-report settings card on each report page (mirrors inventory).
 - CSV (not XLSX), since these reports' existing exports are CSV.
 - **The HTML body and the CSV in a given email MUST represent the same dataset.**
