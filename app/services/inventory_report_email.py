@@ -39,7 +39,7 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
     """Return (subject, html_body, text_body). HTML is inline-styled to match the
     dashboard; both bodies state the last-snapshot time up top."""
     date_str = f"{view.as_of:%b %d, %Y}"
-    subject = f"Smashbox Weekly Inventory — {date_str}"
+    subject = f"Smashbox Weekly Inventory Snapshot — {date_str}"
     snap = _snapshot_line(view)
 
     snap_html = escape(snap)
@@ -63,7 +63,7 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
     html = (
         f'<div style="{_CARD}">'
         f'<div style="padding:16px 12px;background:#f8fafc">'
-        f'<div style="font-size:16px;font-weight:700;color:#0f172a">Smashbox Weekly Inventory</div>'
+        f'<div style="font-size:16px;font-weight:700;color:#0f172a">Smashbox Weekly Inventory Snapshot</div>'
         f'<div style="font-size:12px;color:#475569;margin-top:2px">{snap_html}</div></div>'
         f'<table style="width:100%;border-collapse:collapse">'
         f'<thead><tr>'
@@ -75,7 +75,7 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
     )
 
     text_lines = [
-        "Smashbox Weekly Inventory", snap, "",
+        "Smashbox Weekly Inventory Snapshot", snap, "",
         f"{'SKU':<18}{'Product':<28}{'Sellable':>9}{'Sample':>8}{'Total':>7}{'OnOrder':>8}",
     ]
     for r in view.rows:
@@ -92,8 +92,9 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
 
 def build_inventory_xlsx(view: InventoryReportView) -> bytes:
     """A formatted inventory workbook: frozen bold header, autofilter, column
-    widths, integer/money number formats, and a bold totals row. A caption cell
-    carries the snapshot age so it travels with the file."""
+    widths, integer number formats, and a bold totals row. A caption cell
+    carries the snapshot age so it travels with the file. Units only — COGS and
+    value columns are intentionally excluded."""
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
     ws = wb.add_worksheet("Inventory")
@@ -104,13 +105,11 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
                          "align": "left"})
     hdr_r = wb.add_format({"bold": True, "bg_color": "#f1f5f9", "bottom": 1,
                            "align": "right"})
-    money = wb.add_format({"num_format": "$#,##0.00"})
     num = wb.add_format({"num_format": "#,##0"})
     tot = wb.add_format({"bold": True, "top": 2})
     tot_n = wb.add_format({"bold": True, "top": 2, "num_format": "#,##0"})
-    tot_m = wb.add_format({"bold": True, "top": 2, "num_format": "$#,##0.00"})
 
-    ws.write("A1", "Smashbox — Weekly Inventory", title)
+    ws.write("A1", "Smashbox — Weekly Inventory Snapshot", title)
     # _snapshot_line returns "Inventory as of …" when a snapshot exists; give a
     # parallel "Inventory as of: …" caption when none, so the file always carries
     # the snapshot age (and a reader always sees the data's freshness).
@@ -118,7 +117,7 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
              else "Inventory as of: no snapshot yet", caption)
 
     headers = ["SKU", "Product", "Sellable", "Sample", "On Order",
-               "Total On Hand", "Unit COGS", "Sellable COGS Value"]
+               "Total On Hand"]
     hrow = 3
     for c, h in enumerate(headers):
         ws.write(hrow, c, h, hdr_r if c >= 2 else hdr)
@@ -131,8 +130,6 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
         ws.write_number(r, 3, row.sample_on_hand, num)
         ws.write_number(r, 4, row.in_transit, num)
         ws.write_number(r, 5, row.total_on_hand, num)
-        ws.write_number(r, 6, float(row.unit_cogs), money)
-        ws.write_number(r, 7, float(row.total_value), money)
         r += 1
 
     ws.write(r, 0, "TOTAL", tot)
@@ -141,14 +138,12 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
     ws.write_number(r, 3, view.total_sample, tot_n)
     ws.write_number(r, 4, view.total_in_transit, tot_n)
     ws.write_number(r, 5, view.total_units, tot_n)
-    ws.write_blank(r, 6, None, tot)
-    ws.write_number(r, 7, float(view.total_inventory_value), tot_m)
 
     ws.freeze_panes(hrow + 1, 0)
     ws.autofilter(hrow, 0, r - 1, len(headers) - 1)
     ws.set_column(0, 0, 18)
     ws.set_column(1, 1, 34)
-    ws.set_column(2, 7, 13)
+    ws.set_column(2, 5, 13)
     wb.close()
     buf.seek(0)
     return buf.getvalue()

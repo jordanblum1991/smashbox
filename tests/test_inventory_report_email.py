@@ -27,7 +27,8 @@ def _view(last_sync=datetime(2026, 6, 23, 7, 30)):
 
 def test_render_html_has_row_totals_and_snapshot():
     subject, html, text = ire.render_inventory_email(_view())
-    assert "Inventory" in subject and "Jun 23, 2026" in subject
+    assert "Smashbox Weekly Inventory Snapshot" in subject and "Jun 23, 2026" in subject
+    assert "Smashbox Weekly Inventory Snapshot" in html and "Smashbox Weekly Inventory Snapshot" in text
     assert "SBX-OG-PRIMER" in html and "OG Primer" in html
     assert "640" in html and "48" in html
     assert "648" in html  # total units
@@ -59,6 +60,11 @@ def test_build_xlsx_readback():
     assert "SBX-OG-PRIMER" in flat
     assert any(isinstance(v, str) and "Inventory as of" in v for v in flat)  # caption
     assert any(isinstance(v, str) and v.upper() == "TOTAL" for v in flat)    # totals row
+    assert any(isinstance(v, str) and "Snapshot" in v for v in flat)         # renamed title
+    # COGS + value columns are intentionally excluded from the workbook.
+    assert "Unit COGS" not in flat
+    assert "Sellable COGS Value" not in flat
+    assert "Total On Hand" in flat   # last retained column header
 
 
 def test_send_inventory_report_calls_mailer(monkeypatch):
