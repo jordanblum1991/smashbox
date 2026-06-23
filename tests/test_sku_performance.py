@@ -9,6 +9,7 @@ import pytest
 
 from app.db import Base, SessionLocal, engine
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.bundle import Bundle
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
 from app.reports.sku_performance import compute_sku_performance
@@ -26,6 +27,11 @@ def fresh_db():
 def _sku(db, tiktok_id, code, name):
     db.add(Sku(sku=code, name=name, brand="smashbox", tiktok_sku_id=tiktok_id,
                unit_cogs=Decimal("0")))
+    db.flush()
+
+
+def _bundle(db, tiktok_id, code, name):
+    db.add(Bundle(bundle_sku=code, name=name, brand="smashbox", tiktok_sku_id=tiktok_id))
     db.flush()
 
 
@@ -123,6 +129,20 @@ def test_unmapped_sku_and_paid_only_and_sparkline():
     assert raw.units == 6                 # 4 + 2; the 99 SAMPLE excluded
     assert raw.code == "Unmapped"
     assert raw.spark != ""                # two days of data → a drawable sparkline
+
+
+def test_sold_bundle_shows_bundle_code_not_unmapped():
+    # A bundle sold through TikTok carries a Bundle.tiktok_sku_id (no Sku row).
+    # The SKUs tab must label it with its bundle_sku/name, not "Unmapped".
+    with SessionLocal() as db:
+        _bundle(db, "B1", "SBX-PRIMER-BUNDLE", "Primer Value Bundle")
+        _order(db, date(2026, 5, 20), "B1", 5)
+        db.commit()
+        v = compute_sku_performance(db, start=SEL_START, end=SEL_END)
+    row = next(r for r in v.rows if r.sku_id == "B1")
+    assert row.code == "SBX-PRIMER-BUNDLE"
+    assert row.name == "Primer Value Bundle"
+    assert row.units == 5
 
 
 def test_insights_and_sort():
