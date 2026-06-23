@@ -17,21 +17,24 @@ def fresh_db():
     yield
 
 
-def _client():
+@pytest.fixture
+def client():
     # Bypass admin auth cleanly via FastAPI dependency_overrides (monkeypatching
     # auth.require_admin would NOT affect the dependency already bound into the
     # route at import time).
     from app.auth import require_admin
     from app.main import app
     app.dependency_overrides[require_admin] = lambda: None
-    return TestClient(app)
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
-def test_settings_persist_and_reschedule(monkeypatch):
+def test_settings_persist_and_reschedule(monkeypatch, client):
     calls = {}
     monkeypatch.setattr(reports_mod, "apply_inventory_report_schedule",
                         lambda shop: calls.setdefault("rescheduled", True))
-    client = _client()
     resp = client.post("/reports/inventory/email-settings", data={
         "recipients": "a@x.com, b@x.com", "enabled": "1",
         "days": ["mon", "thu"], "report_time": "08:30"},
@@ -46,11 +49,10 @@ def test_settings_persist_and_reschedule(monkeypatch):
     assert calls.get("rescheduled")
 
 
-def test_send_now_invokes_send(monkeypatch):
+def test_send_now_invokes_send(monkeypatch, client):
     sent = {}
     monkeypatch.setattr(reports_mod, "send_inventory_report",
                         lambda db, recipients: sent.setdefault("to", recipients))
-    client = _client()
     with SessionLocal() as db:
         shop = db.query(Shop).first()
         shop.inventory_report_recipients = "ops@x.com"; db.commit()
