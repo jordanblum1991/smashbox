@@ -217,12 +217,12 @@ def sales_view(request: Request, granularity: str = "daily",
                start_date: str | None = None, end_date: str | None = None,
                year: int | None = None, month: int | None = None,
                tab: str = "overview", sort: str = "units", show_inactive: int = 0,
-               per_page: int = DEFAULT_PER_PAGE, page: int = 1,
+               per_page: int = DEFAULT_PER_PAGE, page: int = 1, dim: str = "dow",
                db: Session = Depends(get_db)):
     """Sales report — Overview (velocity) or SKUs (per-SKU performance) tab, over
     the calendar/custom-range/fiscal period scopes. The SKU table is paginated."""
     ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
-    ctx["tab"] = tab if tab in ("skus", "timing") else "overview"
+    ctx["tab"] = tab if tab in ("skus", "timing", "heatmap") else "overview"
     ctx["sort"] = sort
     ctx["show_inactive"] = bool(show_inactive)
     if ctx["tab"] == "skus":
@@ -261,6 +261,11 @@ def sales_view(request: Request, granularity: str = "daily",
         ctx["dow_chart"] = bar_chart([float(d.avg_revenue) for d in t.dow])
         ctx["hour_chart"] = bar_chart([float(h.revenue) for h in t.hours])
         ctx["daily_chart"] = bar_chart([float(d.revenue) for d in t.daily])
+    elif ctx["tab"] == "heatmap":
+        from app.reports.sku_time_heatmap import compute_sku_time_heatmap
+        v = ctx["view"]
+        ctx["heatmap"] = compute_sku_time_heatmap(db, start=v.window_start, end=v.window_end, dim=dim)
+        ctx["dim"] = ctx["heatmap"].dim
     return templates.TemplateResponse(request, "reports/sales.html", ctx)
 
 

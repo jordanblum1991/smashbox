@@ -15,9 +15,9 @@ from sqlalchemy import distinct, select
 from sqlalchemy.orm import Session
 
 from app.models.order import Order, OrderLine, OrderType
-from app.models.sku import Sku
 from app.reports.dashboard_trends import Delta, compute_delta, sparkline_points
 from app.services.reporting_tz import placed_local_date, placed_window
+from app.services.sku_resolver import catalog_label_map
 
 _CENTS = Decimal("0.01")
 RISING_PCT = Decimal("25")               # ±25% momentum band
@@ -145,9 +145,9 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
         .where(Order.placed_at < src_start)
     ).scalars())
 
-    # Catalog name/code map (canonical TikTok SKU ID → code/name).
-    catalog = {s.tiktok_sku_id: (s.sku, s.name)
-               for s in db.execute(select(Sku).where(Sku.tiktok_sku_id.isnot(None))).scalars()}
+    # Catalog name/code map (canonical TikTok SKU ID → code/name) — single SKUs
+    # AND bundles, so a bundle sold through TikTok isn't mislabeled "Unmapped".
+    catalog = catalog_label_map(db)
 
     window_days = [start + timedelta(days=i) for i in range(length)]
     total_units = sum(cur_units.values())

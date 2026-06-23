@@ -27,6 +27,20 @@ from app.models.order import OrderLine
 from app.models.sku import Sku
 
 
+def catalog_label_map(db: Session) -> dict[str, tuple[str, str]]:
+    """Canonical TikTok SKU ID → (display code, product name) for BOTH single
+    SKUs and bundles. Reports join OrderLine.sku (canonicalized to the TikTok
+    SKU ID by the resolver) against this to label rows; a bundle sold through
+    TikTok lives only in the Bundle table, so a Sku-only map mislabels it as
+    "Unmapped". Sku wins on the (unexpected) key collision."""
+    out: dict[str, tuple[str, str]] = {}
+    for s in db.execute(select(Sku).where(Sku.tiktok_sku_id.isnot(None))).scalars():
+        out[s.tiktok_sku_id] = (s.sku, s.name)
+    for b in db.execute(select(Bundle).where(Bundle.tiktok_sku_id.isnot(None))).scalars():
+        out.setdefault(b.tiktok_sku_id, (b.bundle_sku, b.name))
+    return out
+
+
 @dataclass
 class ResolveStats:
     lines_inspected: int = 0

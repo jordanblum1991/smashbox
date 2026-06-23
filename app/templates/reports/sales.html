@@ -84,6 +84,8 @@
      class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'skus' else 'border-transparent text-slate-500 hover:text-slate-800' }}">SKUs</a>
   <a href="/reports/sales?{{ period_qs }}&tab=timing"
      class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'timing' else 'border-transparent text-slate-500 hover:text-slate-800' }}">Timing</a>
+  <a href="/reports/sales?{{ period_qs }}&tab=heatmap"
+     class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'heatmap' else 'border-transparent text-slate-500 hover:text-slate-800' }}">Heatmap</a>
 </div>
 
 {% if tab == 'overview' %}
@@ -382,5 +384,58 @@
   </div>
   {% endif %}
 </section>
+{% endif %}
+
+{% if tab == 'heatmap' %}
+{# ── Heatmap tab — SKU × time (units) ──────────────────────────────────── #}
+{% set heat = {
+  0:'bg-slate-50 text-slate-300', 1:'bg-indigo-100 text-indigo-800',
+  2:'bg-indigo-300 text-indigo-900', 3:'bg-indigo-500 text-white',
+  4:'bg-indigo-700 text-white' } %}
+<div class="mb-4 flex flex-wrap items-center gap-1 text-sm print:hidden">
+  <span class="mr-1 text-xs text-slate-400">Group by</span>
+  <a href="/reports/sales?{{ period_qs }}&tab=heatmap&dim=dow"
+     class="rounded-md px-3 py-1.5 font-medium {{ 'bg-slate-900 text-white' if heatmap.dim == 'dow' else 'text-slate-600 hover:bg-slate-100' }}">Day of week</a>
+  <a href="/reports/sales?{{ period_qs }}&tab=heatmap&dim=daypart"
+     class="rounded-md px-3 py-1.5 font-medium {{ 'bg-slate-900 text-white' if heatmap.dim == 'daypart' else 'text-slate-600 hover:bg-slate-100' }}">Daypart</a>
+</div>
+<div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
+  <div>
+    {% if heatmap.shown %}Busiest {{ 'day' if heatmap.dim == 'dow' else 'daypart' }}:
+      <span class="font-semibold text-slate-700">{{ heatmap.busiest_col }}</span>
+      · top {{ heatmap.shown }} of {{ heatmap.total_skus }} SKUs by units{% else %}No SKU sales in this period.{% endif %}
+  </div>
+  <div class="flex items-center gap-1 text-[10px] text-slate-400">
+    <span>Less</span>
+    {% for lv in range(5) %}<span class="inline-block h-3 w-3 rounded-sm {{ heat[lv] }}"></span>{% endfor %}
+    <span>More <span class="text-slate-300">(per SKU)</span></span>
+  </div>
+</div>
+<div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-500">
+        <th class="px-3 py-2 text-left font-semibold">SKU</th>
+        {% for c in heatmap.columns %}<th class="px-2 py-2 text-center font-semibold">{{ c }}</th>{% endfor %}
+        <th class="px-3 py-2 text-left font-semibold">Peak</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in heatmap.rows %}
+      <tr class="border-b border-slate-100">
+        <td class="px-3 py-2"><div class="font-medium text-slate-800">{{ r.code }}</div><div class="truncate text-[11px] text-slate-500">{{ r.name }}</div></td>
+        {% for cell in r.cells %}
+        <td class="px-1 py-1 text-center">
+          <div class="rounded px-2 py-1 text-[11px] font-medium tabular-nums {{ heat[cell.level] }}" title="{{ cell.label }}: {{ cell.units }}">{{ cell.units or '' }}</div>
+        </td>
+        {% endfor %}
+        <td class="px-3 py-2 text-[11px] font-medium text-slate-600">{{ r.peak_label }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ heatmap.columns | length + 2 }}" class="px-3 py-6 text-center text-slate-400">No SKU sales in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 {% endblock %}
