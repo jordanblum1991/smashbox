@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 from datetime import datetime
+from html import escape
 
 import xlsxwriter
 from sqlalchemy.orm import Session
@@ -42,11 +43,12 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
     subject = f"Smashbox Weekly Inventory — {date_str}"
     snap = _snapshot_line(view)
 
+    snap_html = escape(snap)
     rows_html = []
     for r in view.rows:
         rows_html.append(
-            f'<tr><td style="{_TD}">{r.sku_code or "Unmapped"}</td>'
-            f'<td style="{_TD}">{(r.name or "")}</td>'
+            f'<tr><td style="{_TD}">{escape(r.sku_code or "Unmapped")}</td>'
+            f'<td style="{_TD}">{escape(r.name or "")}</td>'
             f'<td style="{_TD_R}">{r.sellable_on_hand}</td>'
             f'<td style="{_TD_R}">{r.sample_on_hand}</td>'
             f'<td style="{_TD_R}">{r.total_on_hand}</td>'
@@ -63,7 +65,7 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
         f'<div style="{_CARD}">'
         f'<div style="padding:16px 12px;background:#f8fafc">'
         f'<div style="font-size:16px;font-weight:700;color:#0f172a">Smashbox Weekly Inventory</div>'
-        f'<div style="font-size:12px;color:#475569;margin-top:2px">{snap}</div></div>'
+        f'<div style="font-size:12px;color:#475569;margin-top:2px">{snap_html}</div></div>'
         f'<table style="width:100%;border-collapse:collapse">'
         f'<thead><tr>'
         f'<th style="{_TH}">SKU</th><th style="{_TH}">Product</th>'

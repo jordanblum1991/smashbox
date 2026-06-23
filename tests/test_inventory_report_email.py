@@ -27,7 +27,7 @@ def _view(last_sync=datetime(2026, 6, 23, 7, 30)):
 
 def test_render_html_has_row_totals_and_snapshot():
     subject, html, text = ire.render_inventory_email(_view())
-    assert "Inventory" in subject
+    assert "Inventory" in subject and "Jun 23, 2026" in subject
     assert "SBX-OG-PRIMER" in html and "OG Primer" in html
     assert "640" in html and "48" in html
     assert "648" in html  # total units
@@ -39,3 +39,12 @@ def test_render_handles_no_snapshot():
     subject, html, text = ire.render_inventory_email(_view(last_sync=None))
     assert "no snapshot" in html.lower()
     assert "no snapshot" in text.lower()
+
+
+def test_html_escapes_special_chars_in_names():
+    v = _view()
+    v.rows[0].name = "Smooth & Blur <Primer>"
+    subject, html, text = ire.render_inventory_email(v)
+    assert "Smooth &amp; Blur &lt;Primer&gt;" in html
+    # text body keeps the raw ampersand (plain text, not escaped)
+    assert "Smooth & Blur <Primer>" in text
