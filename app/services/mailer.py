@@ -20,13 +20,17 @@ def send_email(
 ) -> None:
     """Send an email. `body` is the plain-text content; when `html` is given the
     message becomes multipart/alternative (text + html). `attachments` is a list
-    of (filename, payload_bytes, mime_subtype) — e.g. ("inv.xlsx", b"...",
-    "xlsx") attaches as application/<subtype>."""
+    of (filename, payload_bytes, mime_subtype) where mime_subtype is the full
+    MIME subtype — e.g. ("inv.xlsx", b"...",
+    "vnd.openxmlformats-officedocument.spreadsheetml.sheet") attaches as
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = settings.sync_alert_from or settings.smtp_user
     msg["To"] = ", ".join(to)
     msg.set_content(body)
+    # Add the HTML alternative BEFORE any attachments so the text/plain + text/html
+    # stay paired in a multipart/alternative under the outer multipart/mixed.
     if html is not None:
         msg.add_alternative(html, subtype="html")
     for filename, payload, subtype in attachments or []:

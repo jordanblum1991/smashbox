@@ -33,6 +33,7 @@ def test_text_only_still_works(monkeypatch):
     msg = _FakeSMTP.sent
     assert msg["To"] == "a@x.com"
     assert "plain body" in msg.get_content()
+    assert msg.get_content_type() == "text/plain"
 
 
 def test_html_and_attachment(monkeypatch):
@@ -40,7 +41,7 @@ def test_html_and_attachment(monkeypatch):
     mailer.send_email(
         "Subj", "plain fallback", to=["a@x.com", "b@x.com"],
         html="<p>hi</p>",
-        attachments=[("inv.xlsx", b"PK\x03\x04stub", "xlsx")],
+        attachments=[("inv.xlsx", b"PK\x03\x04stub", "vnd.openxmlformats-officedocument.spreadsheetml.sheet")],
     )
     msg = _FakeSMTP.sent
     assert msg["To"] == "a@x.com, b@x.com"
@@ -49,3 +50,4 @@ def test_html_and_attachment(monkeypatch):
     atts = [p for p in msg.walk() if p.get_content_disposition() == "attachment"]
     assert len(atts) == 1
     assert atts[0].get_filename() == "inv.xlsx"
+    assert atts[0].get_content_type() == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
