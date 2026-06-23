@@ -59,3 +59,11 @@ def test_send_now_invokes_send(monkeypatch, client):
     resp = client.post("/reports/inventory/send-now", follow_redirects=False)
     assert resp.status_code == 303
     assert sent["to"] == ["ops@x.com"]
+
+
+def test_inventory_page_renders_panel(client):
+    resp = client.get("/reports/inventory")
+    assert resp.status_code == 200
+    assert "Weekly email report" in resp.text
+    assert 'action="/reports/inventory/email-settings"' in resp.text
+    assert 'action="/reports/inventory/send-now"' in resp.text
