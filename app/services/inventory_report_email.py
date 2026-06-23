@@ -118,7 +118,7 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
              else "Inventory as of: no snapshot yet", caption)
 
     headers = ["SKU", "Product", "Sellable", "Sample", "On Order",
-               "Total On Hand", "Unit COGS", "Total Value"]
+               "Total On Hand", "Unit COGS", "Sellable COGS Value"]
     hrow = 3
     for c, h in enumerate(headers):
         ws.write(hrow, c, h, hdr_r if c >= 2 else hdr)
