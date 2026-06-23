@@ -35,6 +35,9 @@ SAP-sync pattern.
 | Decision | Choice |
 |----------|--------|
 | Email contents | Inline **HTML table** in the body **+ `.xlsx` attachment** |
+| HTML styling | **Match the dashboard look** via inline styles (email clients strip Tailwind/external CSS) |
+| Multiple recipients | **Yes** — comma-separated list; the email is sent to all addresses |
+| Last-snapshot visibility | The email header **prominently states when the last inventory snapshot was taken** |
 | Row scope | **All** SKUs the on-screen report shows (incl. zero-stock + unmapped) |
 | Schedule shape | **Multiple weekdays + a time** (same as the SAP sync) |
 | Settings home | A panel on the **Inventory Report page** (`/reports/inventory`) |
@@ -51,10 +54,20 @@ the page shows.
 A single focused module with three functions:
 
 - `render_inventory_email(view) -> tuple[str, str, str]`
-  Returns `(subject, html_body, text_body)`. The HTML body is a styled table:
-  columns **SKU · Product · Sellable · Sample · On Order**, a totals row, and a
-  header line ("Smashbox Weekly Inventory — <date>", with last-sync timestamp).
-  The text body is a plain fallback for `multipart/alternative`.
+  Returns `(subject, html_body, text_body)`.
+  **HTML body — dashboard-matched, inline-styled.** Email clients strip external
+  CSS and Tailwind classes, so the markup uses **inline `style=` attributes that
+  replicate the dashboard's visual language**: a white card with a rounded
+  border and subtle shadow, slate palette (`#0f172a` text, `#e2e8f0` borders,
+  `#64748b` muted labels), small **uppercase letter-spaced column headers**,
+  right-aligned **tabular numerals**, and the same money formatting as the app.
+  Columns: **SKU · Product · Sellable · Sample · On Order**, with a bold totals
+  row. A header block shows the title ("Smashbox Weekly Inventory — <date>") and,
+  **prominently, the last-snapshot line** — "Inventory as of <last_synced_at> (shop
+  local)" from `view.last_synced_at` — so recipients always know the data's age
+  (and a clear "no snapshot yet" line if it is `None`).
+  **Text body** — a plain fallback for `multipart/alternative`, also stating the
+  last-snapshot time up top.
 - `build_inventory_xlsx(view) -> bytes`
   The `.xlsx` bytes for the attachment. **Refactor:** extract the existing
   inventory Excel-builder logic out of `app/routers/exports.py` into this
@@ -149,7 +162,10 @@ APScheduler cron (shop tz · chosen weekdays · time)
 ## Testing
 
 1. `render_inventory_email` — table includes a known SKU's sellable/sample/on-
-   order cells and a totals row; subject carries the date.
+   order cells and a totals row; subject carries the date; the HTML and text
+   bodies both state the **last-snapshot time** (and a "no snapshot yet" line when
+   `last_synced_at` is `None`); body uses inline `style=` attributes (no Tailwind
+   class names).
 2. `build_inventory_xlsx` — returns non-empty bytes beginning with the XLSX/ZIP
    magic; one row per report row.
 3. `send_inventory_report` — monkeypatch the SMTP seam; assert recipients, an
