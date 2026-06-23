@@ -15,6 +15,19 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
+def _asset_version() -> str:
+    """Cache-busting token for the built CSS — the compiled tailwind.css mtime.
+    Every deploy rebuilds the file (new mtime), so the `?v=` changes and browsers
+    refetch instead of serving a copy cached from a prior deploy (which could lack
+    newly-used utility classes and render the page broken). Computed once at import;
+    restart the dev server after `npm run css` to pick up a fresh token."""
+    css = BASE_DIR / "static" / "css" / "tailwind.css"
+    try:
+        return str(int(css.stat().st_mtime))
+    except OSError:
+        return "dev"
+
+
 def money(value) -> str:
     if value is None:
         return "—"
@@ -77,6 +90,7 @@ def title_case(value) -> str:
     return str(value).title()
 
 
+templates.env.globals["static_v"] = _asset_version()
 templates.env.filters["money"] = money
 templates.env.filters["pct"] = pct
 templates.env.globals["month_label"] = month_label
