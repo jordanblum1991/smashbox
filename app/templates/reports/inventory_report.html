@@ -95,10 +95,10 @@
 
 <!-- Headline KPIs -->
 <section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
-  {{ ui.kpi("Inventory Value", view.total_inventory_value | money, "On-hand × unit COGS (sellable + sample)") }}
+  {{ ui.kpi("Inventory Value", view.total_inventory_value | money, "Sellable on-hand × unit COGS (samples excluded)") }}
   {{ ui.kpi("Total Units", view.total_units, "Sellable + sample, across all SKUs") }}
   <div class="kpi-sellable">{{ ui.kpi("Sellable On-Hand", view.total_sellable, view.total_sellable_value | money ~ " · SB warehouse") }}</div>
-  <div class="kpi-sample">{{ ui.kpi("Sample On-Hand", view.total_sample, view.total_sample_value | money ~ " · SBS warehouse") }}</div>
+  <div class="kpi-sample">{{ ui.kpi("Sample On-Hand", view.total_sample, "SBS warehouse · $0 COGS") }}</div>
   {{ ui.kpi("SKUs", view.sku_count, "Distinct SKUs in the report") }}
 </section>
 
