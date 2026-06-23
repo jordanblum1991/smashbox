@@ -74,18 +74,17 @@
 {{ fb.fiscal_banner(fiscal_banner) }}
 {% endif %}
 
-{# Report tabs — Overview (velocity) / SKUs (per-SKU performance) / Timing (soon). #}
+{# Report tabs — Overview (velocity) / SKUs (per-SKU performance) / Timing (temporal patterns). #}
 <div class="mb-5 flex items-center gap-1 border-b border-slate-200 text-sm print:hidden">
   <a href="/reports/sales?{{ period_qs }}&tab=overview"
-     class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab != 'skus' else 'border-transparent text-slate-500 hover:text-slate-800' }}">Overview</a>
+     class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'overview' else 'border-transparent text-slate-500 hover:text-slate-800' }}">Overview</a>
   <a href="/reports/sales?{{ period_qs }}&tab=skus"
      class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'skus' else 'border-transparent text-slate-500 hover:text-slate-800' }}">SKUs</a>
-  <span class="-mb-px cursor-not-allowed border-b-2 border-transparent px-3 py-2 font-medium text-slate-300" title="Coming soon">Timing
-    <span class="ml-1 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">soon</span>
-  </span>
+  <a href="/reports/sales?{{ period_qs }}&tab=timing"
+     class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'timing' else 'border-transparent text-slate-500 hover:text-slate-800' }}">Timing</a>
 </div>
 
-{% if tab != 'skus' %}
+{% if tab == 'overview' %}
 {# Summary cards #}
 <section class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
   <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -304,5 +303,80 @@
   {% endif %}
 </div>
 {% endif %}
+{% endif %}
+
+{% if tab == 'timing' %}
+{# ── Timing tab — aggregate temporal patterns ─────────────────────────── #}
+{% set ti = temporal.insights %}
+<section aria-label="Timing insights" class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">🗓️ Strongest day</div>
+    <div class="mt-1 text-sm font-semibold text-slate-900">{% if ti.strongest_dow %}{{ ti.strongest_dow.label }}{% else %}—{% endif %}</div>
+    <div class="text-[11px] text-slate-500">{% if ti.strongest_dow_pct is not none %}{{ '+' if ti.strongest_dow_pct >= 0 else '' }}{{ ti.strongest_dow_pct }}% vs daily avg{% endif %}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">⏰ Peak hour</div>
+    <div class="mt-1 text-sm font-semibold text-slate-900">{% if ti.peak_hour_range %}{{ ti.peak_hour_range }}{% else %}—{% endif %}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">📈 Trend</div>
+    <div class="mt-1 text-sm font-semibold text-slate-900">{{ ti.trend.label }}</div>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">🔥 Best day</div>
+    <div class="mt-1 text-sm font-semibold text-slate-900">{% if ti.best_day %}{{ ti.best_day.label }}{% else %}—{% endif %}</div>
+    <div class="text-[11px] text-slate-500">{% if ti.best_day %}{{ ti.best_day.revenue | money }}{% endif %}</div>
+  </div>
+</section>
+
+{# Day-of-week — avg revenue per occurrence #}
+<section class="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Day of week · avg revenue</div>
+  {% set dow_tips = namespace(t=[]) %}
+  {% for d in temporal.dow %}{% set dow_tips.t = dow_tips.t + [d.label ~ ": " ~ (d.avg_revenue | money)] %}{% endfor %}
+  <div class="mt-2">{{ ui.barchart(dow_chart, tooltips=dow_tips.t, pos_tone="accent") }}</div>
+  <div class="mt-1 grid grid-cols-7 text-center text-[11px]">
+    {% for d in temporal.dow %}
+    <div class="{{ 'font-semibold text-slate-900' if d.is_peak else 'text-slate-400' }}">{{ d.label }}</div>
+    {% endfor %}
+  </div>
+</section>
+
+{# Time of day — 24 hourly bars #}
+<section class="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="flex items-baseline justify-between">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Time of day · revenue</div>
+    {% if ti.peak_hour_range %}<div class="text-[10px] text-slate-400">peak {{ ti.peak_hour_range }}</div>{% endif %}
+  </div>
+  {% set hr_tips = namespace(t=[]) %}
+  {% for h in temporal.hours %}{% set hr_tips.t = hr_tips.t + [h.label ~ ": " ~ (h.revenue | money)] %}{% endfor %}
+  <div class="mt-2">{{ ui.barchart(hour_chart, tooltips=hr_tips.t, pos_tone="info") }}</div>
+  <div class="mt-1 flex justify-between text-[11px] text-slate-400">
+    <span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>11p</span>
+  </div>
+  <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+    {% for dp in temporal.dayparts %}
+    <span class="{{ 'font-semibold text-slate-900' if dp.is_peak else 'text-slate-500' }}">{{ dp.label }} {{ dp.revenue | money }}</span>
+    {% endfor %}
+  </div>
+</section>
+
+{# Trend / arc — daily revenue series #}
+<section class="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="flex items-baseline justify-between">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Daily revenue · {{ temporal.window_start.strftime('%b %d') }}–{{ temporal.window_end.strftime('%b %d') }}</div>
+    <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">{{ ti.trend.label }}</span>
+  </div>
+  {% set day_tips = namespace(t=[]) %}
+  {% for d in temporal.daily %}{% set day_tips.t = day_tips.t + [d.label ~ ": " ~ (d.revenue | money)] %}{% endfor %}
+  <div class="mt-2">{{ ui.barchart(daily_chart, tooltips=day_tips.t, pos_tone="pos") }}</div>
+  <div class="mt-1 text-[11px] text-slate-500">{{ ti.trend.detail }}</div>
+  {% if temporal.top_days %}
+  <div class="mt-3 text-[11px] text-slate-500">
+    <span class="font-semibold text-slate-700">Strongest days:</span>
+    {% for d in temporal.top_days %}{{ d.label }} ({{ d.revenue | money }}){% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+</section>
 {% endif %}
 {% endblock %}
