@@ -335,9 +335,9 @@
   {% set dow_tips = namespace(t=[]) %}
   {% for d in temporal.dow %}{% set dow_tips.t = dow_tips.t + [d.label ~ ": " ~ (d.avg_revenue | money)] %}{% endfor %}
   <div class="mt-2">{{ ui.barchart(dow_chart, tooltips=dow_tips.t, pos_tone="accent") }}</div>
-  <div class="mt-1 grid grid-cols-7 text-center text-[11px]">
+  <div class="mt-1 flex text-center text-[11px]">
     {% for d in temporal.dow %}
-    <div class="{{ 'font-semibold text-slate-900' if d.is_peak else 'text-slate-400' }}">{{ d.label }}</div>
+    <div class="flex-1 {{ 'font-semibold text-slate-900' if d.is_peak else 'text-slate-400' }}">{{ d.label }}</div>
     {% endfor %}
   </div>
 </section>
