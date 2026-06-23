@@ -153,3 +153,20 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
     wb.close()
     buf.seek(0)
     return buf.getvalue()
+
+
+def send_inventory_report(db: Session, *, recipients: list[str]) -> None:
+    """Compute the current inventory report, render it, attach the formatted
+    workbook, and email it to `recipients`. Raises ValueError on empty
+    recipients; propagates any send error to the caller."""
+    if not recipients:
+        raise ValueError("no recipients configured for the inventory report")
+    view = compute_inventory_report(db)
+    subject, html, text = render_inventory_email(view)
+    xlsx = build_inventory_xlsx(view)
+    stamp = view.last_synced_at.strftime("%Y%m%d") if view.last_synced_at else "current"
+    mailer.send_email(
+        subject, text, to=recipients, html=html,
+        attachments=[(f"smashbox_inventory_{stamp}.xlsx", xlsx,
+                      "vnd.openxmlformats-officedocument.spreadsheetml.sheet")],
+    )

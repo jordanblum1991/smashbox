@@ -59,3 +59,25 @@ def test_build_xlsx_readback():
     assert "SBX-OG-PRIMER" in flat
     assert any(isinstance(v, str) and "Inventory as of" in v for v in flat)  # caption
     assert any(isinstance(v, str) and v.upper() == "TOTAL" for v in flat)    # totals row
+
+
+def test_send_inventory_report_calls_mailer(monkeypatch):
+    captured = {}
+
+    def fake_send(subject, body, *, to, html=None, attachments=None):
+        captured.update(subject=subject, body=body, to=to, html=html,
+                        attachments=attachments)
+
+    monkeypatch.setattr(ire, "compute_inventory_report", lambda db: _view())
+    monkeypatch.setattr(ire.mailer, "send_email", fake_send)
+    ire.send_inventory_report(db=None, recipients=["a@x.com", "b@x.com"])
+    assert captured["to"] == ["a@x.com", "b@x.com"]
+    assert "<table" in captured["html"]
+    assert captured["attachments"][0][0].endswith(".xlsx")
+    assert captured["attachments"][0][2] == "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def test_send_inventory_report_rejects_empty_recipients():
+    import pytest
+    with pytest.raises(ValueError):
+        ire.send_inventory_report(db=None, recipients=[])
