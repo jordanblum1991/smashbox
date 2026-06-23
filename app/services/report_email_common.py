@@ -62,11 +62,13 @@ def resolve_rolling_period(key: str, *, today: date) -> RollingWindow:
         last_monday = this_monday - timedelta(days=7)
         return RollingWindow(last_monday, last_monday + timedelta(days=6), label)
     if key == "prev_fiscal_month":
+        from app.reports.fiscal_calendar import fiscal_window
         from app.reports.sales_report import current_fiscal_ym
         fy, fm = current_fiscal_ym(today)                 # current fiscal month
         pfy, pfm = (fy, fm - 1) if fm > 1 else (fy - 1, 12)
-        end = date(pfy, pfm, 28)                          # fiscal month closes on the 28th
-        start = date(pfy - 1, 12, 29) if pfm == 1 else date(pfy, pfm - 1, 29)
+        # Reuse the canonical fiscal window (29th-of-prev-month .. 28th) — it
+        # handles the non-leap fiscal-March case (no Feb 29) via date math.
+        start, end = fiscal_window(pfy, pfm)
         return RollingWindow(start, end, label, fiscal_ym=(pfy, pfm))
     # prev_month (default)
     last_prev = _first_of_month(today) - timedelta(days=1)

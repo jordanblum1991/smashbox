@@ -43,6 +43,14 @@ def test_prev_fiscal_month():
     assert (w.start, w.end) == (date(2026, 4, 29), date(2026, 5, 28))
 
 
+def test_prev_fiscal_month_non_leap_march():
+    # today in fiscal April 2027 → previous fiscal March 2027 (non-leap year):
+    # Feb has no 29th, so the window must start Mar 1 (not crash).
+    w = resolve_rolling_period("prev_fiscal_month", today=date(2027, 4, 15))
+    assert w.fiscal_ym == (2027, 3)
+    assert (w.start, w.end) == (date(2027, 3, 1), date(2027, 3, 28))
+
+
 def test_unknown_key_falls_back_to_prev_month():
     w = resolve_rolling_period("bogus", today=TODAY)
     assert (w.start, w.end) == (date(2026, 5, 1), date(2026, 5, 31))
