@@ -17,9 +17,6 @@
   <main class="mx-auto max-w-7xl px-4 sm:px-6 py-8 print:max-w-none print:px-0 print:py-0">
     {% block content %}{% endblock %}
   </main>
-  <footer class="mx-auto max-w-7xl px-4 sm:px-6 pb-10 text-xs text-slate-400 print:hidden">
-    Smashbox internal · {{ today.year if today else "" }}
-  </footer>
 
   {# Visual date picker (Litepicker, vendored, self-contained). Auto-attaches to
      any <input data-datepicker="single|range">. A range input pairs with its end
