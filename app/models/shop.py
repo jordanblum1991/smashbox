@@ -50,8 +50,32 @@ class Shop(Base):
     inventory_report_days: Mapped[str] = mapped_column(String(64), default="mon")
     inventory_report_recipients: Mapped[str] = mapped_column(String(1024), default="")
 
+    # ---- Sales-report email (managed on /reports/sales) ----------------------
+    sales_report_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    sales_report_hour: Mapped[int] = mapped_column(Integer, default=8)
+    sales_report_minute: Mapped[int] = mapped_column(Integer, default=0)
+    sales_report_days: Mapped[str] = mapped_column(String(64), default="mon")
+    sales_report_recipients: Mapped[str] = mapped_column(String(1024), default="")
+    sales_report_period: Mapped[str] = mapped_column(String(32), default="prev_month")
+
+    # ---- Sample-report email (managed on /reports/samples) -------------------
+    sample_report_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    sample_report_hour: Mapped[int] = mapped_column(Integer, default=8)
+    sample_report_minute: Mapped[int] = mapped_column(Integer, default=0)
+    sample_report_days: Mapped[str] = mapped_column(String(64), default="mon")
+    sample_report_recipients: Mapped[str] = mapped_column(String(1024), default="")
+    sample_report_period: Mapped[str] = mapped_column(String(32), default="prev_month")
+
     @property
     def report_recipients_list(self) -> list[str]:
         """Recipient emails, parsed + trimmed from the comma-separated column."""
         return [a.strip() for a in (self.inventory_report_recipients or "").split(",")
                 if a.strip()]
+
+    @property
+    def sales_report_recipients_list(self) -> list[str]:
+        return [a.strip() for a in (self.sales_report_recipients or "").split(",") if a.strip()]
+
+    @property
+    def sample_report_recipients_list(self) -> list[str]:
+        return [a.strip() for a in (self.sample_report_recipients or "").split(",") if a.strip()]
