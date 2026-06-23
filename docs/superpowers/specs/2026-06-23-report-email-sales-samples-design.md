@@ -36,6 +36,11 @@ below.
     fiscal month maps to — see resolver.)
 - **Config UI:** per-report settings card on each report page (mirrors inventory).
 - CSV (not XLSX), since these reports' existing exports are CSV.
+- **The HTML body and the CSV in a given email MUST represent the same dataset.**
+  Each email is built from **one** rows source per report; the HTML table is the
+  styled rendering of exactly those rows and the CSV is the data rendering of exactly
+  those rows. They cannot diverge because they share one source + one totals
+  computation.
 
 ## Architecture
 
@@ -93,28 +98,43 @@ must go through Alembic now, per the Postgres cutover). Defaults keep both repor
 
 ### 2. Email services
 
+**HTML/CSV must match (load-bearing):** for each report the HTML table and the CSV are
+rendered from the **same rows list** with the **same totals**. The render function and
+the CSV builder both take that one rows list — there is no second dataset, so the email's
+HTML and its attachment are identical data in two formats.
+
 **`app/services/sales_report_email.py`** (new):
+- Dataset = `view.buckets` (the velocity rows). Both the HTML table and the CSV are this
+  list; the KPI header figures (Total Revenue/Units/Orders/AOV/Avg-daily) come from the
+  same `view` totals, so the summary, table, and CSV all agree.
 - `render_sales_email(view, *, window_label) -> (subject, html, text)` — inline-styled
-  HTML: a header (title + period), the summary KPIs (Total Revenue, Units, Orders,
-  Avg AOV, Avg Daily Revenue), and the velocity bucket table (Period · Revenue · Units
-  · Orders · AOV). Plain-text parallel.
+  HTML: header (title + period), the summary KPIs, and the velocity table
+  (Period · Start · Revenue · Units · Orders · AOV · In Progress) — **the same columns
+  and rows as the CSV**. Plain-text parallel.
 - `build_sales_csv(view) -> bytes` — the **extracted** sales velocity CSV (header +
-  one row per `view.buckets`, identical columns to `/reports/sales.csv`). The existing
+  one row per `view.buckets`, the exact columns of `/reports/sales.csv`). The existing
   `sales_csv` route is refactored to call this builder (DRY; one source).
 - `send_sales_report(db, *, recipients, granularity, start_date, end_date, year,
-  month) -> None` — resolves the view via the same `_sales_view_data` scope path,
-  renders, attaches the CSV, sends via `mailer.send_email`. Raises `ValueError` on
-  empty recipients.
+  month) -> None` — resolves `view` via the same `_sales_view_data` scope path, renders
+  + attaches the CSV (both from that one `view`), sends via `mailer.send_email`. Raises
+  `ValueError` on empty recipients.
 
 **`app/services/sample_report_email.py`** (new):
-- `render_sample_email(view, by_sku_rows) -> (subject, html, text)` — inline-styled
-  HTML: header (title + `view.title_suffix`), sample KPIs/totals, and the by-SKU table.
-- `build_sample_csv(by_sku_rows) -> bytes` — the **extracted** samples-by-SKU CSV
-  (same columns as `/samples-by-sku.csv`). The existing `export_samples_by_sku_csv`
-  route is refactored to call this builder.
+- Dataset = the **samples-by-SKU rows** (`samples_by_sku_shipped(db, start, end)`).
+  This is the SAME data the CSV already contains, so the email's HTML table renders
+  these rows (NOT the page's separate `SampleView` summary, which would diverge from
+  the CSV). Totals (samples sent, units sold, etc.) are summed from these rows.
+- `render_sample_email(rows, *, title_suffix) -> (subject, html, text)` — inline-styled
+  HTML: header (title + period `title_suffix`), a totals line summed from `rows`, and
+  the by-SKU table (SKU · Product · Samples Sent · Orders Shipped · Units Sold ·
+  Sold/Sample) — **the same columns and rows as the CSV**.
+- `build_sample_csv(rows) -> bytes` — the **extracted** samples-by-SKU CSV (same
+  columns as `/samples-by-sku.csv`). The existing `export_samples_by_sku_csv` route is
+  refactored to call this builder.
 - `send_sample_report(db, *, recipients, period, year, month, start_year, start_month,
-  end_year, end_month) -> None` — computes the `SampleView` + the by-SKU rows over the
-  same window, renders, attaches CSV, sends.
+  end_year, end_month) -> None` — resolves the window (the `compute_pnl_view` +
+  `window_for` path the existing CSV uses, so the period title matches), pulls the
+  by-SKU `rows` once, renders + attaches the CSV (both from that one `rows` list), sends.
 
 Both reuse `mailer.send_email(subject, text, to=recipients, html=html,
 attachments=[(filename, csv_bytes, "csv")])`. (`mailer` already supports an arbitrary
@@ -198,6 +218,10 @@ Services (`tests/test_sales_report_email.py`, `tests/test_sample_report_email.py
 - `build_*_csv` returns bytes whose header + a known data row match the existing export
   columns (and equals what the existing route now produces, since both share the
   builder).
+- **HTML↔CSV parity:** seed data, then assert the rendered HTML body and the CSV are
+  built from the same rows — every data row (SKU code / period label) and the totals in
+  the HTML appear in the CSV and vice-versa (same count of rows, same totals). This is
+  the test that enforces "the HTML report matches the CSV in the same email."
 - `send_*_report` with a **fake mailer** (monkeypatch `mailer.send_email`) is called
   once with the right recipients, an HTML body, and exactly one `.csv` attachment;
   empty recipients → `ValueError`.
@@ -238,7 +262,8 @@ in both the model and the new revision).
    that sends the on-screen scope to the saved recipients.
 2. A recurring scheduled send per report that, when it fires, emails the configured
    **rolling window** (recomputed each time) — separate recipients per report.
-3. Each email carries the report's **HTML summary + the correct CSV** attachment; the
+3. Each email carries the report's **HTML summary + a CSV attachment built from the
+   same dataset** — the HTML table and the CSV always match (same rows + totals); the
    on-screen CSV exports are unchanged (now sharing the extracted builder).
 4. Failures (no recipients / SMTP error) surface; nothing sends until configured;
    inventory + the full suite stay green.
