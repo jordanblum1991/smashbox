@@ -39,3 +39,19 @@ class Shop(Base):
     inventory_sync_days: Mapped[str] = mapped_column(
         String(64), default="mon,tue,wed,thu,fri"
     )
+
+    # ---- Weekly inventory-report email (admin-managed on /reports/inventory) --
+    # Same scheduling shape as the SAP sync above. Recipients is a comma-
+    # separated list; the report emails to all of them. Off + no recipients by
+    # default so nothing sends until configured.
+    inventory_report_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    inventory_report_hour: Mapped[int] = mapped_column(Integer, default=8)
+    inventory_report_minute: Mapped[int] = mapped_column(Integer, default=0)
+    inventory_report_days: Mapped[str] = mapped_column(String(64), default="mon")
+    inventory_report_recipients: Mapped[str] = mapped_column(String(1024), default="")
+
+    @property
+    def report_recipients_list(self) -> list[str]:
+        """Recipient emails, parsed + trimmed from the comma-separated column."""
+        return [a.strip() for a in (self.inventory_report_recipients or "").split(",")
+                if a.strip()]

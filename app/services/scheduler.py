@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 INVENTORY_JOB_ID = "inventory_sap_sync"
 TIKTOK_JOB_ID = "tiktok_api_sync"
 HEARTBEAT_JOB_ID = "scheduler_heartbeat"
+REPORT_JOB_ID = "inventory_report_email"
 HEARTBEAT_INTERVAL_MIN = 15   # heartbeat cadence
 HEARTBEAT_STALE_S = 3600      # /status/sync goes 503 past this age
 
@@ -103,6 +104,47 @@ def _run_tiktok_sync_job() -> None:
         _run_alert_check(db)
 
 
+def _run_inventory_report_job() -> None:
+    """Scheduler entry point: email the weekly inventory report. Own DB session;
+    never propagates exceptions. On failure, log and (if the sync-alert channel
+    is configured) send a failure alert so the operator knows it didn't go out."""
+    from app.services.inventory_report_email import send_inventory_report
+
+    with SessionLocal() as db:
+        shop = _primary_shop(db)
+        if shop is None:
+            logger.warning("inventory report job fired but no primary shop found; skipping")
+            return
+        recipients = shop.report_recipients_list
+        if not recipients:
+            # Recipients were cleared after the job was registered (the apply gate
+            # only checks at registration time). Skip quietly — this is a config
+            # state, not a send failure, so do NOT trigger the failure alert.
+            logger.warning("inventory report job fired with no recipients; skipping")
+            return
+        try:
+            send_inventory_report(db, recipients=recipients)
+            logger.info("inventory report emailed to %d recipient(s)", len(recipients))
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduled inventory report email failed")
+            _alert_report_failure()
+
+
+def _alert_report_failure() -> None:
+    """Best-effort failure alert via the existing sync-alert channel."""
+    try:
+        from app.services import mailer
+        if settings.sync_alerts_enabled:
+            mailer.send_email(
+                "⚠ Smashbox inventory report failed",
+                "The scheduled weekly inventory report email failed to send. "
+                "Check the app logs for the exception detail.",
+                to=settings.sync_alert_to_list,
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("inventory report failure-alert also failed")
+
+
 def apply_tiktok_schedule(shop: Shop) -> None:
     """Register / remove the daily TikTok sync job in the shop's timezone. Safe
     to call when the scheduler isn't running (no-op)."""
@@ -136,6 +178,44 @@ def apply_tiktok_schedule(shop: Shop) -> None:
 
 def _primary_shop(db) -> Shop | None:
     return db.query(Shop).order_by(Shop.id).first()
+
+
+def apply_inventory_report_schedule(shop: Shop) -> None:
+    """Register / reschedule / remove the weekly inventory-report email job to
+    match ``shop``. Registered only when enabled AND recipients exist. Safe to
+    call when the scheduler isn't running (no-op)."""
+    if _scheduler is None:
+        return
+
+    if not (shop.inventory_report_enabled and shop.report_recipients_list):
+        if _scheduler.get_job(REPORT_JOB_ID):
+            _scheduler.remove_job(REPORT_JOB_ID)
+            logger.info("inventory report email disabled — job removed")
+        elif shop.inventory_report_enabled and not shop.report_recipients_list:
+            logger.warning("inventory report email enabled but no recipients — not scheduled")
+        return
+
+    trigger = CronTrigger(
+        day_of_week=shop.inventory_report_days,
+        hour=shop.inventory_report_hour,
+        minute=shop.inventory_report_minute,
+        timezone=shop.timezone,
+    )
+    _scheduler.add_job(
+        _run_inventory_report_job,
+        trigger=trigger,
+        id=REPORT_JOB_ID,
+        replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=3600,
+        max_instances=1,
+    )
+    logger.info(
+        "inventory report email scheduled: %s %02d:%02d %s (%d recipients)",
+        shop.inventory_report_days, shop.inventory_report_hour,
+        shop.inventory_report_minute, shop.timezone,
+        len(shop.report_recipients_list),
+    )
 
 
 def apply_inventory_schedule(shop: Shop) -> None:
@@ -198,6 +278,7 @@ def start_scheduler() -> None:
         if shop is not None:
             apply_inventory_schedule(shop)
             apply_tiktok_schedule(shop)
+            apply_inventory_report_schedule(shop)
 
 
 def shutdown_scheduler() -> None:

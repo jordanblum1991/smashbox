@@ -64,11 +64,18 @@ from app.reports.ytd_pnl import compute_ytd_pnl
 from app.reports.sales_report import (
     FISCAL_MODES, GRANULARITIES, compute_sales_report, current_fiscal_ym,
 )
+from app.auth import require_admin
+from app.config import settings
+from app.models.shop import Shop
 from app.services.data_freshness import compute_freshness
+from app.services.inventory_report_email import send_inventory_report
 from app.services.reporting_tz import today_local
+from app.services.scheduler import apply_inventory_report_schedule
 from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["reports"])
+
+_REPORT_VALID_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
 def _ym(year: int | None, month: int | None) -> tuple[int, int]:
@@ -334,14 +341,76 @@ def sample_inventory_view(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/reports/inventory")
-def inventory_report_view(request: Request, db: Session = Depends(get_db)):
-    """Complete inventory: every SKU with sellable (SB) + sample (SBS) on-hand."""
+def inventory_report_view(
+    request: Request,
+    sent: str | None = None,
+    err: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Complete inventory: every SKU with sellable (SB) + sample (SBS) on-hand,
+    plus the admin email-settings panel."""
     view = compute_inventory_report(db)
+    shop = db.query(Shop).order_by(Shop.id).first()
     return templates.TemplateResponse(
         request,
         "reports/inventory_report.html",
-        {"view": view},
+        {
+            "view": view,
+            "shop": shop,
+            "valid_days": _REPORT_VALID_DAYS,
+            "flash_sent": sent,
+            "flash_err": err,
+            "smtp_configured": bool(settings.smtp_host),
+        },
     )
+
+
+@router.post("/reports/inventory/email-settings",
+             dependencies=[Depends(require_admin)])
+def update_inventory_report_settings(
+    recipients: str = Form(""),
+    report_time: str = Form("08:00"),
+    enabled: str | None = Form(None),
+    days: list[str] = Form(default=[]),
+    db: Session = Depends(get_db),
+):
+    """Persist the weekly inventory-report email config and live-reschedule."""
+    shop = db.query(Shop).order_by(Shop.id).first()
+    if shop is None:
+        raise HTTPException(status_code=404, detail="no shop configured")
+    try:
+        hh, mm = report_time.split(":")
+        hour, minute = int(hh), int(mm)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail=f"bad time {report_time!r}")
+
+    chosen = [d for d in _REPORT_VALID_DAYS if d in set(days)]
+    clean = [a.strip() for a in recipients.split(",") if a.strip()]
+    shop.inventory_report_recipients = ",".join(clean)
+    shop.inventory_report_enabled = bool(enabled is not None and chosen and clean)
+    shop.inventory_report_hour = hour
+    shop.inventory_report_minute = minute
+    if chosen:
+        shop.inventory_report_days = ",".join(chosen)
+    db.commit()
+    apply_inventory_report_schedule(shop)
+    return RedirectResponse("/reports/inventory", status_code=303)
+
+
+@router.post("/reports/inventory/send-now",
+             dependencies=[Depends(require_admin)])
+def send_inventory_report_now(db: Session = Depends(get_db)):
+    """Email the inventory report immediately to the saved recipients."""
+    shop = db.query(Shop).order_by(Shop.id).first()
+    if shop is None or not shop.report_recipients_list:
+        return RedirectResponse("/reports/inventory?err=no-recipients", status_code=303)
+    try:
+        send_inventory_report(db, recipients=shop.report_recipients_list)
+    except Exception:  # noqa: BLE001
+        return RedirectResponse("/reports/inventory?err=send-failed", status_code=303)
+    return RedirectResponse("/reports/inventory?sent=ok", status_code=303)
 
 
 @router.get("/action-center")

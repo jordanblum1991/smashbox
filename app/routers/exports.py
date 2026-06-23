@@ -306,6 +306,20 @@ def export_inventory_csv(db: Session = Depends(get_db)):
     )
 
 
+@router.get("/inventory.xlsx")
+def export_inventory_xlsx(db: Session = Depends(get_db)):
+    """Complete inventory as a formatted .xlsx (same builder the weekly email uses)."""
+    from app.services.inventory_report_email import build_inventory_xlsx
+    view = compute_inventory_report(db)
+    data = build_inventory_xlsx(view)
+    stamp = view.last_synced_at.strftime("%Y%m%d") if view.last_synced_at else "current"
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="smashbox_inventory_{stamp}.xlsx"'},
+    )
+
+
 @router.get("/samples-by-sku.csv")
 def export_samples_by_sku_csv(
     period: PeriodKind = PeriodKind.MONTH,

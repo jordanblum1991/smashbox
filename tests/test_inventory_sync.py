@@ -109,11 +109,12 @@ def test_inventory_report_values_on_hand_at_cogs(monkeypatch):
         a = by["SBX-A"]  # SB 364, SBS 240, cogs 5
         assert a.unit_cogs == Decimal("5.00")
         assert a.sellable_value == Decimal("1820.00")  # 364 × 5
-        assert a.sample_value == Decimal("1200.00")    # 240 × 5
-        assert a.total_value == Decimal("3020.00")     # 604 × 5
+        # Sample stock carries $0 COGS, so it adds no value (units still counted).
+        assert a.sample_value == Decimal("0")
+        assert a.total_value == Decimal("1820.00")     # sellable only, samples excluded
         # Only SBX-A has COGS; SBX-B/C are unmapped → 0.
         assert v.total_sellable_value == Decimal("1820.00")
-        assert v.total_inventory_value == Decimal("3020.00")
+        assert v.total_inventory_value == Decimal("1820.00")  # samples excluded from value
 
 
 def test_inventory_report_shows_in_transit_from_placed_po(monkeypatch):

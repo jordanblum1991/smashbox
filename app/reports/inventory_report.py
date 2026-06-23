@@ -39,8 +39,8 @@ class InventoryReportRow:
     in_transit: int          # units on placed (un-received) purchase orders
     unit_cogs: Decimal       # per-unit cost (Sku.unit_cogs / Bundle.calculated_cogs)
     sellable_value: Decimal  # sellable_on_hand × unit_cogs
-    sample_value: Decimal    # sample_on_hand × unit_cogs
-    total_value: Decimal     # total_on_hand × unit_cogs
+    sample_value: Decimal    # always 0 — sample stock carries $0 COGS (expensed when given)
+    total_value: Decimal     # sellable_on_hand × unit_cogs (samples excluded from value)
 
 
 @dataclass
@@ -164,13 +164,16 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         else:
             sku_code, name, is_bundle = None, None, False
             cogs = Decimal("0")
+        # Sample stock carries $0 COGS (it was expensed when given out), so it
+        # adds physical units but NOTHING to inventory value. Value = sellable only.
+        sellable_value = cogs * sell
         row = InventoryReportRow(
             canonical_sku=key, sku_code=sku_code, name=name, is_bundle=is_bundle,
             sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=sell + samp,
             in_transit=_in_transit_for(key, sku, bundle),
             unit_cogs=cogs,
-            sellable_value=cogs * sell, sample_value=cogs * samp,
-            total_value=cogs * (sell + samp),
+            sellable_value=sellable_value, sample_value=Decimal("0"),
+            total_value=sellable_value,
         )
         (mapped if sku_code else unmapped).append(row)
 
