@@ -69,9 +69,15 @@ A single focused module with three functions:
   **Text body** — a plain fallback for `multipart/alternative`, also stating the
   last-snapshot time up top.
 - `build_inventory_xlsx(view) -> bytes`
-  The `.xlsx` bytes for the attachment. **Refactor:** extract the existing
+  The `.xlsx` bytes for the attachment — a **formatted** workbook (xlsxwriter),
+  not a raw dump: a bold, shaded, **frozen header row**; an **autofilter** over
+  the data; sensible **column widths**; integer number formats for the unit
+  columns and the app money format for value columns; and a **bold totals row**.
+  A title/caption cell states "Smashbox Inventory — as of `<last_synced_at>`" so
+  the snapshot age travels with the file. **Refactor:** extract the existing
   inventory Excel-builder logic out of `app/routers/exports.py` into this
-  function, and repoint the export route at it, so there is exactly one builder.
+  function, applying this formatting, and repoint the export route at it so there
+  is exactly one builder (the download button gets the nicer formatting too).
 - `send_inventory_report(db, *, recipients: list[str]) -> None`
   Computes the view, renders, attaches the `.xlsx`, calls `mailer.send_email`.
   Raises on failure; the caller decides what to do. Raises `ValueError` if
@@ -167,7 +173,8 @@ APScheduler cron (shop tz · chosen weekdays · time)
    `last_synced_at` is `None`); body uses inline `style=` attributes (no Tailwind
    class names).
 2. `build_inventory_xlsx` — returns non-empty bytes beginning with the XLSX/ZIP
-   magic; one row per report row.
+   magic (`PK\x03\x04`); one data row per report row; reading it back (openpyxl)
+   shows the header labels, a bold totals row, and the snapshot caption.
 3. `send_inventory_report` — monkeypatch the SMTP seam; assert recipients, an
    `.xlsx` attachment, and an HTML alternative are present; empty recipients
    raises `ValueError`.
