@@ -89,3 +89,67 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
         f"{view.total_sellable:>9}{view.total_sample:>8}{view.total_units:>7}{view.total_in_transit:>8}"
     )
     return subject, html, "\n".join(text_lines)
+
+
+def build_inventory_xlsx(view: InventoryReportView) -> bytes:
+    """A formatted inventory workbook: frozen bold header, autofilter, column
+    widths, integer/money number formats, and a bold totals row. A caption cell
+    carries the snapshot age so it travels with the file."""
+    buf = io.BytesIO()
+    wb = xlsxwriter.Workbook(buf, {"in_memory": True})
+    ws = wb.add_worksheet("Inventory")
+
+    title = wb.add_format({"bold": True, "font_size": 14})
+    caption = wb.add_format({"font_color": "#475569"})
+    hdr = wb.add_format({"bold": True, "bg_color": "#f1f5f9", "bottom": 1,
+                         "align": "left"})
+    hdr_r = wb.add_format({"bold": True, "bg_color": "#f1f5f9", "bottom": 1,
+                           "align": "right"})
+    money = wb.add_format({"num_format": "$#,##0.00"})
+    num = wb.add_format({"num_format": "#,##0"})
+    tot = wb.add_format({"bold": True, "top": 2})
+    tot_n = wb.add_format({"bold": True, "top": 2, "num_format": "#,##0"})
+    tot_m = wb.add_format({"bold": True, "top": 2, "num_format": "$#,##0.00"})
+
+    ws.write("A1", "Smashbox — Weekly Inventory", title)
+    # _snapshot_line returns "Inventory as of …" when a snapshot exists; give a
+    # parallel "Inventory as of: …" caption when none, so the file always carries
+    # the snapshot age (and a reader always sees the data's freshness).
+    ws.write("A2", _snapshot_line(view) if view.last_synced_at
+             else "Inventory as of: no snapshot yet", caption)
+
+    headers = ["SKU", "Product", "Sellable", "Sample", "On Order",
+               "Total On Hand", "Unit COGS", "Total Value"]
+    hrow = 3
+    for c, h in enumerate(headers):
+        ws.write(hrow, c, h, hdr_r if c >= 2 else hdr)
+
+    r = hrow + 1
+    for row in view.rows:
+        ws.write(r, 0, row.sku_code or "Unmapped")
+        ws.write(r, 1, row.name or "")
+        ws.write_number(r, 2, row.sellable_on_hand, num)
+        ws.write_number(r, 3, row.sample_on_hand, num)
+        ws.write_number(r, 4, row.in_transit, num)
+        ws.write_number(r, 5, row.total_on_hand, num)
+        ws.write_number(r, 6, float(row.unit_cogs), money)
+        ws.write_number(r, 7, float(row.total_value), money)
+        r += 1
+
+    ws.write(r, 0, "TOTAL", tot)
+    ws.write(r, 1, f"{view.sku_count} SKUs", tot)
+    ws.write_number(r, 2, view.total_sellable, tot_n)
+    ws.write_number(r, 3, view.total_sample, tot_n)
+    ws.write_number(r, 4, view.total_in_transit, tot_n)
+    ws.write_number(r, 5, view.total_units, tot_n)
+    ws.write_blank(r, 6, None, tot)
+    ws.write_number(r, 7, float(view.total_inventory_value), tot_m)
+
+    ws.freeze_panes(hrow + 1, 0)
+    ws.autofilter(hrow, 0, r - 1, len(headers) - 1)
+    ws.set_column(0, 0, 18)
+    ws.set_column(1, 1, 34)
+    ws.set_column(2, 7, 13)
+    wb.close()
+    buf.seek(0)
+    return buf.getvalue()

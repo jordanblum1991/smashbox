@@ -48,3 +48,14 @@ def test_html_escapes_special_chars_in_names():
     assert "Smooth &amp; Blur &lt;Primer&gt;" in html
     # text body keeps the raw ampersand (plain text, not escaped)
     assert "Smooth & Blur <Primer>" in text
+
+
+def test_build_xlsx_readback():
+    data = ire.build_inventory_xlsx(_view())
+    assert data[:4] == b"PK\x03\x04"            # xlsx is a zip
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    ws = wb.active
+    flat = [v for rowvals in ws.iter_rows(values_only=True) for v in rowvals]
+    assert "SBX-OG-PRIMER" in flat
+    assert any(isinstance(v, str) and "Inventory as of" in v for v in flat)  # caption
+    assert any(isinstance(v, str) and v.upper() == "TOTAL" for v in flat)    # totals row
