@@ -85,7 +85,7 @@ class TemporalInsights:
     strongest_dow: DowStat | None
     strongest_dow_pct: Decimal | None   # avg_revenue vs the window's daily average
     peak_hour: HourStat | None
-    peak_hour_range: str | None         # "12–1pm"
+    peak_hour_range: str | None         # "12p–1p"
     best_day: DayStat | None
     trend: TrendShape
 
@@ -151,6 +151,9 @@ def compute_temporal_patterns(db: Session, *, start: date, end: date) -> Tempora
     dow_rev: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     hour_rev: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     day_rev: dict[date, Decimal] = defaultdict(lambda: Decimal("0"))
+    # Every selected row buckets in-window by construction: placed_window is the
+    # inverse of placed_local at the boundary, so placed_local(placed).date() always
+    # lands in [start, end] — hence no need to guard the day bucket.
     for placed, rev in rows:
         rev = rev or Decimal("0")
         local = placed_local(placed)
