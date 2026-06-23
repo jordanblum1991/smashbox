@@ -7,7 +7,6 @@ and mailer.send_email for delivery.
 from __future__ import annotations
 
 import io
-from datetime import datetime
 from html import escape
 
 import xlsxwriter
