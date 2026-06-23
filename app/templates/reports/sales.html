@@ -270,6 +270,7 @@
   {% endif %}
   {% for p in page_window %}
   <a href="/reports/sales?{{ skus_qs }}&per_page={{ per_page }}&page={{ p }}"
+     {% if p == page %}aria-current="page"{% endif %}
      class="rounded-md px-3 py-1.5 font-medium {{ 'bg-slate-900 text-white' if p == page else 'text-slate-600 hover:bg-slate-100' }}">{{ p }}</a>
   {% endfor %}
   {% if page_window[-1] < total_pages %}

@@ -209,6 +209,7 @@ def _sales_view_data(db, granularity, start_date, end_date, year, month):
 
 
 PER_PAGE_OPTIONS = (10, 25, 50, 100)
+DEFAULT_PER_PAGE = 25
 
 
 @router.get("/reports/sales")
@@ -216,7 +217,7 @@ def sales_view(request: Request, granularity: str = "daily",
                start_date: str | None = None, end_date: str | None = None,
                year: int | None = None, month: int | None = None,
                tab: str = "overview", sort: str = "units", show_inactive: int = 0,
-               per_page: int = 25, page: int = 1,
+               per_page: int = DEFAULT_PER_PAGE, page: int = 1,
                db: Session = Depends(get_db)):
     """Sales report — Overview (velocity) or SKUs (per-SKU performance) tab, over
     the calendar/custom-range/fiscal period scopes. The SKU table is paginated."""
@@ -230,7 +231,7 @@ def sales_view(request: Request, granularity: str = "daily",
         sku = compute_sku_performance(db, start=v.window_start, end=v.window_end, sort=sort)
         ctx["sku"] = sku
         # Paginate the active rows (insights / % / totals stay over the full set).
-        pp = per_page if per_page in PER_PAGE_OPTIONS else 25
+        pp = per_page if per_page in PER_PAGE_OPTIONS else DEFAULT_PER_PAGE
         total = len(sku.rows)
         total_pages = max(1, -(-total // pp))         # ceil division
         pg = min(max(page, 1), total_pages)
