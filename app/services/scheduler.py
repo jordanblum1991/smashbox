@@ -113,11 +113,18 @@ def _run_inventory_report_job() -> None:
     with SessionLocal() as db:
         shop = _primary_shop(db)
         if shop is None:
+            logger.warning("inventory report job fired but no primary shop found; skipping")
+            return
+        recipients = shop.report_recipients_list
+        if not recipients:
+            # Recipients were cleared after the job was registered (the apply gate
+            # only checks at registration time). Skip quietly — this is a config
+            # state, not a send failure, so do NOT trigger the failure alert.
+            logger.warning("inventory report job fired with no recipients; skipping")
             return
         try:
-            send_inventory_report(db, recipients=shop.report_recipients_list)
-            logger.info("inventory report emailed to %d recipient(s)",
-                        len(shop.report_recipients_list))
+            send_inventory_report(db, recipients=recipients)
+            logger.info("inventory report emailed to %d recipient(s)", len(recipients))
         except Exception:  # noqa: BLE001
             logger.exception("scheduled inventory report email failed")
             _alert_report_failure()
@@ -131,7 +138,7 @@ def _alert_report_failure() -> None:
             mailer.send_email(
                 "⚠ Smashbox inventory report failed",
                 "The scheduled weekly inventory report email failed to send. "
-                "Check SMTP config and the app logs.",
+                "Check the app logs for the exception detail.",
                 to=settings.sync_alert_to_list,
             )
     except Exception:  # noqa: BLE001
@@ -184,6 +191,8 @@ def apply_inventory_report_schedule(shop: Shop) -> None:
         if _scheduler.get_job(REPORT_JOB_ID):
             _scheduler.remove_job(REPORT_JOB_ID)
             logger.info("inventory report email disabled — job removed")
+        elif shop.inventory_report_enabled and not shop.report_recipients_list:
+            logger.warning("inventory report email enabled but no recipients — not scheduled")
         return
 
     trigger = CronTrigger(
