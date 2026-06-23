@@ -113,6 +113,7 @@ def compute_sku_time_heatmap(db: Session, *, start: date, end: date,
                 level = 0
             else:
                 level = 1 + floor((u / row_peak) * (HEAT_LEVELS - 2))
+                # Guard: keeps level in [1, HEAT_LEVELS-1] if the formula/levels change.
                 level = max(1, min(level, HEAT_LEVELS - 1))
             cells.append(HeatCell(bucket=i, label=columns[i], units=u, level=level))
         peak_i = max(range(n_cols), key=lambda i: buckets[i]) if row_peak > 0 else None
