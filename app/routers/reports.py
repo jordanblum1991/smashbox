@@ -222,7 +222,7 @@ def sales_view(request: Request, granularity: str = "daily",
     """Sales report — Overview (velocity) or SKUs (per-SKU performance) tab, over
     the calendar/custom-range/fiscal period scopes. The SKU table is paginated."""
     ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
-    ctx["tab"] = "skus" if tab == "skus" else "overview"
+    ctx["tab"] = tab if tab in ("skus", "timing") else "overview"
     ctx["sort"] = sort
     ctx["show_inactive"] = bool(show_inactive)
     if ctx["tab"] == "skus":
@@ -252,6 +252,15 @@ def sales_view(request: Request, granularity: str = "daily",
             hi = min(total_pages, lo + 6)
             lo = max(1, hi - 6)
             ctx["page_window"] = list(range(lo, hi + 1))
+    elif ctx["tab"] == "timing":
+        from app.reports.temporal_patterns import compute_temporal_patterns
+        from app.reports.dashboard_trends import bar_chart
+        v = ctx["view"]
+        t = compute_temporal_patterns(db, start=v.window_start, end=v.window_end)
+        ctx["temporal"] = t
+        ctx["dow_chart"] = bar_chart([float(d.avg_revenue) for d in t.dow])
+        ctx["hour_chart"] = bar_chart([float(h.revenue) for h in t.hours])
+        ctx["daily_chart"] = bar_chart([float(d.revenue) for d in t.daily])
     return templates.TemplateResponse(request, "reports/sales.html", ctx)
 
 
