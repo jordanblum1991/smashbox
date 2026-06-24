@@ -197,3 +197,22 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
         total_net_sales=sum(cur_net.values(), Decimal("0")).quantize(_CENTS),
         window_start=start, window_end=end,
     )
+
+
+# CSV export — mirrors the on-screen SKU table (active rows, current sort).
+SKU_CSV_HEADER = [
+    "SKU", "Name", "TikTok SKU ID", "Units", "Net Sales", "Orders",
+    "% of Units", "Prior Units", "Momentum", "Status",
+]
+
+
+def sku_performance_csv_rows(view: SkuPerformanceView):
+    """Yield one CSV row per active SKU, in the view's current sort order.
+    Inactive (zero-sales) SKUs are intentionally excluded — the download
+    matches the main on-screen table."""
+    for r in view.rows:
+        yield [
+            r.code, r.name, r.sku_id, r.units, f"{r.net_sales:.2f}", r.orders,
+            f"{r.pct_units}", r.prior_units,
+            r.momentum.label if r.momentum else "—", r.status,
+        ]
