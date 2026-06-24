@@ -6,10 +6,11 @@ computation — reads the ORM, returns dataclasses (the SKUs tab of /reports/sal
 """
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import distinct, select
 from sqlalchemy.orm import Session
@@ -26,6 +27,24 @@ SORTS = ("units", "net_sales", "orders", "momentum")
 
 
 @dataclass
+class SkuStats:
+    """Granular rate / cadence / forecast metrics for one SKU over the selected
+    window. All derived from the per-day units series + window length, so the
+    totals reconcile exactly with SkuPerfRow."""
+    window_days: int
+    days_with_sales: int
+    pct_days_active: Decimal
+    avg_units_per_day: Decimal                  # calendar basis (headline)
+    avg_units_per_selling_day: Decimal | None   # None when nothing sold
+    avg_revenue_per_day: Decimal
+    avg_units_per_order: Decimal | None         # None when orders == 0
+    run_rate_30d: int                           # avg_units_per_day × 30, whole units
+    best_day_units: int
+    best_day_date: date | None
+    volatility_cov: Decimal | None              # std/mean of zero-filled daily units
+
+
+@dataclass
 class SkuPerfRow:
     sku_id: str
     code: str
@@ -38,6 +57,7 @@ class SkuPerfRow:
     momentum: Delta | None
     status: str                          # new|rising|steady|declining|stalled|inactive
     spark: str
+    stats: SkuStats | None = None
 
 
 @dataclass
@@ -101,6 +121,49 @@ def _classify(cur: int, prior: int, is_new: bool) -> str:
     return "steady"
 
 
+def _compute_stats(window_dates: list[date], daily_by_date: dict[date, int], *,
+                   units: int, net: Decimal, orders: int) -> SkuStats:
+    """Derive the granular stats from the per-day units map over `window_dates`
+    (the zero-filled calendar series). `units`/`net`/`orders` are the window
+    totals (they reconcile with the daily series)."""
+    series = [daily_by_date.get(d, 0) for d in window_dates]
+    window_days = len(series)
+    days_with_sales = sum(1 for u in series if u > 0)
+
+    def _q(v: Decimal, places="0.01") -> Decimal:
+        return v.quantize(Decimal(places))
+
+    avg_per_day = _q(Decimal(units) / Decimal(window_days)) if window_days else Decimal("0")
+    avg_per_selling = (_q(Decimal(units) / Decimal(days_with_sales))
+                       if days_with_sales else None)
+    pct_active = (_q(Decimal(days_with_sales) / Decimal(window_days) * 100, "0.1")
+                  if window_days else Decimal("0"))
+    avg_rev_per_day = _q(net / Decimal(window_days)) if window_days else Decimal("0")
+    avg_per_order = _q(Decimal(units) / Decimal(orders)) if orders else None
+    run_rate = int((avg_per_day * 30).to_integral_value(rounding=ROUND_HALF_UP))
+
+    best_units = max(series, default=0)
+    best_date = window_dates[series.index(best_units)] if best_units > 0 else None
+
+    # Volatility: coefficient of variation (population std / mean) of the
+    # zero-filled series. Undefined for a <2-day window or all-zero series.
+    cov: Decimal | None = None
+    if window_days >= 2:
+        mean = float(units) / window_days
+        if mean > 0:
+            var = sum((u - mean) ** 2 for u in series) / window_days
+            cov = _q(Decimal(str(math.sqrt(var) / mean)))
+
+    return SkuStats(
+        window_days=window_days, days_with_sales=days_with_sales,
+        pct_days_active=pct_active, avg_units_per_day=avg_per_day,
+        avg_units_per_selling_day=avg_per_selling,
+        avg_revenue_per_day=avg_rev_per_day, avg_units_per_order=avg_per_order,
+        run_rate_30d=run_rate, best_day_units=best_units,
+        best_day_date=best_date, volatility_cov=cov,
+    )
+
+
 def _sort_value(r: SkuPerfRow, sort: str):
     if sort == "net_sales":
         return r.net_sales
@@ -161,11 +224,16 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
                                   prior_has_data=prior > 0, mode="relative")
         pct = (Decimal(cur) / Decimal(total_units) * 100).quantize(Decimal("0.1")) if total_units else Decimal("0")
         spark = sparkline_points([daily[sku].get(d, 0) for d in window_days]) if cur else ""
+        net = cur_net.get(sku, Decimal("0")).quantize(_CENTS)
+        n_orders = len(cur_orders.get(sku, ()))
+        stats = _compute_stats(window_days, daily[sku],
+                               units=cur, net=net, orders=n_orders)
         return SkuPerfRow(
             sku_id=sku, code=code, name=name, units=cur,
-            net_sales=cur_net.get(sku, Decimal("0")).quantize(_CENTS),
-            orders=len(cur_orders.get(sku, ())), pct_units=pct, prior_units=prior,
+            net_sales=net,
+            orders=n_orders, pct_units=pct, prior_units=prior,
             momentum=momentum, status=_classify(cur, prior, is_new), spark=spark,
+            stats=stats,
         )
 
     active_keys = set(cur_units) | set(prior_units)
@@ -199,20 +267,35 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
     )
 
 
-# CSV export — mirrors the on-screen SKU table (active rows, current sort).
+# CSV export — mirrors the on-screen SKU table (active rows, current sort) plus
+# the granular per-SKU stats from the expand panel.
 SKU_CSV_HEADER = [
     "SKU", "Name", "TikTok SKU ID", "Units", "Net Sales", "Orders",
     "% of Units", "Prior Units", "Momentum", "Status",
+    "Avg Units/Day", "Avg Units/Day (Selling)", "Days Active", "% Days Active",
+    "Avg Revenue/Day", "Avg Units/Order", "Run-Rate (30d)",
+    "Best Day Units", "Best Day Date", "Volatility (CoV)",
 ]
 
 
 def sku_performance_csv_rows(view: SkuPerformanceView):
     """Yield one CSV row per active SKU, in the view's current sort order.
     Inactive (zero-sales) SKUs are intentionally excluded — the download
-    matches the main on-screen table."""
+    matches the main on-screen table. Undefined stats render as blank cells."""
     for r in view.rows:
+        s = r.stats
         yield [
             r.code, r.name, r.sku_id, r.units, f"{r.net_sales:.2f}", r.orders,
             f"{r.pct_units}", r.prior_units,
             r.momentum.label if r.momentum else "—", r.status,
+            s.avg_units_per_day if s else "",
+            s.avg_units_per_selling_day if (s and s.avg_units_per_selling_day is not None) else "",
+            s.days_with_sales if s else "",
+            s.pct_days_active if s else "",
+            s.avg_revenue_per_day if s else "",
+            s.avg_units_per_order if (s and s.avg_units_per_order is not None) else "",
+            s.run_rate_30d if s else "",
+            s.best_day_units if s else "",
+            s.best_day_date.isoformat() if (s and s.best_day_date) else "",
+            s.volatility_cov if (s and s.volatility_cov is not None) else "",
         ]

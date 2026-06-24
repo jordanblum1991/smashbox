@@ -67,6 +67,12 @@ def test_sales_csv_tab_skus_returns_sku_performance_table():
     assert "SBX-PRIMER" in body
     assert "Photo Finish Primer" in body
     assert "TT123" in body
+    # Granular stats columns flow into the CSV too.
+    for col in ("Avg Units/Day", "Days Active", "Avg Revenue/Day",
+                "Run-Rate (30d)", "Best Day Date", "Volatility (CoV)"):
+        assert col in body, f"missing stats column {col!r}"
+    # 4 units over the 16-day window → 0.25/day.
+    assert "0.25" in body
 
 
 def test_sales_csv_default_tab_is_still_velocity():

@@ -61,6 +61,16 @@ def test_skus_tab_renders_table_and_insights(client):
     assert "Top seller" in r.text or "Top:" in r.text   # insights strip
 
 
+def test_skus_tab_renders_stats_detail(client):
+    """Each SKU row exposes the expandable granular-stats detail panel."""
+    with SessionLocal() as db:
+        _seed(db); db.commit()
+    r = client.get("/reports/sales?tab=skus")
+    assert r.status_code == 200
+    assert "toggleSkuDetail" in r.text          # expand wiring present
+    assert "Avg units/day" in r.text            # a stat label in the panel
+
+
 def test_skus_tab_sort_and_inactive_params_accepted(client):
     with SessionLocal() as db:
         _seed(db); db.commit()

@@ -96,6 +96,47 @@ def test_momentum_and_status_rising_declining_steady():
     assert by["UP"].prior_units == 10
 
 
+def test_per_sku_stats_rates_cadence_forecast():
+    """Granular stats over the selected window: avg/day (both bases), days
+    active, revenue/day, units/order, run-rate, best day, volatility (CoV).
+    Window = May 16-31 (16 days). S1 sells 2 units on each of 4 days."""
+    with SessionLocal() as db:
+        _sku(db, "S1", "SBX-1", "Primer")
+        for day in (17, 19, 21, 23):
+            _order(db, date(2026, 5, day), "S1", 2)   # gross=qty*10=20, net=20
+        db.commit()
+        v = compute_sku_performance(db, start=SEL_START, end=SEL_END)
+
+    s = next(r for r in v.rows if r.sku_id == "S1").stats
+    assert s.window_days == 16
+    assert s.days_with_sales == 4
+    assert s.pct_days_active == Decimal("25.0")
+    assert s.avg_units_per_day == Decimal("0.50")            # 8 / 16
+    assert s.avg_units_per_selling_day == Decimal("2.00")    # 8 / 4
+    assert s.avg_revenue_per_day == Decimal("5.00")          # 80 / 16
+    assert s.avg_units_per_order == Decimal("2.00")          # 8 / 4
+    assert s.run_rate_30d == 15                               # round(0.5 * 30)
+    assert s.best_day_units == 2
+    assert s.best_day_date == date(2026, 5, 17)              # first max
+    # daily series: four 2's + twelve 0's → mean .5, std sqrt(.75)=.866, CoV 1.73
+    assert s.volatility_cov == Decimal("1.73")
+
+
+def test_per_sku_stats_edge_single_day_window():
+    """One-day window: avg/day equals the total, CoV is undefined (None)."""
+    with SessionLocal() as db:
+        _sku(db, "S1", "SBX-1", "Primer")
+        _order(db, date(2026, 5, 20), "S1", 7)
+        db.commit()
+        v = compute_sku_performance(db, start=date(2026, 5, 20), end=date(2026, 5, 20))
+
+    s = next(r for r in v.rows if r.sku_id == "S1").stats
+    assert s.window_days == 1
+    assert s.avg_units_per_day == Decimal("7.00")
+    assert s.days_with_sales == 1
+    assert s.volatility_cov is None      # window_days < 2
+
+
 def test_new_stalled_inactive_statuses():
     with SessionLocal() as db:
         _sku(db, "NEW", "SBX-N", "New")
