@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "partials/report_email_settings.html" as rep %}
 {% import "partials/ui.html" as ui %}
 {% block title %}{{ view.title }} · Smashbox{% endblock %}
 
@@ -118,6 +119,24 @@
     </noscript>
   </div>
 </form>
+
+{% if shop %}
+{# Send-now scope mirrors the /samples-by-sku.csv params (pnl PeriodKind) so the
+   emailed report ties to the on-screen CSV for the same window. #}
+{% set sample_scope_fields %}
+<input type="hidden" name="period" value="{{ kind }}">
+{% if kind == 'range' %}
+<input type="hidden" name="start_year" value="{{ sy }}">
+<input type="hidden" name="start_month" value="{{ sm }}">
+<input type="hidden" name="end_year" value="{{ ey }}">
+<input type="hidden" name="end_month" value="{{ em }}">
+{% else %}
+<input type="hidden" name="year" value="{{ sy }}">
+<input type="hidden" name="month" value="{{ sm }}">
+{% endif %}
+{% endset %}
+{{ rep.card("/reports/samples", shop.sample_report_recipients, shop.sample_report_enabled, shop.sample_report_days, shop.sample_report_hour, shop.sample_report_minute, shop.sample_report_period, sample_periods, valid_days, sample_scope_fields, smtp_configured, flash_sent, flash_err, "Sample report") }}
+{% endif %}
 
 <!-- Headline tiles — same sample KPIs as the dashboard -->
 <section class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">

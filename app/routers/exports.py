@@ -8,7 +8,7 @@ from io import BytesIO
 
 import xlsxwriter
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,7 @@ from app.reports.purchase_statement import compute_purchase_statement
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
 from app.reports.sample_tracking import samples_by_sku_shipped
 from app.services.reporting_tz import today_local
+from app.services.sample_report_email import build_sample_csv
 
 router = APIRouter(prefix="/export", tags=["exports"])
 
@@ -339,24 +340,13 @@ def export_samples_by_sku_csv(
     start, end = window_for(view)
     rows = samples_by_sku_shipped(db, start, end)
 
-    def gen():
-        yield "sku_code,name,tiktok_sku_id,samples_sent,sample_orders_shipped,units_sold,sold_per_sample\n"
-        for r in rows:
-            name = (r.name or "").replace(",", " ")
-            sku = (r.sku_code or "Unmapped").replace(",", " ")
-            yield (
-                f"{sku},{name},{r.tiktok_sku_id or ''},"
-                f"{r.samples_sent},{r.sample_orders_shipped},{r.units_sold},"
-                f"{r.sold_per_sample:.2f}\n"
-            )
-
     filename = f"smashbox_samples_{view.year}"
     if view.month:
         filename += f"-{view.month:02d}"
     filename += ".csv"
 
-    return StreamingResponse(
-        gen(),
+    return Response(
+        content=build_sample_csv(rows),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

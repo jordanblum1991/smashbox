@@ -69,12 +69,16 @@ from app.config import settings
 from app.models.shop import Shop
 from app.services.data_freshness import compute_freshness
 from app.services.inventory_report_email import send_inventory_report
-from app.services.report_email_common import ROLLING_PERIODS, SALES_PERIODS
+from app.services.report_email_common import (
+    ROLLING_PERIODS, SALES_PERIODS, SAMPLE_PERIODS,
+)
 from app.services.reporting_tz import today_local
 from app.services.sales_report_email import build_sales_csv, send_sales_report
+from app.services.sample_report_email import send_sample_report
 from app.services.scheduler import (
     apply_inventory_report_schedule,
     apply_sales_report_schedule,
+    apply_sample_report_schedule,
 )
 from app.templating import strip_size, templates, title_case
 
@@ -358,6 +362,8 @@ def samples_view(
     start_month: int | None = None,
     end_year: int | None = None,
     end_month: int | None = None,
+    sent: str | None = None,
+    err: str | None = None,
     db: Session = Depends(get_db),
 ):
     view = compute_sample_view(
@@ -397,8 +403,80 @@ def samples_view(
             "sample_orders_period": sample_orders_period,
             "sample_units_all_time": sample_units_all_time,
             "sample_sku_rows": sku_report,
+            "shop": db.query(Shop).order_by(Shop.id).first(),
+            "valid_days": _REPORT_VALID_DAYS,
+            "sample_periods": [(k, ROLLING_PERIODS[k]) for k in SAMPLE_PERIODS],
+            "smtp_configured": bool(settings.smtp_host),
+            "flash_sent": sent,
+            "flash_err": err,
         },
     )
+
+
+@router.post("/reports/samples/email-settings",
+             dependencies=[Depends(require_admin)])
+def update_sample_report_settings(
+    recipients: str = Form(""),
+    report_time: str = Form("08:00"),
+    enabled: str | None = Form(None),
+    period: str = Form("prev_month"),
+    days: list[str] = Form(default=[]),
+    db: Session = Depends(get_db),
+):
+    """Persist the Sample-report email config and live-reschedule."""
+    shop = db.query(Shop).order_by(Shop.id).first()
+    if shop is None:
+        raise HTTPException(status_code=404, detail="no shop configured")
+    try:
+        hh, mm = report_time.split(":")
+        hour, minute = int(hh), int(mm)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail=f"bad time {report_time!r}")
+
+    chosen = [d for d in _REPORT_VALID_DAYS if d in set(days)]
+    clean = [a.strip() for a in recipients.split(",") if a.strip()]
+    period = period if period in SAMPLE_PERIODS else "prev_month"
+    shop.sample_report_recipients = ",".join(clean)
+    shop.sample_report_period = period
+    shop.sample_report_hour = hour
+    shop.sample_report_minute = minute
+    shop.sample_report_enabled = bool(enabled is not None and chosen and clean)
+    if chosen:
+        shop.sample_report_days = ",".join(chosen)
+    db.commit()
+    apply_sample_report_schedule(shop)
+    return RedirectResponse("/reports/samples?sent=settings", status_code=303)
+
+
+@router.post("/reports/samples/send-now",
+             dependencies=[Depends(require_admin)])
+def send_sample_report_now(
+    period: PeriodKind = Form(PeriodKind.MONTH),
+    year: int | None = Form(None),
+    month: int | None = Form(None),
+    start_year: int | None = Form(None),
+    start_month: int | None = Form(None),
+    end_year: int | None = Form(None),
+    end_month: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Email the Sample report immediately, covering the on-screen scope.
+
+    Uses the pnl PeriodKind scope (matching the /samples-by-sku.csv download) so
+    the emailed report ties to the on-screen CSV for the same window."""
+    shop = db.query(Shop).order_by(Shop.id).first()
+    if shop is None or not shop.sample_report_recipients_list:
+        return RedirectResponse("/reports/samples?err=no-recipients", status_code=303)
+    try:
+        send_sample_report(db, recipients=shop.sample_report_recipients_list,
+                           period=period, year=year, month=month,
+                           start_year=start_year, start_month=start_month,
+                           end_year=end_year, end_month=end_month)
+    except Exception:  # noqa: BLE001
+        return RedirectResponse("/reports/samples?err=send-failed", status_code=303)
+    return RedirectResponse("/reports/samples?sent=ok", status_code=303)
 
 
 @router.get("/reports/sample-inventory")
