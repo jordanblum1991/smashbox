@@ -463,6 +463,14 @@ def compute_demand_planning_view(
         on_hand = on_hand_by_sku.get(component_sku, 0)
         receipts = int(expected_receipts.get(component_sku, 0))
 
+        # Suppress pure-noise rows: a SKU that's in the SAP feed but has no
+        # catalog row, zero on-hand, and no velocity renders as a blank line
+        # (no name, nothing to plan). Unmapped SKUs that DO carry a signal —
+        # any on-hand, in-transit, or velocity — are kept so they're visible
+        # for investigation/mapping. (Unmapped-SKU hygiene has its own report.)
+        if s is None and v is None and on_hand == 0 and receipts == 0:
+            continue
+
         lead_time = (s.lead_time_days if s and s.lead_time_days else
                      settings.demand_lead_time_default_days)
         moq = (s.moq or 0) if s else 0
