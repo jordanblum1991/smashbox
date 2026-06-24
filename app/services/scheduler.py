@@ -165,7 +165,7 @@ def _run_sales_report_job() -> None:
             logger.info("sales report emailed to %d recipient(s)", len(recipients))
         except Exception:  # noqa: BLE001
             logger.exception("scheduled sales report email failed")
-            _alert_report_failure()
+            _alert_report_failure("sales")
 
 
 def _run_sample_report_job() -> None:
@@ -200,22 +200,23 @@ def _run_sample_report_job() -> None:
             logger.info("sample report emailed to %d recipient(s)", len(recipients))
         except Exception:  # noqa: BLE001
             logger.exception("scheduled sample report email failed")
-            _alert_report_failure()
+            _alert_report_failure("sample")
 
 
-def _alert_report_failure() -> None:
-    """Best-effort failure alert via the existing sync-alert channel."""
+def _alert_report_failure(report: str = "inventory") -> None:
+    """Best-effort failure alert via the existing sync-alert channel. `report`
+    names which scheduled report email failed (inventory / sales / sample)."""
     try:
         from app.services import mailer
         if settings.sync_alerts_enabled:
             mailer.send_email(
-                "⚠ Smashbox inventory report failed",
-                "The scheduled weekly inventory report email failed to send. "
+                f"⚠ Smashbox {report} report failed",
+                f"The scheduled {report} report email failed to send. "
                 "Check the app logs for the exception detail.",
                 to=settings.sync_alert_to_list,
             )
     except Exception:  # noqa: BLE001
-        logger.exception("inventory report failure-alert also failed")
+        logger.exception("%s report failure-alert also failed", report)
 
 
 def apply_tiktok_schedule(shop: Shop) -> None:
