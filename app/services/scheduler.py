@@ -32,6 +32,8 @@ INVENTORY_JOB_ID = "inventory_sap_sync"
 TIKTOK_JOB_ID = "tiktok_api_sync"
 HEARTBEAT_JOB_ID = "scheduler_heartbeat"
 REPORT_JOB_ID = "inventory_report_email"
+SALES_REPORT_JOB_ID = "sales_report_email"
+SAMPLE_REPORT_JOB_ID = "sample_report_email"
 HEARTBEAT_INTERVAL_MIN = 15   # heartbeat cadence
 HEARTBEAT_STALE_S = 3600      # /status/sync goes 503 past this age
 
@@ -130,19 +132,91 @@ def _run_inventory_report_job() -> None:
             _alert_report_failure()
 
 
-def _alert_report_failure() -> None:
-    """Best-effort failure alert via the existing sync-alert channel."""
+def _run_sales_report_job() -> None:
+    """Scheduler entry point: email the Sales report for the configured rolling
+    window. Own DB session; never propagates exceptions. On failure, log and (if
+    the sync-alert channel is configured) fire a failure alert."""
+    from app.services.report_email_common import resolve_rolling_period
+    from app.services.reporting_tz import today_local
+    from app.services.sales_report_email import send_sales_report
+
+    with SessionLocal() as db:
+        shop = _primary_shop(db)
+        if shop is None:
+            logger.warning("sales report job fired but no primary shop found; skipping")
+            return
+        if not shop.sales_report_enabled:
+            logger.warning("sales report job fired but disabled; skipping")
+            return
+        recipients = shop.sales_report_recipients_list
+        if not recipients:
+            logger.warning("sales report job fired with no recipients; skipping")
+            return
+        try:
+            w = resolve_rolling_period(shop.sales_report_period, today=today_local())
+            if w.fiscal_ym:
+                send_sales_report(db, recipients=recipients, granularity="fiscal_month",
+                                  start_date=None, end_date=None,
+                                  year=w.fiscal_ym[0], month=w.fiscal_ym[1])
+            else:
+                send_sales_report(db, recipients=recipients, granularity="daily",
+                                  start_date=w.start.isoformat(), end_date=w.end.isoformat(),
+                                  year=None, month=None)
+            logger.info("sales report emailed to %d recipient(s)", len(recipients))
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduled sales report email failed")
+            _alert_report_failure("sales")
+
+
+def _run_sample_report_job() -> None:
+    """Scheduler entry point: email the Sample report for the configured rolling
+    window. Own DB session; never propagates exceptions. On failure, log and (if
+    the sync-alert channel is configured) fire a failure alert. Samples only
+    offers month-level windows (prev_month/mtd), so the resolved window always
+    maps to a single (year, month) via PeriodKind.MONTH."""
+    from app.reports.pnl import PeriodKind
+    from app.services.report_email_common import resolve_rolling_period
+    from app.services.reporting_tz import today_local
+    from app.services.sample_report_email import send_sample_report
+
+    with SessionLocal() as db:
+        shop = _primary_shop(db)
+        if shop is None:
+            logger.warning("sample report job fired but no primary shop found; skipping")
+            return
+        if not shop.sample_report_enabled:
+            logger.warning("sample report job fired but disabled; skipping")
+            return
+        recipients = shop.sample_report_recipients_list
+        if not recipients:
+            logger.warning("sample report job fired with no recipients; skipping")
+            return
+        try:
+            w = resolve_rolling_period(shop.sample_report_period, today=today_local())
+            send_sample_report(db, recipients=recipients, period=PeriodKind.MONTH,
+                               year=w.start.year, month=w.start.month,
+                               start_year=None, start_month=None,
+                               end_year=None, end_month=None)
+            logger.info("sample report emailed to %d recipient(s)", len(recipients))
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduled sample report email failed")
+            _alert_report_failure("sample")
+
+
+def _alert_report_failure(report: str = "inventory") -> None:
+    """Best-effort failure alert via the existing sync-alert channel. `report`
+    names which scheduled report email failed (inventory / sales / sample)."""
     try:
         from app.services import mailer
         if settings.sync_alerts_enabled:
             mailer.send_email(
-                "⚠ Smashbox inventory report failed",
-                "The scheduled weekly inventory report email failed to send. "
+                f"⚠ Smashbox {report} report failed",
+                f"The scheduled {report} report email failed to send. "
                 "Check the app logs for the exception detail.",
                 to=settings.sync_alert_to_list,
             )
     except Exception:  # noqa: BLE001
-        logger.exception("inventory report failure-alert also failed")
+        logger.exception("%s report failure-alert also failed", report)
 
 
 def apply_tiktok_schedule(shop: Shop) -> None:
@@ -218,6 +292,38 @@ def apply_inventory_report_schedule(shop: Shop) -> None:
     )
 
 
+def apply_sales_report_schedule(shop: Shop) -> None:
+    """Register / reschedule / remove the Sales-report email job to match
+    ``shop``. Thin wrapper over the generic register helper."""
+    from app.services.report_email_common import register_report_job
+    register_report_job(
+        _scheduler, SALES_REPORT_JOB_ID,
+        enabled=shop.sales_report_enabled,
+        recipients=shop.sales_report_recipients_list,
+        days=shop.sales_report_days,
+        hour=shop.sales_report_hour,
+        minute=shop.sales_report_minute,
+        timezone=shop.timezone,
+        run_fn=_run_sales_report_job,
+    )
+
+
+def apply_sample_report_schedule(shop: Shop) -> None:
+    """Register / reschedule / remove the Sample-report email job to match
+    ``shop``. Thin wrapper over the generic register helper."""
+    from app.services.report_email_common import register_report_job
+    register_report_job(
+        _scheduler, SAMPLE_REPORT_JOB_ID,
+        enabled=shop.sample_report_enabled,
+        recipients=shop.sample_report_recipients_list,
+        days=shop.sample_report_days,
+        hour=shop.sample_report_hour,
+        minute=shop.sample_report_minute,
+        timezone=shop.timezone,
+        run_fn=_run_sample_report_job,
+    )
+
+
 def apply_inventory_schedule(shop: Shop) -> None:
     """Register / reschedule / remove the inventory job to match ``shop``'s
     current schedule. Safe to call when the scheduler isn't running (no-op)."""
@@ -279,6 +385,8 @@ def start_scheduler() -> None:
             apply_inventory_schedule(shop)
             apply_tiktok_schedule(shop)
             apply_inventory_report_schedule(shop)
+            apply_sales_report_schedule(shop)
+            apply_sample_report_schedule(shop)
 
 
 def shutdown_scheduler() -> None:

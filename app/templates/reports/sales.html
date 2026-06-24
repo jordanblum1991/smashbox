@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import "partials/ui.html" as ui %}
 {% import "partials/fiscal_banner.html" as fb %}
+{% import "partials/report_email_settings.html" as rep %}
 {% block title %}Sales · Smashbox{% endblock %}
 
 {% block content %}
@@ -87,6 +88,16 @@
   <a href="/reports/sales?{{ period_qs }}&tab=heatmap"
      class="-mb-px border-b-2 px-3 py-2 font-medium {{ 'border-slate-900 text-slate-900' if tab == 'heatmap' else 'border-transparent text-slate-500 hover:text-slate-800' }}">Heatmap</a>
 </div>
+
+{% if tab == 'overview' and shop %}
+{# Hidden inputs carrying the on-screen scope into the send-now form. #}
+{% set sales_scope_fields %}
+<input type="hidden" name="granularity" value="{{ granularity }}">
+{% if start_date and end_date %}<input type="hidden" name="start_date" value="{{ start_date }}"><input type="hidden" name="end_date" value="{{ end_date }}">{% endif %}
+{% if fiscal_year %}<input type="hidden" name="year" value="{{ fiscal_year }}"><input type="hidden" name="month" value="{{ fiscal_month }}">{% endif %}
+{% endset %}
+{{ rep.card("/reports/sales", shop.sales_report_recipients, shop.sales_report_enabled, shop.sales_report_days, shop.sales_report_hour, shop.sales_report_minute, shop.sales_report_period, sales_periods, valid_days, sales_scope_fields, smtp_configured, flash_sent, flash_err, "Sales report") }}
+{% endif %}
 
 {% if tab == 'overview' %}
 {# Summary cards #}
