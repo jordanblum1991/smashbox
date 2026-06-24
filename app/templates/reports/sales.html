@@ -11,10 +11,10 @@
   subtitle="PAID orders · Seller-Center GMV",
   accent_bar=true,
 ) %}
-  <a href="/reports/sales.csv?granularity={{ granularity }}{% if start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}{% if fiscal_year %}&year={{ fiscal_year }}&month={{ fiscal_month }}{% endif %}"
+  <a href="/reports/sales.csv?granularity={{ granularity }}{% if start_date and end_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}{% if fiscal_year %}&year={{ fiscal_year }}&month={{ fiscal_month }}{% endif %}&tab={{ tab }}{% if tab == 'skus' %}&sort={{ sort }}{% endif %}"
      class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
     {{ ui.icon("download", "h-3.5 w-3.5") }}
-    Download CSV
+    Download CSV{% if tab == 'skus' %} (SKUs){% endif %}
   </a>
 {% endcall %}
 

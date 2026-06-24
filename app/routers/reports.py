@@ -769,8 +769,11 @@ def ad_spend_daily_csv(
 def sales_csv(granularity: str = "daily",
               start_date: str | None = None, end_date: str | None = None,
               year: int | None = None, month: int | None = None,
+              tab: str = "overview", sort: str = "units",
               db: Session = Depends(get_db)) -> Response:
-    """Sales velocity table as CSV (mirrors the on-screen scope)."""
+    """Sales table as CSV, mirroring the on-screen scope AND tab. The Overview
+    tab exports the velocity table; the SKUs tab exports the per-SKU
+    performance table (so the SKU report is downloadable, not just Overview)."""
     ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
     view = ctx["view"]
 
@@ -780,6 +783,18 @@ def sales_csv(granularity: str = "daily",
         suffix = f"{ctx['start_date']}_to_{ctx['end_date']}"
     else:
         suffix = view.granularity
+
+    if tab == "skus":
+        from app.reports.sku_performance import (
+            SKU_CSV_HEADER, compute_sku_performance, sku_performance_csv_rows,
+        )
+        skuview = compute_sku_performance(
+            db, start=view.window_start, end=view.window_end, sort=sort)
+        return _csv_response(
+            sku_performance_csv_rows(skuview), SKU_CSV_HEADER,
+            f"sales_skus_{suffix}.csv",
+        )
+
     return Response(
         content=build_sales_csv(view),
         media_type="text/csv",
