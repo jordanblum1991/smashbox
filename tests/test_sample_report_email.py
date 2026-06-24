@@ -77,9 +77,12 @@ def test_render_and_csv_share_rows():
     # HTML<->CSV parity: the SKU code + the per-row figures appear in BOTH.
     assert "SBX-001" in html and "SBX-001" in csv
     assert "Product One" in html and "Product One" in csv
-    # samples_sent (4) and units_sold (8) totals appear in both renderings.
-    assert ">4<" in html or ">4 " in html or "4" in html
-    assert "4" in csv and "8" in csv
+    # HTML totals row is summed from the SAME rows the CSV is built from — the
+    # load-bearing "HTML matches CSV": the summed totals render in the HTML.
+    tot_samples = sum(r.samples_sent for r in rows)
+    tot_units = sum(r.units_sold for r in rows)
+    assert (tot_samples, tot_units) == (4, 8)              # fixture sanity
+    assert f">{tot_samples}<" in html and f">{tot_units}<" in html
     # CSV header matches the on-screen export columns.
     assert csv.splitlines()[0] == ("sku_code,name,tiktok_sku_id,samples_sent,"
                                    "sample_orders_shipped,units_sold,sold_per_sample")
