@@ -13,6 +13,7 @@ Reads only — no writes. Buyer-side "expected receipts" overrides come in as
 a `{component_sku: int}` dict (URL form params from the planner page); not
 persisted in v1.
 """
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -35,7 +36,12 @@ from app.services.demand.replenishment import (
     ReplenishmentStatus,
     compute_one,
 )
-from app.services.demand.velocity import COUNTED_STATUSES, compute_velocity
+from app.services.demand.velocity import (
+    COUNTED_STATUSES,
+    WINDOW_DAYS,
+    SkuVelocity,
+    compute_velocity,
+)
 
 
 @dataclass
@@ -238,6 +244,126 @@ def _sku_by_component(db: Session, component_skus: set[str]) -> dict[str, Sku]:
     return out
 
 
+def _physical_key_resolver(db: Session, alias_map: dict[str, str]):
+    """Return `to_phys(identifier) -> physical_code`.
+
+    On-hand arrives keyed by the SBX-form SAP Itemcode; velocity arrives keyed
+    by the canonical TikTok SKU ID (and sometimes the C-form alt or SBX-form,
+    for order lines the resolver hasn't canonicalized). All of these are
+    identifiers of ONE physical product — `Sku.sku` (the SBX-form physical
+    code). This resolver folds any identifier onto that physical code so the
+    planner builds a single row per physical SKU carrying its real on-hand.
+
+    Alias renames (re-coded products / variation merges) resolve FIRST, then the
+    catalog identifier→physical map. Bundle identifiers fold to `Bundle.bundle_sku`.
+    Unknown identifiers pass through unchanged (shown as Unmapped)."""
+    ident_to_phys: dict[str, str] = {}
+    for s in db.execute(select(Sku)).scalars():
+        if not s.sku:
+            continue
+        for key in (s.tiktok_sku_id, s.tiktok_alt_sku, s.sku):
+            if key:
+                ident_to_phys[str(key)] = s.sku
+    for b in db.execute(select(Bundle)).scalars():
+        if not b.bundle_sku:
+            continue
+        for key in (b.tiktok_sku_id, b.bundle_sku):
+            if key:
+                ident_to_phys.setdefault(str(key), b.bundle_sku)
+
+    def to_phys(k: str) -> str:
+        aliased = alias_map.get(k, k)
+        if aliased in ident_to_phys:
+            return ident_to_phys[aliased]
+        if k in ident_to_phys:
+            return ident_to_phys[k]
+        return aliased
+
+    return to_phys
+
+
+def _fold_velocities_to_physical(
+    velocities: dict[str, SkuVelocity], to_phys,
+) -> dict[str, SkuVelocity]:
+    """Sum velocities whose identifiers fold to the same physical SKU. Multiple
+    TikTok variations (and stray C-form/SBX-form order lines) of one physical
+    product combine into a single signal: the daily series add element-wise so
+    every derived rate (robust, σ, 14d) recomputes correctly; `days_observed`
+    takes the longest span (the product existed since its earliest variation)."""
+    groups: dict[str, list[SkuVelocity]] = defaultdict(list)
+    for key, v in velocities.items():
+        groups[to_phys(key)].append(v)
+
+    out: dict[str, SkuVelocity] = {}
+    for phys, vs in groups.items():
+        series = [0] * WINDOW_DAYS
+        for v in vs:
+            for i, n in enumerate(v.daily_series_60d[:WINDOW_DAYS]):
+                series[i] += n
+        out[phys] = SkuVelocity(
+            component_sku=phys,
+            units_14d=sum(v.units_14d for v in vs),
+            units_60d=sum(v.units_60d for v in vs),
+            daily_series_60d=series,
+            days_observed=max(v.days_observed for v in vs),
+        )
+    return out
+
+
+def _fold_on_hand_to_physical(
+    on_hand_by_sku: dict[str, int], to_phys,
+) -> dict[str, int]:
+    """Sum on-hand across snapshot keys that fold to the same physical SKU
+    (normally 1:1 — one SAP Itemcode per physical product)."""
+    out: dict[str, int] = defaultdict(int)
+    for key, oh in on_hand_by_sku.items():
+        out[to_phys(key)] += oh
+    return dict(out)
+
+
+def _identifiers_for_physical(
+    db: Session, physical: str, alias_map: dict[str, str],
+) -> set[str]:
+    """Every order/snapshot identifier that folds to `physical` (= a Sku.sku /
+    Bundle.bundle_sku): the physical code itself, all catalog identifiers of the
+    matching catalog rows (TikTok SKU ID, C-form alt, SBX-form), and any alias
+    legs touching that set. Used by the drill-down's SQL `IN (...)` filters so a
+    physical-code drill-down still finds order lines keyed by the TikTok ID."""
+    ids: set[str] = {physical}
+    for s in db.execute(select(Sku).where(Sku.sku == physical)).scalars():
+        for k in (s.tiktok_sku_id, s.tiktok_alt_sku, s.sku):
+            if k:
+                ids.add(str(k))
+    for b in db.execute(select(Bundle).where(Bundle.bundle_sku == physical)).scalars():
+        for k in (b.tiktok_sku_id, b.bundle_sku):
+            if k:
+                ids.add(str(k))
+    # Pull in alias legs whose canonical (or alias) is already in the set, so
+    # re-coded legacy identifiers fold in too.
+    for alias, canonical in alias_map.items():
+        if canonical in ids or alias in ids:
+            ids.add(alias)
+            ids.add(canonical)
+    return ids
+
+
+def _representative_sku_by_physical(
+    db: Session, physical_keys: set[str],
+) -> dict[str, Sku]:
+    """One `Sku` per physical code (= `Sku.sku`) for procurement attrs. When a
+    physical code has several variation rows the attrs are expected identical;
+    we pick the lowest `id` deterministically. Keys that aren't a `Sku.sku`
+    (unmapped velocity codes / bundle codes) get no entry → defaults apply."""
+    if not physical_keys:
+        return {}
+    out: dict[str, Sku] = {}
+    for s in db.execute(
+        select(Sku).where(Sku.sku.in_(physical_keys)).order_by(Sku.id)
+    ).scalars():
+        out.setdefault(s.sku, s)
+    return out
+
+
 def compute_demand_planning_view(
     db: Session,
     *,
@@ -298,6 +424,16 @@ def compute_demand_planning_view(
     _synced = last_synced_at(db, InventorySnapshot)
     inventory_synced_at = utc_to_shop_local(_synced) if _synced else None
 
+    # Fold both signals onto the physical SKU code (Sku.sku / SAP Itemcode).
+    # On-hand is keyed by the SBX-form Itemcode; velocity by the TikTok SKU ID
+    # (and sometimes the C-form alt). Without this, one physical product splits
+    # into a phantom OUT_OF_STOCK velocity row (on_hand=0) plus a separate
+    # on-hand row — both rendering under the same SBX code. See
+    # _physical_key_resolver.
+    to_phys = _physical_key_resolver(db, alias_map)
+    velocities = _fold_velocities_to_physical(velocities, to_phys)
+    on_hand_by_sku = _fold_on_hand_to_physical(on_hand_by_sku, to_phys)
+
     # Union of all SKUs we have ANY signal for. Skip empties.
     all_skus = set(velocities) | set(on_hand_by_sku)
     if not all_skus:
@@ -315,7 +451,8 @@ def compute_demand_planning_view(
             investment_90d=Decimal("0"), investment_180d=Decimal("0"),
         )
 
-    sku_meta = _sku_by_component(db, all_skus)
+    # Physical keys are Sku.sku values; resolve one representative Sku each.
+    sku_meta = _representative_sku_by_physical(db, all_skus)
 
     # Build replenishment inputs + compute per SKU.
     results: list[ReplenishmentResult] = []
@@ -639,8 +776,8 @@ class SkuDetailView:
 
 
 def _weekly_velocity(
-    db: Session, component_sku: str, *, as_of: datetime, weeks: int = 12,
-    alias_map: dict[str, str] | None = None,
+    db: Session, physical: str, *, as_of: datetime, weeks: int = 12,
+    alias_map: dict[str, str] | None = None, to_phys=None,
 ) -> list[WeeklyVelocityBucket]:
     """Bundle-expanded units shipped per ISO week for the trailing `weeks` weeks.
 
@@ -685,19 +822,24 @@ def _weekly_velocity(
     # components inside a bundle). Apply alias_map to the component side too.
     bundle_map = bundle_component_breakdown(db, set(sku_week_units))
 
+    # Match in the PHYSICAL key space: order lines arrive under the TikTok ID /
+    # C-form / SBX-form, all of which fold to one physical code. `to_phys` maps
+    # any identifier to its physical code; fall back to identity for callers
+    # that don't supply it.
+    _phys = to_phys if to_phys is not None else (lambda k: alias_map.get(k, k))
     component_weekly: dict[date, int] = {}
     for order_sku, week_units in sku_week_units.items():
         components = bundle_map.get(order_sku)
         if components is None:
-            # Non-bundle: only matters if this IS the component we want.
-            if order_sku != component_sku:
+            # Non-bundle: only matters if this IS the physical SKU we want.
+            if _phys(order_sku) != physical:
                 continue
             for wk, n in week_units.items():
                 component_weekly[wk] = component_weekly.get(wk, 0) + n
         else:
             # Bundle: pick out our component, if any.
             for cs, qty_per in components:
-                if alias_map.get(cs, cs) != component_sku:
+                if _phys(cs) != physical:
                     continue
                 for wk, n in week_units.items():
                     component_weekly[wk] = component_weekly.get(wk, 0) + n * qty_per
@@ -712,29 +854,27 @@ def _weekly_velocity(
 
 
 def _demand_breakdown(
-    db: Session, component_sku: str, *, as_of: datetime,
-    alias_map: dict[str, str] | None = None,
+    db: Session, match_ids: set[str], *, as_of: datetime,
 ) -> SkuDemandBreakdown:
-    """60-day order-line mix for `component_sku`. Buckets every line by what
+    """60-day order-line mix for one physical SKU. Buckets every line by what
     the planner does with it: counted as demand, treated as a free sample,
     cancelled, pending, or other. Useful for cross-checking against TikTok
     Seller Center's raw line view.
 
-    When `alias_map` is supplied, aliases of `component_sku` are included
-    so a re-coded product's old-code lines show up in the canonical's mix."""
-    alias_map = alias_map or {}
+    `match_ids` is every order identifier that folds to the physical SKU
+    (TikTok ID / C-form / SBX-form / alias legs), so the line mix spans all of
+    the product's identifiers rather than a single code."""
     end_date = as_of.date()
     start_date = end_date - timedelta(days=60)
     start_dt = datetime(start_date.year, start_date.month, start_date.day)
     end_dt = datetime(end_date.year, end_date.month, end_date.day)
 
-    aliases_of = {component_sku} | {a for a, c in alias_map.items() if c == component_sku}
     rows = db.execute(
         select(Order.status, Order.order_type,
                func.count(OrderLine.id),
                func.coalesce(func.sum(OrderLine.quantity), 0))
         .join(Order, Order.id == OrderLine.order_id)
-        .where(OrderLine.sku.in_(aliases_of))
+        .where(OrderLine.sku.in_(match_ids))
         .where(Order.placed_at >= start_dt, Order.placed_at < end_dt)
         .group_by(Order.status, Order.order_type)
     ).all()
@@ -774,19 +914,17 @@ def _demand_breakdown(
 
 
 def _inventory_history(
-    db: Session, component_sku: str,
-    *, alias_map: dict[str, str] | None = None,
+    db: Session, match_ids: set[str],
 ) -> list[InventorySnapshotRow]:
-    """All snapshots for this SKU, newest first. Used for the drill-down's
-    "Inventory history" table — usually <= a few rows at the current cadence.
+    """All snapshots for this physical SKU, newest first. Used for the
+    drill-down's "Inventory history" table — usually <= a few rows at the
+    current cadence.
 
-    Includes aliases of the canonical SKU when `alias_map` is provided so
-    snapshots taken under the legacy code show in the canonical's history."""
-    alias_map = alias_map or {}
-    aliases_of = {component_sku} | {a for a, c in alias_map.items() if c == component_sku}
+    `match_ids` is every snapshot identifier that folds to the physical SKU,
+    so snapshots taken under a legacy/alias code show in the history too."""
     rows = db.execute(
         select(InventorySnapshot.captured_at, InventorySnapshot.on_hand)
-        .where(InventorySnapshot.sku.in_(aliases_of))
+        .where(InventorySnapshot.sku.in_(match_ids))
         .order_by(InventorySnapshot.captured_at.desc())
     ).all()
     return [InventorySnapshotRow(captured_at=ca, on_hand=int(oh or 0))
@@ -870,24 +1008,27 @@ def compute_sku_detail_view(
     overstocked = overstocked_days if overstocked_days is not None else settings.demand_overstocked_days
     now = as_of or now_local()
 
-    # Load the alias map and resolve the requested SKU to its canonical
-    # form — drilling into a legacy code should land on the canonical SKU's
-    # combined history, not a half-empty view of the pre-rename window.
+    # Resolve the requested code to its PHYSICAL SKU (Sku.sku) and fold every
+    # signal onto it — the table links drill-downs by the physical code, but
+    # velocity/order lines are keyed by the TikTok ID / C-form. Without this
+    # the drill-down would show on-hand but zero velocity (mirroring the
+    # original table bug). See _physical_key_resolver.
     from app.services.sku_alias import load_alias_map
     alias_map = load_alias_map(db)
-    component_sku = alias_map.get(component_sku, component_sku)
+    to_phys = _physical_key_resolver(db, alias_map)
+    physical = to_phys(component_sku)
+    component_sku = physical
+    match_ids = _identifiers_for_physical(db, physical, alias_map)
 
-    velocities = compute_velocity(db, as_of=now, alias_map=alias_map)
-    v = velocities.get(component_sku)
+    velocities = _fold_velocities_to_physical(
+        compute_velocity(db, as_of=now, alias_map=alias_map), to_phys)
+    v = velocities.get(physical)
 
-    # Inventory: pull every snapshot whose alias collapses to this canonical,
-    # then take the most-recent one (latest captured_at wins among aliases).
-    aliases_of_canonical = {component_sku} | {
-        a for a, c in alias_map.items() if c == component_sku
-    }
+    # Inventory: latest reading among all snapshot keys that fold to this
+    # physical SKU. has_snapshot distinguishes "0 on-hand" from "never seen".
     on_hand_rows = db.execute(
-        select(InventorySnapshot.sku, InventorySnapshot.captured_at, InventorySnapshot.on_hand)
-        .where(InventorySnapshot.sku.in_(aliases_of_canonical))
+        select(InventorySnapshot.captured_at, InventorySnapshot.on_hand)
+        .where(InventorySnapshot.sku.in_(match_ids))
         .order_by(InventorySnapshot.captured_at.desc())
         .limit(1)
     ).first()
@@ -896,7 +1037,7 @@ def compute_sku_detail_view(
     if v is None and not on_hand_rows:
         return None
 
-    sku = _sku_by_component(db, {component_sku}).get(component_sku)
+    sku = _representative_sku_by_physical(db, {physical}).get(physical)
 
     # Effective procurement attrs.
     lead_time = (sku.lead_time_days if sku and sku.lead_time_days
@@ -981,8 +1122,9 @@ def compute_sku_detail_view(
         safety_stock_pct=effective_safety,
         cover_days=cover,
         sku=sku,
-        weekly_velocity=_weekly_velocity(db, component_sku, as_of=now, alias_map=alias_map),
-        inventory_history=_inventory_history(db, component_sku, alias_map=alias_map),
+        weekly_velocity=_weekly_velocity(db, physical, as_of=now,
+                                         alias_map=alias_map, to_phys=to_phys),
+        inventory_history=_inventory_history(db, match_ids),
         bundle_parents=parents,
         bundle_components=children,
         lead_time_demand=lead_time_demand,
@@ -991,7 +1133,7 @@ def compute_sku_detail_view(
         available=available,
         default_lead_time_days=settings.demand_lead_time_default_days,
         default_safety_stock_pct=settings.demand_safety_stock_pct,
-        demand_breakdown=_demand_breakdown(db, component_sku, as_of=now, alias_map=alias_map),
+        demand_breakdown=_demand_breakdown(db, match_ids, as_of=now),
         measured_depletion=measured_depletion,
         depletion_daily_sales=depletion_daily_sales,
         depletion_gap=depletion_gap,
