@@ -303,8 +303,10 @@ def test_service_level_override_changes_safety_stock_in_view():
             view_975 = compute_demand_planning_view(
                 db, service_level_override=Decimal("0.975"))
 
-            sku_90 = next(r for r in view_90.rows if r.component_sku == "999")
-            sku_975 = next(r for r in view_975.rows if r.component_sku == "999")
+            # Rows are keyed by the physical SKU code (Sku.sku): the planner
+            # folds the TikTok-ID velocity + on-hand "999" onto "SBX-X".
+            sku_90 = next(r for r in view_90.rows if r.component_sku == "SBX-X")
+            sku_975 = next(r for r in view_975.rows if r.component_sku == "SBX-X")
 
             # The variance method must be active for this SKU.
             assert sku_90.safety_method == "variance"

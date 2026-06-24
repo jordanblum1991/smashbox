@@ -1208,14 +1208,18 @@ def demand_planning_update_procurement(
     """Update procurement attrs on the matching Sku row. Empty strings clear
     the field (falls back to global default at planner-compute time). 404 if
     the SKU isn't yet in the catalog — must be added via SKU Master first."""
-    sku = db.execute(
+    # The drill-down links by the physical code (Sku.sku), which can map to
+    # several variation rows (one per TikTok variation) sharing one physical
+    # product. Update them all so the planner's representative row — whichever
+    # variation it picks — reflects the edit and the variations stay in sync.
+    skus = db.execute(
         select(Sku).where(
             (Sku.tiktok_sku_id == component_sku)
             | (Sku.sku == component_sku)
             | (Sku.tiktok_alt_sku == component_sku)
         )
-    ).scalar_one_or_none()
-    if sku is None:
+    ).scalars().all()
+    if not skus:
         raise HTTPException(
             status_code=404,
             detail=f"SKU {component_sku} is not in the catalog. Add it via the SKU Master upload first.",
@@ -1240,17 +1244,24 @@ def demand_planning_update_procurement(
         except InvalidOperation:
             return None
 
-    sku.lead_time_days = _int_or_none(lead_time_days)
-    sku.moq = _int_or_none(moq)
-    sku.case_pack = _int_or_none(case_pack)
+    lead = _int_or_none(lead_time_days)
+    moq_v = _int_or_none(moq)
+    case_v = _int_or_none(case_pack)
     safety = _dec_or_none(safety_stock_pct)
-    sku.safety_stock_pct = safety if (safety is not None and 0 <= safety <= 100) else None
+    safety = safety if (safety is not None and 0 <= safety <= 100) else None
     cogs = _dec_or_none(unit_cogs)
-    if cogs is not None and cogs >= 0:
-        sku.unit_cogs = cogs
     # Checkbox: present="on" → True; absent → False. NULL is forbidden here
     # because the column is non-null with a True default.
-    sku.is_reorderable = (is_reorderable is not None)
+    reorderable = (is_reorderable is not None)
+
+    for sku in skus:
+        sku.lead_time_days = lead
+        sku.moq = moq_v
+        sku.case_pack = case_v
+        sku.safety_stock_pct = safety
+        if cogs is not None and cogs >= 0:
+            sku.unit_cogs = cogs
+        sku.is_reorderable = reorderable
     db.commit()
 
     return RedirectResponse(
