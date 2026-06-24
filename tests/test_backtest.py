@@ -209,7 +209,8 @@ def test_overstock_flagged_when_recommendation_dwarfs_actual():
         db.commit()
 
         sc = score_at(db, as_of=datetime(2026, 3, 1))
-        row = next(r for r in sc.per_sku if r.component_sku == "S1")
+        # Rows are keyed by the physical SKU code (Sku.sku) after the fold.
+        row = next(r for r in sc.per_sku if r.component_sku == "SBX-A")
         # Velocity was ~5/day → recommended qty should be substantial; actual
         # is only 5 units — overstock by a wide margin.
         assert row.recommended_qty >= 20
@@ -232,9 +233,34 @@ def test_no_stockout_when_on_hand_covers_lead_time_demand():
         db.commit()
 
         sc = score_at(db, as_of=datetime(2026, 3, 1))
-        row = next(r for r in sc.per_sku if r.component_sku == "S1")
+        # Rows are keyed by the physical SKU code (Sku.sku) after the fold.
+        row = next(r for r in sc.per_sku if r.component_sku == "SBX-A")
         assert row.actual_demand_lead == 14
         assert row.stockout_during_lead_time is False
+
+
+def test_score_at_consolidates_onhand_and_velocity_by_physical_sku():
+    """Realistic key-spaces: SAP on-hand keyed by the SBX-form physical code,
+    velocity + actuals keyed by the TikTok SKU ID. The backtest must fold both
+    onto the physical SKU — one scorecard row carrying the real on-hand and the
+    real velocity — not split into a phantom on_hand=0 velocity row plus a
+    no-velocity on-hand row (the live-planner bug, mirrored here)."""
+    with SessionLocal() as db:
+        b = _make_batch(db)
+        _make_sku(db, sku_code="SBX-A", tt_id="S1", name="Item A", lead_time_days=14)
+        _add_snapshot(db, b.id, "SBX-A", on_hand=50, captured_at=datetime(2026, 3, 1))
+        _add_orders_daily(db, b.id, "S1",
+                          start=datetime(2026, 1, 5), days=55, qty_per_day=2)
+        _add_orders_daily(db, b.id, "S1",
+                          start=datetime(2026, 3, 1), days=14, qty_per_day=1)
+        db.commit()
+
+        sc = score_at(db, as_of=datetime(2026, 3, 1))
+
+    rows = [r for r in sc.per_sku if r.sku_code == "SBX-A"]
+    assert len(rows) == 1, [(r.component_sku, r.on_hand_at_as_of) for r in rows]
+    assert rows[0].on_hand_at_as_of == 50            # SBX-form snapshot attaches
+    assert rows[0].actual_demand_lead == 14          # actuals fold from the tt_id
 
 
 # ---- Catalog-level roll-up -------------------------------------------------
