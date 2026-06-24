@@ -69,8 +69,13 @@ from app.config import settings
 from app.models.shop import Shop
 from app.services.data_freshness import compute_freshness
 from app.services.inventory_report_email import send_inventory_report
+from app.services.report_email_common import ROLLING_PERIODS, SALES_PERIODS
 from app.services.reporting_tz import today_local
-from app.services.scheduler import apply_inventory_report_schedule
+from app.services.sales_report_email import build_sales_csv, send_sales_report
+from app.services.scheduler import (
+    apply_inventory_report_schedule,
+    apply_sales_report_schedule,
+)
 from app.templating import strip_size, templates, title_case
 
 router = APIRouter(tags=["reports"])
@@ -225,10 +230,17 @@ def sales_view(request: Request, granularity: str = "daily",
                year: int | None = None, month: int | None = None,
                tab: str = "overview", sort: str = "units", show_inactive: int = 0,
                per_page: int = DEFAULT_PER_PAGE, page: int = 1, dim: str = "dow",
+               sent: str | None = None, err: str | None = None,
                db: Session = Depends(get_db)):
     """Sales report — Overview (velocity) or SKUs (per-SKU performance) tab, over
     the calendar/custom-range/fiscal period scopes. The SKU table is paginated."""
     ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
+    ctx["shop"] = db.query(Shop).order_by(Shop.id).first()
+    ctx["valid_days"] = _REPORT_VALID_DAYS
+    ctx["sales_periods"] = [(k, ROLLING_PERIODS[k]) for k in SALES_PERIODS]
+    ctx["smtp_configured"] = bool(settings.smtp_host)
+    ctx["flash_sent"] = sent
+    ctx["flash_err"] = err
     ctx["tab"] = tab if tab in ("skus", "timing", "heatmap") else "overview"
     ctx["sort"] = sort
     ctx["show_inactive"] = bool(show_inactive)
@@ -274,6 +286,66 @@ def sales_view(request: Request, granularity: str = "daily",
         ctx["heatmap"] = compute_sku_time_heatmap(db, start=v.window_start, end=v.window_end, dim=dim)
         ctx["dim"] = ctx["heatmap"].dim
     return templates.TemplateResponse(request, "reports/sales.html", ctx)
+
+
+@router.post("/reports/sales/email-settings",
+             dependencies=[Depends(require_admin)])
+def update_sales_report_settings(
+    recipients: str = Form(""),
+    report_time: str = Form("08:00"),
+    enabled: str | None = Form(None),
+    period: str = Form("prev_month"),
+    days: list[str] = Form(default=[]),
+    db: Session = Depends(get_db),
+):
+    """Persist the Sales-report email config and live-reschedule."""
+    shop = db.query(Shop).order_by(Shop.id).first()
+    if shop is None:
+        raise HTTPException(status_code=404, detail="no shop configured")
+    try:
+        hh, mm = report_time.split(":")
+        hour, minute = int(hh), int(mm)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail=f"bad time {report_time!r}")
+
+    chosen = [d for d in _REPORT_VALID_DAYS if d in set(days)]
+    clean = [a.strip() for a in recipients.split(",") if a.strip()]
+    period = period if period in SALES_PERIODS else "prev_month"
+    shop.sales_report_recipients = ",".join(clean)
+    shop.sales_report_period = period
+    shop.sales_report_hour = hour
+    shop.sales_report_minute = minute
+    shop.sales_report_enabled = bool(enabled is not None and chosen and clean)
+    if chosen:
+        shop.sales_report_days = ",".join(chosen)
+    db.commit()
+    apply_sales_report_schedule(shop)
+    return RedirectResponse("/reports/sales?sent=settings", status_code=303)
+
+
+@router.post("/reports/sales/send-now",
+             dependencies=[Depends(require_admin)])
+def send_sales_report_now(
+    granularity: str = Form("daily"),
+    start_date: str | None = Form(None),
+    end_date: str | None = Form(None),
+    year: int | None = Form(None),
+    month: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Email the Sales report immediately, covering the on-screen scope."""
+    shop = db.query(Shop).order_by(Shop.id).first()
+    if shop is None or not shop.sales_report_recipients_list:
+        return RedirectResponse("/reports/sales?err=no-recipients", status_code=303)
+    try:
+        send_sales_report(db, recipients=shop.sales_report_recipients_list,
+                          granularity=granularity, start_date=start_date,
+                          end_date=end_date, year=year, month=month)
+    except Exception:  # noqa: BLE001
+        return RedirectResponse("/reports/sales?err=send-failed", status_code=303)
+    return RedirectResponse("/reports/sales?sent=ok", status_code=303)
 
 
 @router.get("/reports/samples")
@@ -624,21 +696,16 @@ def sales_csv(granularity: str = "daily",
     ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
     view = ctx["view"]
 
-    def rows():
-        for b in view.buckets:
-            yield [b.label, b.start.isoformat(), f"{b.revenue:.2f}",
-                   b.units, b.orders, f"{b.aov:.2f}", "yes" if b.in_progress else ""]
-
     if granularity in FISCAL_MODES:
         suffix = f"{granularity}_{ctx['fiscal_year']}"
     elif ctx["start_date"] and ctx["end_date"] and not ctx["error"]:
         suffix = f"{ctx['start_date']}_to_{ctx['end_date']}"
     else:
         suffix = view.granularity
-    return _csv_response(
-        rows(),
-        ["Period", "Start", "Revenue", "Units", "Orders", "AOV", "In Progress"],
-        f"sales_{suffix}.csv",
+    return Response(
+        content=build_sales_csv(view),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="sales_{suffix}.csv"'},
     )
 
 
