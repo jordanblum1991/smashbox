@@ -19,6 +19,10 @@ _HEADERS = ["Period", "Start", "Revenue", "Units", "Orders", "AOV", "In Progress
 
 
 def _csv_rows(view):
+    # NOTE: the "In Progress" column is "yes"/"" in the CSV (the legacy export
+    # contract — keep it for downstream parsers); the HTML body renders the same
+    # flag as "in progress" for humans. Deliberate presentation difference, not a
+    # data divergence — both come from the same b.in_progress.
     for b in view.buckets:
         yield [b.label, b.start.isoformat(), f"{b.revenue:.2f}", b.units, b.orders,
                f"{b.aov:.2f}", "yes" if b.in_progress else ""]

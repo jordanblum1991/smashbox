@@ -81,9 +81,12 @@ def register_report_job(scheduler, job_id, *, enabled, recipients, days, hour,
     the scheduler isn't running. Registered only when enabled AND recipients exist."""
     if scheduler is None:
         return
+    import logging
+    logger = logging.getLogger("app.scheduler")
     if not (enabled and recipients):
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
+            logger.info("report email job %s removed (disabled or no recipients)", job_id)
         return
     from apscheduler.triggers.cron import CronTrigger
     scheduler.add_job(
@@ -92,3 +95,5 @@ def register_report_job(scheduler, job_id, *, enabled, recipients, days, hour,
         id=job_id, replace_existing=True, coalesce=True,
         misfire_grace_time=3600, max_instances=1,
     )
+    logger.info("report email job %s scheduled: %s %02d:%02d %s",
+                job_id, days, hour, minute, timezone)
