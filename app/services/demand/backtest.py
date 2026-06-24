@@ -38,13 +38,19 @@ from app.config import settings
 from app.models.inventory_snapshot import InventorySnapshot
 from app.models.order import Order
 from app.models.sku import Sku
-from app.reports.demand_planning import _sku_by_component
+from app.reports.demand_planning import (
+    _fold_on_hand_to_physical,
+    _fold_velocities_to_physical,
+    _physical_key_resolver,
+    _representative_sku_by_physical,
+)
 from app.services.demand.replenishment import (
     ReplenishmentInputs,
     ReplenishmentResult,
     ReplenishmentStatus,
     compute_one,
 )
+from app.services.sku_alias import load_alias_map
 from app.services.demand.velocity import (
     _daily_units_by_sku,
     _expand_daily_to_components,
@@ -230,13 +236,19 @@ def historical_recommendations(
     cover = cover_days if cover_days is not None else settings.demand_cover_days
     overstocked = overstocked_days if overstocked_days is not None else settings.demand_overstocked_days
 
-    velocities = compute_velocity(db, as_of=as_of)
-    on_hand_map = historical_on_hand(db, as_of)
+    # Fold both signals onto the physical SKU code (Sku.sku), exactly as the
+    # live planner does — on-hand is SBX-form-keyed, velocity is TikTok-ID-keyed,
+    # so an exact-key union would split one physical product into two rows.
+    alias_map = load_alias_map(db)
+    to_phys = _physical_key_resolver(db, alias_map)
+    velocities = _fold_velocities_to_physical(
+        compute_velocity(db, as_of=as_of, alias_map=alias_map), to_phys)
+    on_hand_map = _fold_on_hand_to_physical(historical_on_hand(db, as_of), to_phys)
     all_skus = set(velocities) | set(on_hand_map)
     if not all_skus:
         return {}
 
-    sku_meta = _sku_by_component(db, all_skus)
+    sku_meta = _representative_sku_by_physical(db, all_skus)
 
     out: dict[str, tuple[ReplenishmentResult, Decimal]] = {}
     for component_sku in all_skus:
@@ -290,10 +302,26 @@ def actual_demand_post_as_of(
     """Bundle-expanded daily demand for [as_of, as_of + horizon_days), per
     component SKU. Reuses the velocity service's filtering rules (PAID/
     PAID_SAMPLE + Shipped/Completed) and bundle-expansion logic so 'actual'
-    is measured on the same definition the planner forecasts against."""
+    is measured on the same definition the planner forecasts against.
+
+    Keyed in velocity space (TikTok ID / C-form); `score_at` folds it onto the
+    physical SKU to line up with the physical-keyed recommendations."""
     end = as_of + timedelta(days=horizon_days)
     raw_daily = _daily_units_by_sku(db, as_of, end)
     return _expand_daily_to_components(db, raw_daily)
+
+
+def _fold_daily_demand_to_physical(
+    daily: dict[str, dict[date, int]], to_phys,
+) -> dict[str, dict[date, int]]:
+    """Collapse velocity-space daily demand onto the physical SKU code, summing
+    per-day across every identifier (variations / C-form) that folds together."""
+    out: dict[str, dict[date, int]] = {}
+    for key, by_day in daily.items():
+        dst = out.setdefault(to_phys(key), {})
+        for d, n in by_day.items():
+            dst[d] = dst.get(d, 0) + n
+    return out
 
 
 def _data_max_placed_at(db: Session) -> datetime | None:
@@ -326,8 +354,11 @@ def score_at(
         days_available = max(0, min(60, (data_max.date() - as_of.date()).days + 1))
 
     # One query for daily demand over the full 60-day horizon — slice per
-    # SKU rather than re-query for each lead_time / 30d / 60d.
-    daily_demand = actual_demand_post_as_of(db, as_of=as_of, horizon_days=60)
+    # SKU rather than re-query for each lead_time / 30d / 60d. Fold onto the
+    # physical SKU so it lines up with the physical-keyed recommendations.
+    to_phys = _physical_key_resolver(db, load_alias_map(db))
+    daily_demand = _fold_daily_demand_to_physical(
+        actual_demand_post_as_of(db, as_of=as_of, horizon_days=60), to_phys)
 
     def _sum_demand(component_sku: str, n_days: int) -> int:
         by_day = daily_demand.get(component_sku, {})
