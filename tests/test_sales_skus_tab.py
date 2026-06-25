@@ -80,6 +80,15 @@ def test_skus_tab_has_cover_column(client):
     assert ">Cover<" in r.text
 
 
+def test_skus_tab_links_each_sku_to_drilldown(client):
+    """The SKU code links to the per-SKU sales drill-down."""
+    with SessionLocal() as db:
+        _seed(db); db.commit()
+    r = client.get("/reports/sales?tab=skus")
+    assert r.status_code == 200
+    assert "/reports/sales/sku/S1" in r.text
+
+
 def test_skus_tab_sort_and_inactive_params_accepted(client):
     with SessionLocal() as db:
         _seed(db); db.commit()

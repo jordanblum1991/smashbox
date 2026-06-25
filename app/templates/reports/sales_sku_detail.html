@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}{{ detail.code }} · Sales · Smashbox{% endblock %}
+
+{% block content %}
+{% set d = detail %}
+{% set r = d.row %}
+
+{% call ui.page_header(title=d.code, period=window_label, subtitle=d.name, accent_bar=true) %}
+  <a href="/reports/demand-planning/sku/{{ d.sku_id }}"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ ui.icon("package", "h-3.5 w-3.5") }} View in demand planner →
+  </a>
+{% endcall %}
+
+<a href="/reports/sales?{{ period_qs }}&tab=skus" class="mb-4 inline-block text-sm text-slate-500 hover:text-slate-800 print:hidden">← Back to SKUs</a>
+
+{% if r %}
+{# Headline tiles: units / net / orders / cover / refund #}
+<section class="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+  {% macro tile(label, value, sub="") %}
+  <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="text-[11px] uppercase tracking-wide text-slate-400">{{ label }}</div>
+    <div class="mt-1 text-lg font-semibold tabular-nums text-slate-900">{{ value }}</div>
+    {% if sub %}<div class="text-[11px] text-slate-500">{{ sub }}</div>{% endif %}
+  </div>
+  {% endmacro %}
+  {{ tile("Units", r.units) }}
+  {{ tile("Net sales", r.net_sales | money) }}
+  {{ tile("Orders", r.orders) }}
+  {{ tile("Days of cover", (r.days_of_cover | int ~ "d") if r.days_of_cover is not none else "—",
+          (r.on_hand ~ " on hand") if r.on_hand is not none else "no inventory data") }}
+  {{ tile("Refund rate", (r.refund_rate ~ "%") if r.refund_rate is not none else "—",
+          (r.refunded_amount | money ~ " refunded") if r.refund_rate is not none else "") }}
+</section>
+
+{# Granular stats panel #}
+{% if r.stats %}{% set s = r.stats %}
+<section class="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="mb-3 text-sm font-semibold text-slate-700">Stats · {{ window_label }}</div>
+  <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-[12px] sm:grid-cols-4">
+    {% macro stat(label, value) %}
+    <div><div class="uppercase tracking-wide text-slate-400 text-[11px]">{{ label }}</div>
+      <div class="tabular-nums font-semibold text-slate-800">{{ value }}</div></div>
+    {% endmacro %}
+    {{ stat("Avg units/day", s.avg_units_per_day) }}
+    {{ stat("Avg units/day (selling)", s.avg_units_per_selling_day if s.avg_units_per_selling_day is not none else "—") }}
+    {{ stat("Days active", s.days_with_sales ~ " (" ~ s.pct_days_active ~ "%)") }}
+    {{ stat("Avg revenue/day", s.avg_revenue_per_day | money) }}
+    {{ stat("Avg units/order", s.avg_units_per_order if s.avg_units_per_order is not none else "—") }}
+    {{ stat("Run-rate (30d)", s.run_rate_30d ~ " units") }}
+    {{ stat("Best day", (s.best_day_units ~ " on " ~ s.best_day_date) if s.best_day_date else "—") }}
+    {{ stat("Volatility (CoV)", s.volatility_cov if s.volatility_cov is not none else "—") }}
+  </div>
+</section>
+{% endif %}
+{% else %}
+<div class="mb-5 rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-400 shadow-sm">No sales for this SKU in {{ window_label }}.</div>
+{% endif %}
+
+{# 12-week trend #}
+<section class="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="mb-3 text-sm font-semibold text-slate-700">12-week trend</div>
+  {% set maxu = (d.weekly_trend | map(attribute='units') | max) or 0 %}
+  <div class="flex items-end gap-1" style="height:96px">
+    {% for w in d.weekly_trend %}
+    <div class="group flex flex-1 flex-col items-center justify-end" style="height:100%"
+         title="Week of {{ w.week_start }} · {{ w.units }} units · {{ w.revenue | money }}">
+      <div class="w-full rounded-t bg-sky-400/80 group-hover:bg-sky-500"
+           style="height:{{ ((w.units / maxu * 100) if maxu else 0) | round(1) }}%; min-height:2px"></div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="mt-1 flex justify-between text-[10px] text-slate-400">
+    <span>{{ d.weekly_trend[0].week_start }}</span>
+    <span>{{ d.weekly_trend[-1].week_start }}</span>
+  </div>
+</section>
+
+{# Bundle membership #}
+{% if d.bundle_parents or d.bundle_components %}
+<section class="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="mb-2 text-sm font-semibold text-slate-700">Bundle membership</div>
+  {% if d.bundle_parents %}
+  <div class="text-[12px] text-slate-600">Sells inside:
+    {% for p in d.bundle_parents %}<span class="mr-2 inline-block rounded bg-slate-100 px-2 py-0.5">{{ p.bundle_sku }} ({{ p.qty }}×) — {{ p.name }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  {% if d.bundle_components %}
+  <div class="mt-1 text-[12px] text-slate-600">Contains:
+    {% for c in d.bundle_components %}<span class="mr-2 inline-block rounded bg-slate-100 px-2 py-0.5">{{ c.bundle_sku }} ({{ c.qty }}×) — {{ c.name }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{# Recent orders #}
+<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">Recent orders</div>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-slate-500">
+          <th class="px-4 py-2 font-semibold">Date</th>
+          <th class="px-4 py-2 font-semibold">Order</th>
+          <th class="px-4 py-2 text-right font-semibold">Qty</th>
+          <th class="px-4 py-2 text-right font-semibold">Gross</th>
+          <th class="px-4 py-2 text-right font-semibold">Net</th>
+          <th class="px-4 py-2 text-center font-semibold">Refunded</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in d.recent_orders %}
+        <tr class="border-b border-slate-100">
+          <td class="px-4 py-2 tabular-nums text-slate-700">{{ o.placed_at.strftime("%Y-%m-%d") }}</td>
+          <td class="px-4 py-2 text-[11px] text-slate-500">{{ o.tiktok_order_id }}</td>
+          <td class="px-4 py-2 text-right tabular-nums">{{ o.qty }}</td>
+          <td class="px-4 py-2 text-right tabular-nums text-slate-700">{{ o.gross | money }}</td>
+          <td class="px-4 py-2 text-right tabular-nums text-slate-700">{{ o.net | money }}</td>
+          <td class="px-4 py-2 text-center">{% if o.refunded %}<span class="text-rose-600">✓</span>{% else %}<span class="text-slate-300">—</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="px-4 py-6 text-center text-slate-400">No orders for this SKU.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

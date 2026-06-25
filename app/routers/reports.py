@@ -292,6 +292,30 @@ def sales_view(request: Request, granularity: str = "daily",
     return templates.TemplateResponse(request, "reports/sales.html", ctx)
 
 
+@router.get("/reports/sales/sku/{sku_id}")
+def sales_sku_detail_view(sku_id: str, request: Request,
+                          granularity: str = "daily",
+                          start_date: str | None = None, end_date: str | None = None,
+                          year: int | None = None, month: int | None = None,
+                          db: Session = Depends(get_db)):
+    """Per-SKU sales drill-down over the on-screen period — performance row,
+    12-week trend, recent orders, bundle membership. Cross-links to the
+    demand-planner drill-down (the buying lens)."""
+    from app.reports.sales_sku_detail import compute_sales_sku_detail
+    ctx = _sales_view_data(db, granularity, start_date, end_date, year, month)
+    view = ctx["view"]
+    detail = compute_sales_sku_detail(db, sku_id,
+                                      start=view.window_start, end=view.window_end)
+    period_qs = "granularity=" + granularity
+    if ctx["start_date"] and ctx["end_date"]:
+        period_qs += f"&start_date={ctx['start_date']}&end_date={ctx['end_date']}"
+    if ctx["fiscal_year"]:
+        period_qs += f"&year={ctx['fiscal_year']}&month={ctx['fiscal_month']}"
+    return templates.TemplateResponse(request, "reports/sales_sku_detail.html",
+                                      {"detail": detail, "window_label": ctx["window_label"],
+                                       "period_qs": period_qs})
+
+
 @router.post("/reports/sales/email-settings",
              dependencies=[Depends(require_admin)])
 def update_sales_report_settings(
