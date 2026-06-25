@@ -71,6 +71,15 @@ def test_skus_tab_renders_stats_detail(client):
     assert "Avg units/day" in r.text            # a stat label in the panel
 
 
+def test_skus_tab_has_cover_column(client):
+    """The SKU table exposes a days-of-cover column."""
+    with SessionLocal() as db:
+        _seed(db); db.commit()
+    r = client.get("/reports/sales?tab=skus")
+    assert r.status_code == 200
+    assert ">Cover<" in r.text
+
+
 def test_skus_tab_sort_and_inactive_params_accepted(client):
     with SessionLocal() as db:
         _seed(db); db.commit()

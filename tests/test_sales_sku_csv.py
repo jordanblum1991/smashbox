@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.inventory_snapshot import InventorySnapshot
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sku import Sku
 
@@ -45,6 +46,9 @@ def _seed(db):
     db.flush()
     db.add(OrderLine(order_id=o.id, sku="TT123", quantity=4,
                      gross_sales=Decimal("100")))
+    # Sellable on-hand (SBX-form key) so days-of-cover is computable.
+    db.add(InventorySnapshot(import_batch_id=b.id, sku="SBX-PRIMER", on_hand=8,
+                             captured_at=datetime(2026, 5, 31, 0, 0)))
     db.commit()
 
 
@@ -69,10 +73,12 @@ def test_sales_csv_tab_skus_returns_sku_performance_table():
     assert "TT123" in body
     # Granular stats columns flow into the CSV too.
     for col in ("Avg Units/Day", "Days Active", "Avg Revenue/Day",
-                "Run-Rate (30d)", "Best Day Date", "Volatility (CoV)"):
+                "Run-Rate (30d)", "Best Day Date", "Volatility (CoV)",
+                "On Hand", "Days of Cover"):
         assert col in body, f"missing stats column {col!r}"
-    # 4 units over the 16-day window → 0.25/day.
+    # 4 units over the 16-day window → 0.25/day; on-hand 8 → 32.0 days cover.
     assert "0.25" in body
+    assert "32.0" in body
 
 
 def test_sales_csv_default_tab_is_still_velocity():

@@ -122,6 +122,42 @@ def test_per_sku_stats_rates_cadence_forecast():
     assert s.volatility_cov == Decimal("1.73")
 
 
+def test_days_of_cover_from_onhand_and_period_velocity():
+    """Cover = latest sellable on-hand ÷ selected-period avg units/day.
+    S1: 8 units over the 16-day window → avg 0.50/day; on-hand 20 → 40.0 days."""
+    from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+    from app.models.inventory_snapshot import InventorySnapshot
+    with SessionLocal() as db:
+        _sku(db, "S1", "SBX-1", "Primer")
+        for day in (17, 19, 21, 23):
+            _order(db, date(2026, 5, day), "S1", 2)       # 8 units, avg .5/day
+        b = ImportBatch(kind=ImportFileKind.INVENTORY_SNAPSHOT,
+                        status=ImportBatchStatus.COMPLETED,
+                        original_filename="t", stored_path="t")
+        db.add(b); db.flush()
+        # SAP on-hand is keyed by the SBX-form physical code.
+        db.add(InventorySnapshot(import_batch_id=b.id, sku="SBX-1", on_hand=20,
+                                 captured_at=datetime(2026, 5, 31, 0, 0)))
+        db.commit()
+        v = compute_sku_performance(db, start=SEL_START, end=SEL_END)
+
+    row = next(r for r in v.rows if r.sku_id == "S1")
+    assert row.on_hand == 20
+    assert row.days_of_cover == Decimal("40.0")            # 20 / 0.50
+
+
+def test_days_of_cover_none_without_snapshot():
+    """No inventory snapshot for the SKU → on-hand and cover are None."""
+    with SessionLocal() as db:
+        _sku(db, "S1", "SBX-1", "Primer")
+        _order(db, date(2026, 5, 20), "S1", 5)
+        db.commit()
+        v = compute_sku_performance(db, start=SEL_START, end=SEL_END)
+    row = next(r for r in v.rows if r.sku_id == "S1")
+    assert row.on_hand is None
+    assert row.days_of_cover is None
+
+
 def test_per_sku_stats_edge_single_day_window():
     """One-day window: avg/day equals the total, CoV is undefined (None)."""
     with SessionLocal() as db:

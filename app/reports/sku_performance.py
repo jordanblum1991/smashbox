@@ -58,6 +58,8 @@ class SkuPerfRow:
     status: str                          # new|rising|steady|declining|stalled|inactive
     spark: str
     stats: SkuStats | None = None
+    on_hand: int | None = None           # latest sellable on-hand (None = no snapshot/bundle/unmapped)
+    days_of_cover: Decimal | None = None  # on_hand ÷ period avg units/day
 
 
 @dataclass
@@ -212,6 +214,17 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
     # AND bundles, so a bundle sold through TikTok isn't mislabeled "Unmapped".
     catalog = catalog_label_map(db)
 
+    # Latest sellable on-hand keyed by physical Sku.sku (= the row's `code`), for
+    # days-of-cover. Reuses the demand-planner fold so variations collapse.
+    from app.reports.demand_planning import (
+        _fold_on_hand_to_physical, _latest_on_hand_per_sku, _physical_key_resolver,
+    )
+    from app.services.sku_alias import load_alias_map
+    _alias_map = load_alias_map(db)
+    _oh_raw, _ = _latest_on_hand_per_sku(db, alias_map=_alias_map)
+    on_hand_by_physical = _fold_on_hand_to_physical(
+        _oh_raw, _physical_key_resolver(db, _alias_map))
+
     window_days = [start + timedelta(days=i) for i in range(length)]
     total_units = sum(cur_units.values())
 
@@ -228,12 +241,17 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
         n_orders = len(cur_orders.get(sku, ()))
         stats = _compute_stats(window_days, daily[sku],
                                units=cur, net=net, orders=n_orders)
+        # Days of cover: current sellable on-hand ÷ the period's avg units/day.
+        on_hand = on_hand_by_physical.get(code)
+        cover = None
+        if on_hand is not None and stats.avg_units_per_day > 0:
+            cover = (Decimal(on_hand) / stats.avg_units_per_day).quantize(Decimal("0.1"))
         return SkuPerfRow(
             sku_id=sku, code=code, name=name, units=cur,
             net_sales=net,
             orders=n_orders, pct_units=pct, prior_units=prior,
             momentum=momentum, status=_classify(cur, prior, is_new), spark=spark,
-            stats=stats,
+            stats=stats, on_hand=on_hand, days_of_cover=cover,
         )
 
     active_keys = set(cur_units) | set(prior_units)
@@ -275,6 +293,7 @@ SKU_CSV_HEADER = [
     "Avg Units/Day", "Avg Units/Day (Selling)", "Days Active", "% Days Active",
     "Avg Revenue/Day", "Avg Units/Order", "Run-Rate (30d)",
     "Best Day Units", "Best Day Date", "Volatility (CoV)",
+    "On Hand", "Days of Cover",
 ]
 
 
@@ -298,4 +317,6 @@ def sku_performance_csv_rows(view: SkuPerformanceView):
             s.best_day_units if s else "",
             s.best_day_date.isoformat() if (s and s.best_day_date) else "",
             s.volatility_cov if (s and s.volatility_cov is not None) else "",
+            r.on_hand if r.on_hand is not None else "",
+            r.days_of_cover if r.days_of_cover is not None else "",
         ]
