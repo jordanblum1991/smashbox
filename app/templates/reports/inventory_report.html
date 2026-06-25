@@ -361,14 +361,16 @@
       var end = size === Infinity ? total : Math.min(start + size, total);
 
       // Hide everything, then reveal the page's groups (+ expanded members).
+      // Members carry the HTML `hidden` attribute, so toggle `.hidden` (not
+      // style.display, which can't override the attribute).
       groups.forEach(function (g) {
         g.p.style.display = "none";
-        g.members.forEach(function (m) { m.style.display = "none"; });
+        g.members.forEach(function (m) { m.hidden = true; });
       });
       for (var i = start; i < end; i++) {
         var g = matching[i];
         g.p.style.display = "";
-        if (g.expanded) g.members.forEach(function (m) { m.style.display = ""; });
+        if (g.expanded) g.members.forEach(function (m) { m.hidden = false; });
       }
 
       empty.classList.toggle("hidden", total !== 0);
@@ -436,7 +438,7 @@
         g.expanded = !g.expanded;
         var caret = btn.querySelector(".inv-caret");
         if (caret) caret.style.transform = g.expanded ? "rotate(90deg)" : "";
-        g.members.forEach(function (m) { m.style.display = g.expanded ? "" : "none"; });
+        g.members.forEach(function (m) { m.hidden = !g.expanded; });
       });
     });
 
@@ -471,7 +473,7 @@
       groups.forEach(function (g) {
         var show = matches(g);
         g.p.style.display = show ? "" : "none";
-        g.members.forEach(function (m) { m.style.display = show ? "" : "none"; });
+        g.members.forEach(function (m) { m.hidden = !show; });
       });
     });
     window.addEventListener("afterprint", render);
