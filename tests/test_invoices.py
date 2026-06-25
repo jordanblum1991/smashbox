@@ -31,6 +31,7 @@ from app.routers.invoices import (
     invoice_mark_paid,
     invoice_new_form,
     invoice_preview,
+    invoice_void,
     invoices_hub,
 )
 
@@ -260,6 +261,63 @@ def test_mark_paid_404_for_missing_invoice():
     assert resp.headers["location"].startswith("/admin/invoices?")
 
 
+# ---- Void (soft delete) ---------------------------------------------------
+
+def test_void_issued_invoice_sets_voided():
+    """Voiding an issued invoice → status 'voided', 303 back to detail."""
+    with SessionLocal() as db:
+        inv = _seed(db, "OL-2026-007")
+    with SessionLocal() as db:
+        resp = invoice_void(invoice_id=inv.id, request=None, db=db)
+    assert resp.status_code == 303
+    assert resp.headers["location"].startswith(f"/admin/invoices/{inv.id}")
+    with SessionLocal() as db:
+        assert db.get(Invoice, inv.id).status == "voided"
+
+
+def test_void_paid_invoice_is_rejected():
+    """A paid invoice cannot be voided — status unchanged, error surfaced."""
+    with SessionLocal() as db:
+        inv = _seed(db, "OL-2026-007", status="paid")
+    with SessionLocal() as db:
+        resp = invoice_void(invoice_id=inv.id, request=None, db=db)
+    assert resp.status_code == 303
+    assert "Cannot void a paid invoice" in unquote_plus(resp.headers["location"])
+    with SessionLocal() as db:
+        assert db.get(Invoice, inv.id).status == "paid"
+
+
+def test_void_idempotent_when_already_voided():
+    with SessionLocal() as db:
+        inv = _seed(db, "OL-2026-007", status="voided")
+    with SessionLocal() as db:
+        resp = invoice_void(invoice_id=inv.id, request=None, db=db)
+    assert resp.status_code == 303
+    assert "already voided" in unquote_plus(resp.headers["location"])
+    with SessionLocal() as db:
+        assert db.get(Invoice, inv.id).status == "voided"
+
+
+def test_void_404_for_missing_invoice():
+    with SessionLocal() as db:
+        resp = invoice_void(invoice_id=99999, request=None, db=db)
+    assert resp.status_code == 303
+    assert "Invoice not found" in unquote_plus(resp.headers["location"])
+    assert resp.headers["location"].startswith("/admin/invoices?")
+
+
+def test_mark_paid_rejected_for_voided_invoice():
+    """A voided invoice can't be marked paid — stays voided, error surfaced."""
+    with SessionLocal() as db:
+        inv = _seed(db, "OL-2026-007", status="voided")
+    with SessionLocal() as db:
+        resp = invoice_mark_paid(invoice_id=inv.id, request=None, db=db)
+    assert resp.status_code == 303
+    assert "voided" in unquote_plus(resp.headers["location"]).lower()
+    with SessionLocal() as db:
+        assert db.get(Invoice, inv.id).status == "voided"
+
+
 # ---------------------------------------------------------------------------
 # 6. List + detail + preview views render
 # ---------------------------------------------------------------------------
@@ -312,6 +370,27 @@ def test_detail_view_renders(client: TestClient):
     assert "$8,710.33" in r.text
     # The iframe src points at /preview.
     assert f"/admin/invoices/{inv.id}/preview" in r.text
+
+
+def test_hub_shows_voided_badge_and_filter_option(client: TestClient):
+    with SessionLocal() as db:
+        _seed(db, "OL-2026-009", status="voided")
+    r = client.get("/admin/invoices")
+    assert r.status_code == 200
+    assert "Voided" in r.text                       # status badge
+    assert 'value="voided"' in r.text               # status filter option
+
+
+def test_detail_shows_void_button_only_for_issued(client: TestClient):
+    with SessionLocal() as db:
+        issued_id = _seed(db, "OL-2026-010").id               # issued
+        paid_id = _seed(db, "OL-2026-011", status="paid").id
+    # Issued → Void action present.
+    r = client.get(f"/admin/invoices/{issued_id}")
+    assert f"/admin/invoices/{issued_id}/void" in r.text
+    # Paid → no Void action.
+    r2 = client.get(f"/admin/invoices/{paid_id}")
+    assert f"/admin/invoices/{paid_id}/void" not in r2.text
 
 
 def test_preview_renders_bare_invoice(client: TestClient):

@@ -9,19 +9,28 @@
   period=invoice.issue_date.strftime("%B %d, %Y"),
   accent_bar=true,
 ) %}
+  {% if invoice.status != "voided" %}
   <a href="/admin/invoices/{{ invoice.id }}/edit"
      class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
     Edit
   </a>
+  {% endif %}
   <a href="/admin/invoices/{{ invoice.id }}/pdf"
      class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
     Download PDF
   </a>
-  {% if invoice.status != "paid" %}
+  {% if invoice.status == "issued" %}
   <form action="/admin/invoices/{{ invoice.id }}/mark-paid" method="post" class="inline">
     <button type="submit"
             class="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700">
       Mark Paid
+    </button>
+  </form>
+  <form action="/admin/invoices/{{ invoice.id }}/void" method="post" class="inline"
+        onsubmit="return confirm('Void invoice {{ invoice.number }}? It will be kept for audit but marked canceled and can no longer be paid.');">
+    <button type="submit"
+            class="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50">
+      Void
     </button>
   </form>
   {% endif %}
@@ -36,6 +45,11 @@
   {{ notice }}
 </div>
 {% endif %}
+{% if error %}
+<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+  <strong class="font-semibold">Error:</strong> {{ error }}
+</div>
+{% endif %}
 
 {# Status + quick facts summary card #}
 <section class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -44,6 +58,8 @@
     <div class="mt-1">
       {% if invoice.status == "paid" %}
       <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200">Paid</span>
+      {% elif invoice.status == "voided" %}
+      <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-sm font-semibold text-slate-500 ring-1 ring-slate-300 line-through">Voided</span>
       {% else %}
       <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-sm font-semibold text-amber-700 ring-1 ring-amber-200">Issued</span>
       {% endif %}
