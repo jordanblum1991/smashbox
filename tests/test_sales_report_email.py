@@ -72,6 +72,33 @@ def test_send_sales_report_uses_mailer(monkeypatch):
     assert calls["attachments"][0][2] == "csv"
 
 
+def test_email_renders_needs_attention_when_anomalies_exist():
+    from app.reports.dashboard_trends import Delta
+    from app.reports.sku_performance import SkuPerfRow, build_attention_digest
+    with SessionLocal() as db:
+        _order(db, date(2026, 5, 10), 100, 3); db.commit()
+        view = _view(db)
+    stalled = SkuPerfRow(sku_id="X", code="SBX-STALL", name="Stalled Item",
+                         units=0, net_sales=Decimal("0"), orders=0,
+                         pct_units=Decimal("0"), prior_units=20, momentum=None,
+                         status="stalled", spark="")
+    digest = build_attention_digest([stalled])
+    _, html, text = sre.render_sales_email(view, window_label="May 2026", digest=digest)
+    assert "Needs attention" in html
+    assert "SBX-STALL" in html
+    assert "Needs attention" in text
+
+
+def test_email_omits_attention_when_none():
+    with SessionLocal() as db:
+        _order(db, date(2026, 5, 10), 100, 3); db.commit()
+        view = _view(db)
+    from app.reports.sku_performance import build_attention_digest
+    _, html, _ = sre.render_sales_email(view, window_label="May 2026",
+                                        digest=build_attention_digest([]))
+    assert "Needs attention" not in html
+
+
 def test_send_requires_recipients():
     with SessionLocal() as db, pytest.raises(ValueError):
         sre.send_sales_report(db, recipients=[], granularity="daily",

@@ -60,6 +60,8 @@ class SkuPerfRow:
     stats: SkuStats | None = None
     on_hand: int | None = None           # latest sellable on-hand (None = no snapshot/bundle/unmapped)
     days_of_cover: Decimal | None = None  # on_hand ÷ period avg units/day
+    refunded_amount: Decimal = Decimal("0")   # order refunds attributed by gross share
+    refund_rate: Decimal | None = None        # refunded_amount ÷ gross × 100 (None when gross 0)
 
 
 @dataclass
@@ -98,7 +100,10 @@ def _paid_lines(db: Session, start: date, end: date):
     src_start, src_end = _src_bounds(start, end)
     return db.execute(
         select(OrderLine.order_id, OrderLine.sku, OrderLine.quantity,
-               _NET.label("net"), Order.placed_at)
+               _NET.label("net"), Order.placed_at,
+               OrderLine.gross_sales.label("line_gross"),
+               Order.gross_sales.label("order_gross"),
+               Order.refunds.label("order_refunds"))
         .join(Order, Order.id == OrderLine.order_id)
         .where(Order.order_type == OrderType.PAID)
         .where(Order.placed_at >= src_start)
@@ -190,15 +195,23 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
     cur_units: dict[str, int] = defaultdict(int)
     cur_net: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     cur_orders: dict[str, set] = defaultdict(set)
+    cur_gross: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    cur_refund: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     daily: dict[str, dict[date, int]] = defaultdict(lambda: defaultdict(int))
-    for oid, sku, qty, net, placed in _paid_lines(db, start, end):
+    for oid, sku, qty, net, placed, line_gross, order_gross, order_refunds in \
+            _paid_lines(db, start, end):
         cur_units[sku] += qty
         cur_net[sku] += net or Decimal("0")
         cur_orders[sku].add(oid)
         daily[sku][placed_local_date(placed)] += qty
+        lg = line_gross or Decimal("0")
+        cur_gross[sku] += lg
+        # Attribute the order's refund $ to this line by gross share.
+        if order_refunds and order_gross and order_gross > 0:
+            cur_refund[sku] += Decimal(order_refunds) * lg / Decimal(order_gross)
 
     prior_units: dict[str, int] = defaultdict(int)
-    for _oid, sku, qty, _net, _placed in _paid_lines(db, prior_start, prior_end):
+    for _oid, sku, qty, *_ in _paid_lines(db, prior_start, prior_end):
         prior_units[sku] += qty
 
     # SKUs that sold before the selected window start (for "new").
@@ -246,12 +259,18 @@ def compute_sku_performance(db: Session, *, start: date, end: date,
         cover = None
         if on_hand is not None and stats.avg_units_per_day > 0:
             cover = (Decimal(on_hand) / stats.avg_units_per_day).quantize(Decimal("0.1"))
+        # Refund rate: order refunds attributed to this SKU by gross share.
+        gross = cur_gross.get(sku, Decimal("0")).quantize(_CENTS)
+        refunded = cur_refund.get(sku, Decimal("0")).quantize(_CENTS)
+        refund_rate = ((refunded / gross * 100).quantize(Decimal("0.1"))
+                       if gross > 0 else None)
         return SkuPerfRow(
             sku_id=sku, code=code, name=name, units=cur,
             net_sales=net,
             orders=n_orders, pct_units=pct, prior_units=prior,
             momentum=momentum, status=_classify(cur, prior, is_new), spark=spark,
             stats=stats, on_hand=on_hand, days_of_cover=cover,
+            refunded_amount=refunded, refund_rate=refund_rate,
         )
 
     active_keys = set(cur_units) | set(prior_units)
@@ -293,7 +312,7 @@ SKU_CSV_HEADER = [
     "Avg Units/Day", "Avg Units/Day (Selling)", "Days Active", "% Days Active",
     "Avg Revenue/Day", "Avg Units/Order", "Run-Rate (30d)",
     "Best Day Units", "Best Day Date", "Volatility (CoV)",
-    "On Hand", "Days of Cover",
+    "On Hand", "Days of Cover", "Refunded $", "Refund %",
 ]
 
 
@@ -319,4 +338,40 @@ def sku_performance_csv_rows(view: SkuPerformanceView):
             s.volatility_cov if (s and s.volatility_cov is not None) else "",
             r.on_hand if r.on_hand is not None else "",
             r.days_of_cover if r.days_of_cover is not None else "",
+            f"{r.refunded_amount:.2f}",
+            r.refund_rate if r.refund_rate is not None else "",
         ]
+
+
+# "Needs attention" digest — flag SKUs worth acting on for the scheduled email.
+@dataclass
+class AttentionDigest:
+    decelerating: list[SkuPerfRow]   # momentum down past the band (status=declining)
+    spiking: list[SkuPerfRow]        # momentum up sharply (> spike_pct)
+    stalled: list[SkuPerfRow]        # sold before, 0 this period
+    low_cover: list[SkuPerfRow]      # days-of-cover below the reorder threshold
+    counts: dict[str, int]           # full per-category counts (before cap), for "+N more"
+
+    @property
+    def any(self) -> bool:
+        return any((self.decelerating, self.spiking, self.stalled, self.low_cover))
+
+
+def build_attention_digest(rows: list[SkuPerfRow], *, low_cover_days: int = 14,
+                           spike_pct: int = 50, cap: int = 5) -> AttentionDigest:
+    """Bucket SKUs into the four attention categories, each sorted most-urgent
+    first and capped at `cap` (full counts retained for a '+N more' note)."""
+    decel = sorted((r for r in rows if r.status == "declining"),
+                   key=lambda r: r.units, reverse=True)
+    spike = sorted((r for r in rows if r.momentum and r.momentum.pct is not None
+                    and r.momentum.pct > spike_pct),
+                   key=lambda r: r.units, reverse=True)
+    stalled = sorted((r for r in rows if r.status == "stalled"),
+                     key=lambda r: r.units, reverse=True)
+    low = sorted((r for r in rows if r.days_of_cover is not None
+                  and r.days_of_cover < low_cover_days),
+                 key=lambda r: r.days_of_cover)
+    counts = {"decelerating": len(decel), "spiking": len(spike),
+              "stalled": len(stalled), "low_cover": len(low)}
+    return AttentionDigest(decelerating=decel[:cap], spiking=spike[:cap],
+                           stalled=stalled[:cap], low_cover=low[:cap], counts=counts)

@@ -146,6 +146,59 @@ def test_days_of_cover_from_onhand_and_period_velocity():
     assert row.days_of_cover == Decimal("40.0")            # 20 / 0.50
 
 
+def test_refund_rate_dollar_weighted_single_and_multi_sku():
+    """Order-level refunds attributed to lines by gross share; per-SKU
+    refund_rate = refunded $ ÷ gross × 100."""
+    from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+
+    def _order_with_refund(db, d, lines, refund):
+        """lines = [(sku, qty, gross)]; one order, order.gross = Σ line gross."""
+        b = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS,
+                        status=ImportBatchStatus.COMPLETED,
+                        original_filename="t", stored_path="t")
+        db.add(b); db.flush()
+        order_gross = sum(g for _, _, g in lines)
+        o = Order(import_batch_id=b.id, tiktok_order_id=f"O{next(_OID)}",
+                  placed_at=datetime(d.year, d.month, d.day, 12, 0),
+                  order_type=OrderType.PAID, status="Completed", brand="smashbox",
+                  gross_sales=Decimal(str(order_gross)),
+                  refunds=Decimal(str(refund)))
+        db.add(o); db.flush()
+        for sku, qty, g in lines:
+            db.add(OrderLine(order_id=o.id, sku=sku, quantity=qty,
+                             gross_sales=Decimal(str(g))))
+        db.flush()
+
+    with SessionLocal() as db:
+        _sku(db, "A", "SBX-A", "Item A")
+        _sku(db, "B", "SBX-B", "Item B")
+        # Single-SKU order: A gross 100, refund 20 → 20%.
+        _order_with_refund(db, date(2026, 5, 20), [("A", 1, 100)], refund=20)
+        # Multi-SKU order: gross A=100 B=300 (total 400), refund 40 → A gets 10, B 30.
+        _order_with_refund(db, date(2026, 5, 21),
+                           [("A", 1, 100), ("B", 1, 300)], refund=40)
+        db.commit()
+        v = compute_sku_performance(db, start=SEL_START, end=SEL_END)
+
+    by = {r.sku_id: r for r in v.rows}
+    # A: gross 200, refunded 20 + 10 = 30 → 15.0%
+    assert by["A"].refunded_amount == Decimal("30.00")
+    assert by["A"].refund_rate == Decimal("15.0")
+    # B: gross 300, refunded 30 → 10.0%
+    assert by["B"].refund_rate == Decimal("10.0")
+
+
+def test_refund_rate_zero_when_no_refunds():
+    with SessionLocal() as db:
+        _sku(db, "A", "SBX-A", "Item A")
+        _order(db, date(2026, 5, 20), "A", 2, gross=50)
+        db.commit()
+        v = compute_sku_performance(db, start=SEL_START, end=SEL_END)
+    row = next(r for r in v.rows if r.sku_id == "A")
+    assert row.refund_rate == Decimal("0.0")
+    assert row.refunded_amount == Decimal("0.00")
+
+
 def test_days_of_cover_none_without_snapshot():
     """No inventory snapshot for the SKU → on-hand and cover are None."""
     with SessionLocal() as db:
