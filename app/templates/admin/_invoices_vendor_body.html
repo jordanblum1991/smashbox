@@ -38,6 +38,7 @@
       <option value="" {% if not filter_status %}selected{% endif %}>All statuses</option>
       <option value="issued" {% if filter_status == 'issued' %}selected{% endif %}>Issued</option>
       <option value="paid" {% if filter_status == 'paid' %}selected{% endif %}>Paid</option>
+      <option value="voided" {% if filter_status == 'voided' %}selected{% endif %}>Voided</option>
     </select>
   </label>
   <label class="inline-flex items-center gap-2 text-sm text-slate-600">
@@ -84,8 +85,8 @@
     </thead>
     <tbody class="divide-y divide-slate-100">
       {% for inv in invoices %}
-      <tr class="hover:bg-slate-50/60">
-        <td class="px-5 py-3 font-medium text-slate-900 whitespace-nowrap">
+      <tr class="hover:bg-slate-50/60 {{ 'text-slate-400' if inv.status == 'voided' }}">
+        <td class="px-5 py-3 font-medium whitespace-nowrap {{ 'text-slate-400 line-through' if inv.status == 'voided' else 'text-slate-900' }}">
           <a href="/admin/invoices/{{ inv.id }}" class="hover:underline">{{ inv.number }}</a>
         </td>
         <td class="px-3 py-3 text-slate-700 whitespace-nowrap">{{ inv.issue_date.strftime("%b %d, %Y") }}</td>
@@ -96,6 +97,8 @@
         <td class="px-3 py-3">
           {% if inv.status == "paid" %}
           <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">Paid</span>
+          {% elif inv.status == "voided" %}
+          <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-300 line-through">Voided</span>
           {% else %}
           <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">Issued</span>
           {% endif %}
@@ -103,11 +106,13 @@
         <td class="px-3 py-3 text-right whitespace-nowrap print:hidden">
           <a href="/admin/invoices/{{ inv.id }}"
              class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">View</a>
+          {% if inv.status != "voided" %}
           <a href="/admin/invoices/{{ inv.id }}/edit"
              class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Edit</a>
+          {% endif %}
           <a href="/admin/invoices/{{ inv.id }}/pdf"
              class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">PDF</a>
-          {% if inv.status != "paid" %}
+          {% if inv.status == "issued" %}
           <form action="/admin/invoices/{{ inv.id }}/mark-paid" method="post" class="inline">
             <button type="submit"
                     class="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50">
