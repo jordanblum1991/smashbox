@@ -249,6 +249,7 @@
         {{ sort_th("Net Sales", "net_sales") }}
         {{ sort_th("Orders", "orders") }}
         <th class="px-3 py-2 text-right font-semibold">Cover</th>
+        <th class="px-3 py-2 text-right font-semibold">Refund</th>
         <th class="px-3 py-2 text-right font-semibold">%</th>
         {{ sort_th("Momentum", "momentum") }}
         <th class="px-3 py-2 text-right font-semibold">Trend</th>
@@ -272,6 +273,7 @@
         <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.net_sales | money }}</td>
         <td class="px-3 py-2 text-right tabular-nums text-slate-700">{{ r.orders }}</td>
         <td class="px-3 py-2 text-right tabular-nums">{% if r.days_of_cover is not none %}<span class="font-medium {{ 'text-rose-600' if r.days_of_cover < 14 else 'text-amber-600' if r.days_of_cover < 35 else 'text-emerald-600' }}" title="{{ r.on_hand }} on hand ÷ {{ r.stats.avg_units_per_day }}/day">{{ r.days_of_cover | int }}d</span>{% else %}<span class="text-slate-300">—</span>{% endif %}</td>
+        <td class="px-3 py-2 text-right tabular-nums">{% if r.refund_rate is not none %}<span class="{{ 'text-rose-600 font-medium' if r.refund_rate >= 10 else 'text-amber-600' if r.refund_rate >= 5 else 'text-slate-500' }}" title="{{ r.refunded_amount | money }} refunded">{{ r.refund_rate }}%</span>{% else %}<span class="text-slate-300">—</span>{% endif %}</td>
         <td class="px-3 py-2 text-right tabular-nums text-slate-500">{{ r.pct_units }}%</td>
         <td class="px-3 py-2 text-right">{% if r.momentum %}{{ ui.delta_chip(r.momentum, polarity="higher_better") }}{% endif %}</td>
         <td class="px-3 py-2 text-right">{{ ui.sparkline(r.spark, tone="info") }}</td>
@@ -279,7 +281,7 @@
       </tr>
       {% if r.stats %}{% set s = r.stats %}
       <tr class="hidden bg-slate-50/70" data-sku-detail>
-        <td colspan="9" class="px-4 pb-3 pt-1">
+        <td colspan="10" class="px-4 pb-3 pt-1">
           <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-[11px] sm:grid-cols-4 lg:grid-cols-4">
             {% macro stat(label, value) %}
             <div>
@@ -300,7 +302,7 @@
       </tr>
       {% endif %}
       {% else %}
-      <tr><td colspan="9" class="px-3 py-6 text-center text-slate-400">No SKU sales in this period.</td></tr>
+      <tr><td colspan="10" class="px-3 py-6 text-center text-slate-400">No SKU sales in this period.</td></tr>
       {% endfor %}
     </tbody>
   </table>
