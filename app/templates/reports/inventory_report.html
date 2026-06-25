@@ -3,6 +3,28 @@
 {% block title %}Inventory Report · Smashbox{% endblock %}
 
 {% block content %}
+{% macro status_badge(s) %}
+{%- if s == 'out' -%}
+  <span class="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">Out</span>
+{%- elif s == 'low' -%}
+  <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">Low</span>
+{%- elif s == 'healthy' -%}
+  <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">Healthy</span>
+{%- elif s == 'overstock' -%}
+  <span class="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">Overstock</span>
+{%- else -%}
+  <span class="text-slate-300" title="No recent sales">—</span>
+{%- endif -%}
+{% endmacro %}
+
+{% macro cover_cell(c) %}
+{%- if c is none -%}
+  <span class="text-slate-300" title="No recent sales">—</span>
+{%- else -%}
+  <span title="{{ (c|float / 7) | round(1) }} weeks">{{ c|int }}d</span>
+{%- endif -%}
+{% endmacro %}
+
 {% call ui.page_header(
   eyebrow="Operations",
   title="Inventory Report",
@@ -106,7 +128,8 @@
   <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
     <div>
       <h2 class="text-base font-semibold text-slate-900">On-Hand by SKU</h2>
-      <p class="mt-0.5 text-xs text-slate-500">From the latest SAP sync. Click a column to sort.
+      <p class="mt-0.5 text-xs text-slate-500">From the latest SAP sync. Shade/size variants are grouped — click a
+        <span class="font-medium text-slate-600">▸</span> to expand. Click a column to sort.
         <span id="inv-count" class="font-medium text-slate-600"></span></p>
     </div>
     {# Search + stock filter (client-side; instant, no reload). #}
@@ -121,7 +144,7 @@
         <option value="sellable">Has sellable stock</option>
         <option value="sample">Has sample stock</option>
       </select>
-      <select id="inv-pagesize" title="SKUs shown per page"
+      <select id="inv-pagesize" title="Lines shown per page"
               class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
         <option value="10">10 / page</option>
         <option value="25">25 / page</option>
@@ -137,59 +160,98 @@
         <tr>
           <th data-key="sku" class="select-none whitespace-nowrap px-4 py-2 hover:text-slate-700">SKU <span class="sort-ind"></span></th>
           <th data-key="name" class="select-none px-4 py-2 hover:text-slate-700">Product Name <span class="sort-ind"></span></th>
+          <th data-key="status" class="select-none px-4 py-2 hover:text-slate-700">Status <span class="sort-ind"></span></th>
           <th data-key="sellable" class="col-sellable select-none px-4 py-2 text-right hover:text-slate-700">Sellable <span class="sort-ind"></span></th>
           <th data-key="sample" class="col-sample select-none px-4 py-2 text-right hover:text-slate-700">Sample <span class="sort-ind"></span></th>
           <th data-key="total" class="select-none px-4 py-2 text-right hover:text-slate-700">Total <span class="sort-ind"></span></th>
           <th data-key="in_transit" class="select-none px-4 py-2 text-right hover:text-slate-700" title="Units on placed purchase orders, not yet received">On order <span class="sort-ind"></span></th>
+          <th data-key="cover" class="select-none px-4 py-2 text-right hover:text-slate-700" title="Days of sellable stock at recent sales velocity">Cover <span class="sort-ind"></span></th>
           <th data-key="value" class="select-none px-4 py-2 text-right hover:text-slate-700">Sellable COGS Value <span class="sort-ind"></span></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100">
-        {% for r in view.rows %}
-        <tr data-row
-            data-sku="{{ r.sku_code or r.canonical_sku }}"
-            data-name="{{ (r.name or '') }}"
-            data-canon="{{ r.canonical_sku }}"
-            data-sellable="{{ r.sellable_on_hand }}"
-            data-sample="{{ r.sample_on_hand }}"
-            data-total="{{ r.total_on_hand }}"
-            data-in_transit="{{ r.in_transit }}"
-            data-value="{{ r.total_value }}"
-            class="{% if r.total_on_hand == 0 %}text-slate-400{% endif %}">
+        {% for g in view.groups %}
+        {# ----- group / parent row ----- #}
+        <tr data-group data-key="{{ g.key }}"
+            data-family="{{ 1 if g.is_family else 0 }}"
+            data-sku="{{ g.sku_code or g.label }}"
+            data-name="{{ g.label or '' }}"
+            data-status="{{ g.status }}"
+            data-sellable="{{ g.sellable_on_hand }}"
+            data-sample="{{ g.sample_on_hand }}"
+            data-total="{{ g.total_on_hand }}"
+            data-in_transit="{{ g.in_transit }}"
+            data-cover="{{ g.days_of_cover|int if g.days_of_cover is not none else 999999 }}"
+            data-value="{{ g.total_value }}"
+            class="{% if g.is_family %}bg-slate-50/40 {% endif %}{% if g.total_on_hand == 0 %}text-slate-400{% endif %}">
           <td class="whitespace-nowrap px-4 py-2">
-            {% if r.sku_code %}
-              <span class="font-medium {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ r.sku_code }}</span>
-              {% if r.is_bundle %}
+            {% if g.is_family %}
+              <button type="button" class="inv-toggle mr-1 inline-flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700" aria-label="Expand">
+                <span class="inv-caret inline-block transition-transform">▸</span>
+              </button>
+              <span class="font-semibold {% if g.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ g.sku_code }}</span>
+              <span class="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">{{ g.member_count }} shades</span>
+            {% elif g.sku_code %}
+              <span class="font-medium {% if g.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ g.sku_code }}</span>
+              {% if g.is_bundle %}
                 <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700">Bundle</span>
               {% endif %}
             {% else %}
               <span class="text-rose-700">Unmapped</span>
-              <span class="ml-1 font-mono text-[10px] text-slate-400">{{ r.canonical_sku }}</span>
+              <span class="ml-1 font-mono text-[10px] text-slate-400">{{ g.label }}</span>
             {% endif %}
           </td>
           <td class="px-4 py-2">
-            {% if r.name %}{{ r.name | strip_size | title_case }}{% else %}<span class="text-rose-700">—</span>{% endif %}
+            {% if g.is_family %}{{ g.label | title_case }}
+            {% elif g.name %}{{ g.name | strip_size | title_case }}
+            {% else %}<span class="text-rose-700">—</span>{% endif %}
           </td>
-          <td class="col-sellable px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sellable_on_hand) }}</td>
-          <td class="col-sample px-4 py-2 text-right tabular-nums">{{ "{:,}".format(r.sample_on_hand) }}</td>
-          <td class="px-4 py-2 text-right font-semibold tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ "{:,}".format(r.total_on_hand) }}</td>
-          <td class="px-4 py-2 text-right tabular-nums {% if r.in_transit == 0 %}text-slate-300{% else %}text-sky-700{% endif %}">{{ "{:,}".format(r.in_transit) }}</td>
-          <td class="px-4 py-2 text-right tabular-nums {% if r.total_on_hand == 0 %}text-slate-400{% else %}text-slate-700{% endif %}">{{ r.total_value | money }}</td>
+          <td class="px-4 py-2">{{ status_badge(g.status) }}</td>
+          <td class="col-sellable px-4 py-2 text-right tabular-nums">{{ "{:,}".format(g.sellable_on_hand) }}</td>
+          <td class="col-sample px-4 py-2 text-right tabular-nums">{{ "{:,}".format(g.sample_on_hand) }}</td>
+          <td class="px-4 py-2 text-right font-semibold tabular-nums {% if g.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ "{:,}".format(g.total_on_hand) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums {% if g.in_transit == 0 %}text-slate-300{% else %}text-sky-700{% endif %}">{{ "{:,}".format(g.in_transit) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums {% if g.days_of_cover is none %}text-slate-300{% else %}text-slate-600{% endif %}">{{ cover_cell(g.days_of_cover) }}</td>
+          <td class="px-4 py-2 text-right tabular-nums {% if g.total_on_hand == 0 %}text-slate-400{% else %}text-slate-700{% endif %}">{{ g.total_value | money }}</td>
         </tr>
+        {# ----- member (shade) rows, hidden until the parent is expanded ----- #}
+        {% if g.is_family %}
+          {% for m in g.members %}
+          <tr data-member data-parent="{{ g.key }}"
+              data-sku="{{ m.sku_code or m.canonical_sku }}"
+              data-name="{{ m.name or '' }}"
+              hidden
+              class="bg-white {% if m.total_on_hand == 0 %}text-slate-400{% endif %}">
+            <td class="whitespace-nowrap py-1.5 pl-10 pr-4">
+              <span class="font-mono text-xs {% if m.total_on_hand == 0 %}text-slate-400{% else %}text-slate-600{% endif %}">{{ m.sku_code or m.canonical_sku }}</span>
+            </td>
+            <td class="py-1.5 px-4 text-slate-600">{% if m.name %}{{ m.name | strip_size | title_case }}{% else %}—{% endif %}</td>
+            <td class="py-1.5 px-4">{{ status_badge(m.status) }}</td>
+            <td class="col-sellable py-1.5 px-4 text-right tabular-nums">{{ "{:,}".format(m.sellable_on_hand) }}</td>
+            <td class="col-sample py-1.5 px-4 text-right tabular-nums">{{ "{:,}".format(m.sample_on_hand) }}</td>
+            <td class="py-1.5 px-4 text-right tabular-nums {% if m.total_on_hand == 0 %}text-slate-400{% else %}text-slate-700{% endif %}">{{ "{:,}".format(m.total_on_hand) }}</td>
+            <td class="py-1.5 px-4 text-right tabular-nums {% if m.in_transit == 0 %}text-slate-300{% else %}text-sky-700{% endif %}">{{ "{:,}".format(m.in_transit) }}</td>
+            <td class="py-1.5 px-4 text-right tabular-nums {% if m.days_of_cover is none %}text-slate-300{% else %}text-slate-600{% endif %}">{{ cover_cell(m.days_of_cover) }}</td>
+            <td class="py-1.5 px-4 text-right tabular-nums {% if m.total_on_hand == 0 %}text-slate-400{% else %}text-slate-700{% endif %}">{{ m.total_value | money }}</td>
+          </tr>
+          {% endfor %}
+        {% endif %}
         {% else %}
         <tr>
-          <td colspan="7" class="px-4 py-8 text-center text-slate-400">No inventory yet. Sync from SAP on the Imports page.</td>
+          <td colspan="9" class="px-4 py-8 text-center text-slate-400">No inventory yet. Sync from SAP on the Imports page.</td>
         </tr>
         {% endfor %}
       </tbody>
-      {% if view.rows %}
+      {% if view.groups %}
       <tfoot class="border-t-2 border-slate-200 bg-slate-50/60 font-semibold">
         <tr>
           <td class="px-4 py-2" colspan="2"><span id="foot-label">Total</span></td>
+          <td class="px-4 py-2"></td>
           <td id="foot-sellable" class="col-sellable px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sellable) }}</td>
           <td id="foot-sample" class="col-sample px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_sample) }}</td>
           <td id="foot-total" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_units) }}</td>
           <td id="foot-in_transit" class="px-4 py-2 text-right tabular-nums">{{ "{:,}".format(view.total_in_transit) }}</td>
+          <td class="px-4 py-2"></td>
           <td id="foot-value" class="px-4 py-2 text-right tabular-nums">{{ view.total_inventory_value | money }}</td>
         </tr>
       </tfoot>
@@ -197,8 +259,8 @@
     </table>
   </div>
   <p id="inv-empty" class="hidden px-6 py-8 text-center text-sm text-slate-400">No SKUs match your search / filter.</p>
-  {# Pagination — limits how many SKUs show at once. Hidden on print (the print
-     view lists every row). #}
+  {# Pagination — limits how many lines (groups) show at once. Hidden on print
+     (the print view lists every row). #}
   <div id="inv-pager" class="hidden items-center justify-between gap-3 border-t border-slate-200 px-6 py-3 text-sm print:hidden">
     <span id="inv-pageinfo" class="text-slate-500"></span>
     <div class="flex items-center gap-1.5">
@@ -212,15 +274,30 @@
 </section>
 
 <script>
-  // Client-side sort + filter + pagination for the inventory table. The full set
-  // is rendered server-side; we reorder / hide rows here (instant, print-friendly).
-  // Footer totals always reflect the full filtered set, not just the current page.
+  // Client-side sort + filter + pagination for the inventory table, operating on
+  // GROUPS (a parent summary row + its hidden shade members). A group is the unit
+  // of sorting / filtering / pagination; members travel with their parent and
+  // appear only when the parent is expanded. Footer totals reflect the full
+  // filtered set (parent aggregates), not just the current page.
   (function () {
     var table = document.getElementById("inv-table");
     if (!table) return;
     var tbody = table.querySelector("tbody");
-    var rows = Array.prototype.slice.call(tbody.querySelectorAll("tr[data-row]"));
-    if (!rows.length) return;
+
+    // Build the group model from the DOM.
+    var groups = [];
+    var byKey = {};
+    Array.prototype.slice.call(tbody.querySelectorAll("tr")).forEach(function (tr) {
+      if (tr.hasAttribute("data-group")) {
+        var g = { p: tr, key: tr.getAttribute("data-key"), members: [], expanded: false };
+        byKey[g.key] = g; groups.push(g);
+      } else if (tr.hasAttribute("data-member")) {
+        var g2 = byKey[tr.getAttribute("data-parent")];
+        if (g2) g2.members.push(tr);
+      }
+    });
+    if (!groups.length) return;
+
     var search = document.getElementById("inv-search");
     var stock = document.getElementById("inv-stock");
     var pageSizeSel = document.getElementById("inv-pagesize");
@@ -233,37 +310,40 @@
     var nextBtn = document.getElementById("inv-next");
     var sortKey = null, sortDir = 1, page = 1, mode = "all";
 
-    function num(r, k) { return parseFloat(r.getAttribute("data-" + k)) || 0; }
+    function num(tr, k) { return parseFloat(tr.getAttribute("data-" + k)) || 0; }
+    function attr(tr, k) { return tr.getAttribute("data-" + k) || ""; }
     function money(n) { return "$" + n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
     function pageSize() { var v = pageSizeSel.value; return v === "all" ? Infinity : parseInt(v, 10); }
 
-    function matches(r) {
+    function groupHay(g) {
+      var s = attr(g.p, "sku") + " " + attr(g.p, "name");
+      g.members.forEach(function (m) { s += " " + attr(m, "sku") + " " + attr(m, "name"); });
+      return s.toLowerCase();
+    }
+
+    function matches(g) {
       var q = (search.value || "").trim().toLowerCase();
-      if (q) {
-        var hay = (r.getAttribute("data-sku") + " " + r.getAttribute("data-name") +
-                   " " + r.getAttribute("data-canon")).toLowerCase();
-        if (hay.indexOf(q) === -1) return false;
-      }
-      var f = stock.value, total = num(r, "total"), sell = num(r, "sellable"), samp = num(r, "sample");
+      if (q && groupHay(g).indexOf(q) === -1) return false;
+      var f = stock.value, total = num(g.p, "total"), sell = num(g.p, "sellable"), samp = num(g.p, "sample");
       if (f === "instock" && total <= 0) return false;
       if (f === "outofstock" && total > 0) return false;
       if (f === "sellable" && sell <= 0) return false;
       if (f === "sample" && samp <= 0) return false;
-      // View toggle: a focused warehouse only lists SKUs that hold its stock.
+      // View toggle: a focused warehouse only lists groups that hold its stock.
       if (mode === "sellable" && sell <= 0) return false;
       if (mode === "sample" && samp <= 0) return false;
       return true;
     }
 
     function render() {
-      var matching = rows.filter(matches);
-      var total = matching.length, filtered = total !== rows.length;
+      var matching = groups.filter(matches);
+      var total = matching.length, filtered = total !== groups.length;
 
-      // Footer = full filtered set (independent of page).
+      // Footer = full filtered set (parent aggregates, independent of page).
       var tSell = 0, tSamp = 0, tTot = 0, tIT = 0, tVal = 0;
-      matching.forEach(function (r) {
-        tSell += num(r, "sellable"); tSamp += num(r, "sample");
-        tTot += num(r, "total"); tIT += num(r, "in_transit"); tVal += num(r, "value");
+      matching.forEach(function (g) {
+        tSell += num(g.p, "sellable"); tSamp += num(g.p, "sample");
+        tTot += num(g.p, "total"); tIT += num(g.p, "in_transit"); tVal += num(g.p, "value");
       });
       document.getElementById("foot-sellable").textContent = tSell.toLocaleString();
       document.getElementById("foot-sample").textContent = tSamp.toLocaleString();
@@ -272,7 +352,7 @@
       document.getElementById("foot-value").textContent = money(tVal);
       document.getElementById("foot-label").textContent = filtered ? "Total (filtered)" : "Total";
 
-      // Page slice.
+      // Page slice (over groups).
       var size = pageSize();
       var totalPages = size === Infinity ? 1 : Math.max(1, Math.ceil(total / size));
       if (page > totalPages) page = totalPages;
@@ -280,8 +360,16 @@
       var start = size === Infinity ? 0 : (page - 1) * size;
       var end = size === Infinity ? total : Math.min(start + size, total);
 
-      rows.forEach(function (r) { r.style.display = "none"; });
-      for (var i = start; i < end; i++) matching[i].style.display = "";
+      // Hide everything, then reveal the page's groups (+ expanded members).
+      groups.forEach(function (g) {
+        g.p.style.display = "none";
+        g.members.forEach(function (m) { m.style.display = "none"; });
+      });
+      for (var i = start; i < end; i++) {
+        var g = matching[i];
+        g.p.style.display = "";
+        if (g.expanded) g.members.forEach(function (m) { m.style.display = ""; });
+      }
 
       empty.classList.toggle("hidden", total !== 0);
 
@@ -294,7 +382,7 @@
       var showPager = size !== Infinity;
       pager.classList.toggle("hidden", !showPager);
       pager.classList.toggle("flex", showPager);
-      pageInfo.textContent = "Showing " + (start + 1) + "–" + end + " of " + total + " SKUs";
+      pageInfo.textContent = "Showing " + (start + 1) + "–" + end + " of " + total + " lines";
       pageLabel.textContent = "Page " + page + " of " + totalPages;
       setBtn(prevBtn, page <= 1);
       setBtn(nextBtn, page >= totalPages);
@@ -308,13 +396,20 @@
 
     function sortBy(key) {
       if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = 1; }
-      var numeric = (key === "sellable" || key === "sample" || key === "total" || key === "in_transit" || key === "value");
-      rows.sort(function (a, b) {
-        if (numeric) return (num(a, key) - num(b, key)) * sortDir;
-        return (a.getAttribute("data-" + key) || "").localeCompare(
-                b.getAttribute("data-" + key) || "") * sortDir;
+      var numeric = (key === "sellable" || key === "sample" || key === "total" ||
+                     key === "in_transit" || key === "cover" || key === "value");
+      var statusOrder = { out: 0, low: 1, healthy: 2, overstock: 3, none: 4 };
+      groups.sort(function (a, b) {
+        if (numeric) return (num(a.p, key) - num(b.p, key)) * sortDir;
+        if (key === "status")
+          return ((statusOrder[attr(a.p, "status")] ?? 9) - (statusOrder[attr(b.p, "status")] ?? 9)) * sortDir;
+        return attr(a.p, key).localeCompare(attr(b.p, key)) * sortDir;
       });
-      rows.forEach(function (r) { tbody.appendChild(r); });
+      // Re-append parents (and their members) in the new order.
+      groups.forEach(function (g) {
+        tbody.appendChild(g.p);
+        g.members.forEach(function (m) { tbody.appendChild(m); });
+      });
       table.querySelectorAll("th[data-key]").forEach(function (th) {
         var ind = th.querySelector(".sort-ind");
         if (ind) ind.textContent = th.getAttribute("data-key") === key ? (sortDir > 0 ? "▲" : "▼") : "";
@@ -332,8 +427,21 @@
       th.addEventListener("click", function () { sortBy(th.getAttribute("data-key")); });
     });
 
+    // Expand / collapse a family group.
+    groups.forEach(function (g) {
+      var btn = g.p.querySelector(".inv-toggle");
+      if (!btn) return;
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        g.expanded = !g.expanded;
+        var caret = btn.querySelector(".inv-caret");
+        if (caret) caret.style.transform = g.expanded ? "rotate(90deg)" : "";
+        g.members.forEach(function (m) { m.style.display = g.expanded ? "" : "none"; });
+      });
+    });
+
     // View toggle (All / Sellable / Sample): hide the other warehouse's column +
-    // KPI, list only SKUs holding the focused stock, and mark the active button.
+    // KPI, list only groups holding the focused stock, and mark the active button.
     var modeBtns = Array.prototype.slice.call(document.querySelectorAll(".inv-mode-btn"));
     function applyMode() {
       modeBtns.forEach(function (b) {
@@ -357,9 +465,14 @@
     });
     applyMode();
 
-    // Print every filtered row (ignore the page limit), then restore the page.
+    // Print every filtered group + all its members (ignore page limit + collapse),
+    // then restore the interactive page.
     window.addEventListener("beforeprint", function () {
-      rows.forEach(function (r) { r.style.display = matches(r) ? "" : "none"; });
+      groups.forEach(function (g) {
+        var show = matches(g);
+        g.p.style.display = show ? "" : "none";
+        g.members.forEach(function (m) { m.style.display = show ? "" : "none"; });
+      });
     });
     window.addEventListener("afterprint", render);
 

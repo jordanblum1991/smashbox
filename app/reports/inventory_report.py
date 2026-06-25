@@ -6,11 +6,18 @@ Sources both warehouses from their latest SAP snapshot (`InventorySnapshot` and
 metadata (Sku / Bundle). Unlike the sample-inventory report, zero-balance SKUs
 are KEPT — this is the full picture, including out-of-stock items.
 
+Rows that share a base product name but differ only by shade/size (each its own
+SBX code + own on-hand) are rolled up into one expandable **family group** so the
+list is scannable; single products, bundles, and unmapped keys stay flat. Each
+row/group also carries a stock-status badge + days-of-cover, sourced from the
+demand planner so the inventory report agrees with the Demand Planning page.
+
 Read by the Inventory Report page + CSV export. Pure computation, no writes.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
@@ -22,6 +29,7 @@ from app.models.inventory_snapshot import InventorySnapshot
 from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.sku import Sku
 from app.reports.in_transit import compute_in_transit
+from app.services.demand.replenishment import ReplenishmentStatus
 from app.services.inventory_sync import last_synced_at
 from app.services.reporting_tz import now_local, utc_to_shop_local
 from app.services.sku_alias import load_alias_map
@@ -41,11 +49,37 @@ class InventoryReportRow:
     sellable_value: Decimal  # sellable_on_hand × unit_cogs
     sample_value: Decimal    # always 0 — sample stock carries $0 COGS (expensed when given)
     total_value: Decimal     # sellable_on_hand × unit_cogs (samples excluded from value)
+    # Enrichment from the demand planner (defaults keep direct constructors working).
+    status: str = "none"     # badge: out | low | healthy | overstock | none
+    days_of_cover: Decimal | None = None  # sellable days of supply; None = no sales signal
+
+
+@dataclass
+class InventoryGroup:
+    """One displayed line. A *family* (is_family=True) summarizes several shade/size
+    members and expands to show them; a singleton wraps one row and renders flat."""
+    key: str
+    label: str               # display name (base product name / sku / canonical)
+    sku_code: str | None      # representative SBX code; None when unmapped
+    is_family: bool
+    is_bundle: bool
+    members: list[InventoryReportRow]
+    member_count: int
+    sellable_on_hand: int
+    sample_on_hand: int
+    total_on_hand: int
+    in_transit: int
+    unit_cogs: Decimal | None  # None when members' per-unit cost differs (a family)
+    sellable_value: Decimal
+    sample_value: Decimal
+    total_value: Decimal
+    status: str               # worst member badge (so a stockout can't hide collapsed)
+    days_of_cover: Decimal | None
 
 
 @dataclass
 class InventoryReportView:
-    rows: list[InventoryReportRow]
+    rows: list[InventoryReportRow]          # flat, per-member (CSV / xlsx / email read this)
     total_sellable: int
     total_sample: int
     total_units: int
@@ -56,6 +90,64 @@ class InventoryReportView:
     total_inventory_value: Decimal
     last_synced_at: datetime | None  # shop-local time of the last SAP sync
     as_of: datetime
+    # Rolled-up, ordered for display (the page reads this). Optional/last so
+    # callers that only need the flat `rows` (email/xlsx renderers, their tests)
+    # can construct a view without it.
+    groups: list[InventoryGroup] = field(default_factory=list)
+
+
+# ---- family-key derivation + status badges --------------------------------
+
+_TRAILING_SIZE_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _strip_trailing_size(name: str) -> str:
+    """Drop a trailing parenthesized size chunk, e.g. ' (1.7 oz)'."""
+    return _TRAILING_SIZE_RE.sub("", str(name))
+
+
+def _family_label(name: str) -> str:
+    """Base product name: size paren removed and a trailing ' - <shade>' segment
+    dropped. Splits only on ' - ' (spaces required) so internal hyphens like
+    'ALL-IN-ONE' / 'ANTI-REDNESS' are preserved."""
+    base = _strip_trailing_size(name)
+    base = base.rsplit(" - ", 1)[0]
+    return re.sub(r"\s+", " ", base).strip()
+
+
+def _family_key(name: str | None) -> str | None:
+    """Normalized grouping key for a product name (None when there's no name)."""
+    if not name:
+        return None
+    return (_family_label(name).upper() or None)
+
+
+_BADGE_FOR_STATUS = {
+    ReplenishmentStatus.OUT_OF_STOCK: "out",
+    ReplenishmentStatus.AT_RISK: "low",
+    ReplenishmentStatus.REORDER_NOW: "low",
+    ReplenishmentStatus.HEALTHY: "healthy",
+    ReplenishmentStatus.OVERSTOCKED: "overstock",
+    ReplenishmentStatus.NO_VELOCITY: "none",
+    ReplenishmentStatus.DISCONTINUED: "none",
+}
+
+# Badge severity for "most urgent wins" + default sort (lower = more urgent).
+_BADGE_SEVERITY = {"out": 0, "low": 1, "healthy": 2, "overstock": 3, "none": 4}
+
+
+def _badge_for(status: ReplenishmentStatus | None) -> str:
+    """Map a planner status (or None) to an inventory stock-status badge."""
+    if status is None:
+        return "none"
+    return _BADGE_FOR_STATUS.get(status, "none")
+
+
+def _worst_badge(badges: list[str]) -> str:
+    """Most-urgent badge in the list (empty → 'none')."""
+    if not badges:
+        return "none"
+    return min(badges, key=lambda b: _BADGE_SEVERITY.get(b, 4))
 
 
 def _latest_on_hand(
@@ -87,6 +179,18 @@ def _latest_on_hand(
     return out
 
 
+def _planner_index(db: Session) -> dict:
+    """`{physical Sku.sku: ReplenishmentResult}` from the demand planner, used for
+    per-row status + days-of-cover. Wrapped so a planner failure degrades the
+    inventory report to no-badge rather than breaking it."""
+    try:
+        from app.reports.demand_planning import compute_demand_planning_view
+        view = compute_demand_planning_view(db)
+        return {r.component_sku: r for r in view.rows}
+    except Exception:  # noqa: BLE001 — status is best-effort enrichment
+        return {}
+
+
 def compute_inventory_report(db: Session) -> InventoryReportView:
     alias_map = load_alias_map(db)
     sellable = _latest_on_hand(db, InventorySnapshot, alias_map)
@@ -99,7 +203,7 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
 
     if not keys:
         return InventoryReportView(
-            rows=[], total_sellable=0, total_sample=0, total_units=0,
+            rows=[], groups=[], total_sellable=0, total_sample=0, total_units=0,
             total_in_transit=0, sku_count=0,
             total_sellable_value=Decimal("0"), total_sample_value=Decimal("0"),
             total_inventory_value=Decimal("0"),
@@ -148,6 +252,10 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
                 return in_transit_map[str(c).strip()]
         return 0
 
+    # Per-physical-SKU status + days-of-cover from the planner (best-effort).
+    planner = _planner_index(db)
+    daily_v_by_key: dict[str, Decimal] = {}
+
     mapped: list[InventoryReportRow] = []
     unmapped: list[InventoryReportRow] = []
     for key in keys:
@@ -167,6 +275,7 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         # Sample stock carries $0 COGS (it was expensed when given out), so it
         # adds physical units but NOTHING to inventory value. Value = sellable only.
         sellable_value = cogs * sell
+        pr = planner.get(sku_code) if sku_code else None
         row = InventoryReportRow(
             canonical_sku=key, sku_code=sku_code, name=name, is_bundle=is_bundle,
             sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=sell + samp,
@@ -174,14 +283,20 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
             unit_cogs=cogs,
             sellable_value=sellable_value, sample_value=Decimal("0"),
             total_value=sellable_value,
+            status=_badge_for(pr.status if pr else None),
+            days_of_cover=(pr.days_of_supply if pr else None),
         )
+        daily_v_by_key[key] = pr.daily_velocity if pr else Decimal("0")
         (mapped if sku_code else unmapped).append(row)
 
     mapped.sort(key=lambda r: (r.sku_code or ""))
     rows = mapped + unmapped
 
+    groups = _build_groups(rows, daily_v_by_key)
+
     return InventoryReportView(
         rows=rows,
+        groups=groups,
         total_sellable=sum(sellable.values()),
         total_sample=sum(sample.values()),
         total_units=sum(sellable.values()) + sum(sample.values()),
@@ -193,3 +308,61 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         last_synced_at=utc_to_shop_local(last_sync) if last_sync else None,
         as_of=now_local(),
     )
+
+
+def _build_groups(
+    rows: list[InventoryReportRow], daily_v_by_key: dict[str, Decimal],
+) -> list[InventoryGroup]:
+    """Fold rows that share a shade/size family key into one expandable group.
+    Mapped non-bundle rows group by `_family_key(name)`; everything else (single
+    products, bundles, unmapped) keys on its own canonical SKU → renders flat."""
+    by_key: dict[str, list[InventoryReportRow]] = {}
+    order: list[str] = []
+    for r in rows:
+        fam = _family_key(r.name) if (r.sku_code and not r.is_bundle) else None
+        gkey = fam if fam else f"\x00solo:{r.canonical_sku}"
+        if gkey not in by_key:
+            by_key[gkey] = []
+            order.append(gkey)
+        by_key[gkey].append(r)
+
+    groups: list[InventoryGroup] = []
+    for gkey in order:
+        members = by_key[gkey]
+        is_family = len(members) > 1
+        first = members[0]
+        sell = sum(m.sellable_on_hand for m in members)
+        samp = sum(m.sample_on_hand for m in members)
+        tot = sum(m.total_on_hand for m in members)
+        it = sum(m.in_transit for m in members)
+        sval = sum((m.sellable_value for m in members), Decimal("0"))
+        smval = sum((m.sample_value for m in members), Decimal("0"))
+        tval = sum((m.total_value for m in members), Decimal("0"))
+
+        if is_family:
+            label = _family_label(first.name)
+            cogs_set = {m.unit_cogs for m in members}
+            unit_cogs = members[0].unit_cogs if len(cogs_set) == 1 else None
+            status = _worst_badge([m.status for m in members])
+            total_v = sum((daily_v_by_key.get(m.canonical_sku, Decimal("0"))
+                           for m in members), Decimal("0"))
+            cover = (Decimal(sell) / total_v).quantize(Decimal("0.1")) if total_v > 0 else None
+        else:
+            label = first.name or first.canonical_sku
+            unit_cogs = first.unit_cogs
+            status = first.status
+            cover = first.days_of_cover
+
+        groups.append(InventoryGroup(
+            key=gkey, label=label, sku_code=first.sku_code,
+            is_family=is_family, is_bundle=first.is_bundle,
+            members=members, member_count=len(members),
+            sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=tot,
+            in_transit=it, unit_cogs=unit_cogs,
+            sellable_value=sval, sample_value=smval, total_value=tval,
+            status=status, days_of_cover=cover,
+        ))
+
+    # Default order: most-urgent first, then alphabetical by label.
+    groups.sort(key=lambda g: (_BADGE_SEVERITY.get(g.status, 4), (g.label or "").lower()))
+    return groups
