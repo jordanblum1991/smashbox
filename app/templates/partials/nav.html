@@ -117,14 +117,11 @@
       {# Reconciliation + Data Health now live in the Admin dropdown (top-right).
          The data-health issue count rides on its dropdown item. #}
 
-      {# Import action — pulled out of the link list and styled as a primary
-         action button so it reads as "do something" rather than "go somewhere". #}
-      <span class="mx-2 h-5 w-px bg-slate-200" aria-hidden="true"></span>
-      <a href="/uploads" title="Import file"
-         class="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800">
-        {{ ui.icon("upload", "h-3.5 w-3.5") }}
-        Import
-      </a>
+      {# Import moved off the nav: TikTok orders/settlements/payouts/analytics/ads
+         and SAP inventory now auto-sync via the API/scheduler, so the page-level
+         Import button is gone. /uploads is still linked from the dashboard
+         ("Manage imports →") and the report pages that need catalog files
+         (SKU master, samples, supplier receipts, inventory sync). #}
 
       {# Authenticated user chip + sign-out. Only renders when SessionAuth is on. #}
       {% if _user %}
@@ -239,10 +236,6 @@
             {% if href == "/reports/demand-planning" and inv_alerts.count > 0 %}<span class="ml-2 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ inv_alerts.count }}</span>{% endif %}
           </a>
           {% endfor %}
-
-          <a href="/uploads" class="mt-3 flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">
-            {{ ui.icon("upload", "h-4 w-4") }} Import
-          </a>
 
           {% if _user %}
           <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Account</div>
