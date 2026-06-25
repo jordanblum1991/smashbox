@@ -434,6 +434,17 @@ def test_preview_shows_void_watermark_only_when_voided(client: TestClient):
     assert 'class="void-watermark">VOID' not in ri.text
 
 
+def test_preview_shows_paid_watermark_only_when_paid(client: TestClient):
+    """A paid invoice's document carries a PAID watermark; an issued one does not."""
+    with SessionLocal() as db:
+        paid_id = _seed(db, "OL-2026-030", status="paid").id
+        issued_id = _seed(db, "OL-2026-031").id
+    rp = client.get(f"/admin/invoices/{paid_id}/preview")
+    assert '<div class="paid-watermark">PAID</div>' in rp.text
+    ri = client.get(f"/admin/invoices/{issued_id}/preview")
+    assert 'class="paid-watermark">PAID' not in ri.text
+
+
 # ---------------------------------------------------------------------------
 # 7. PDF download — skipped if WeasyPrint isn't installed (batch 5)
 # ---------------------------------------------------------------------------
