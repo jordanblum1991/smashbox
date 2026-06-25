@@ -22,16 +22,25 @@ plus a clearer layout, a stock-status badge, and a days-of-cover column.
 - The real clutter is **shade/size families**: distinct SBX codes that share a base
   product name. ~15 families, the largest being 29- and 20-shade ranges. Each shade
   has its own on-hand → per-member totals are real and worth showing.
-- There is **no family field** in the catalog. The family key is derived from the
-  product name (decided: derive-from-name, not a new column, this pass).
+- There is **no family field** in the catalog. We first tried deriving the family
+  from the product **name**, but a prod spot-check (the actual `_family_key` run
+  against all 172 SKUs) showed names are delimited too inconsistently (`" - "`,
+  bare `-`, `MINI-`, spaces): it caught only 11 families and **missed the headline
+  29-shade Halo Tinted Moisturizer**. The **SBX code base** is the clean signal —
+  shades share a code base and differ only by a trailing 2-digit shade number
+  (`SBX-C5JK01..C5JK22`). Code-keying collapses 119 rows into 15 families with
+  **zero false merges** (verified on prod). Decision: **key on the SBX code base**;
+  size/format variants (mini, jumbo — different code base) stay separate.
 
 ## Design
 
 ### Grouping
-- **Family key** = `Sku.name` with the trailing parenthesized size stripped
-  (reuse `strip_size`) and any trailing ` - <shade>` segment removed (split on
-  `" - "`, spaces required so `ALL-IN-ONE` / `ANTI-REDNESS` are not split),
-  normalized (upper, collapsed whitespace).
+- **Family key** = the `Sku.sku` SBX code with its trailing 2-digit shade number
+  removed (`_family_key`: `SBX-C5JK01` → `SBX-C5JK`). No 2-digit suffix → `None`
+  → the SKU renders flat. The product name is NOT used for grouping (too messy);
+  it's used only for the display **label**, via `_common_label` = the longest
+  shared leading word-run across members (trailing size paren + dangling shade
+  delimiter stripped).
 - Rows grouped by family key. A family with **≥2 members** → expandable parent
   summary row (collapsed by default). A family with **1 member**, bundles, and
   unmapped rows → normal flat rows (no arrow).

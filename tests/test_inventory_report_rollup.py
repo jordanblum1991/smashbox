@@ -1,10 +1,12 @@
 """Shade/size family rollup on the inventory report.
 
-Products that share a base name but differ by shade/size (each its own SBX code
-+ own on-hand) collapse into ONE expandable parent group; single products,
-bundles, and unmapped keys stay flat. Parent rows aggregate their members.
-Status badge + days-of-cover come from the demand planner (degrade to neutral
-when there's no sales signal, as in these fixtures)."""
+Shades of one product share an SBX code base and differ only by the trailing
+2-digit shade number (e.g. SBX-C5JK01..C5JK22); each shade is its own physical
+code with its own on-hand. They collapse into ONE expandable parent group keyed
+on that code base; single products (no 2-digit shade suffix), bundles, and
+unmapped keys stay flat. Parent rows aggregate their members. Status badge +
+days-of-cover come from the demand planner (neutral when there's no sales
+signal, as in these fixtures)."""
 from datetime import datetime
 from decimal import Decimal
 
@@ -17,6 +19,7 @@ from app.models.sku import Sku
 from app.reports.inventory_report import (
     InventoryGroup,
     _badge_for,
+    _common_label,
     _family_key,
     _worst_badge,
     compute_inventory_report,
@@ -46,25 +49,32 @@ def _snap(db, b, sku, on_hand, when=datetime(2026, 6, 23, 7, 0)):
 
 # ---------------- family key derivation (pure) ----------------
 
-def test_family_key_strips_trailing_shade():
-    assert _family_key("Wonder Foundation - Shade 1") == "WONDER FOUNDATION"
-    assert _family_key("Wonder Foundation - Shade 12W") == "WONDER FOUNDATION"
+def test_family_key_is_code_base_without_shade_digits():
+    assert _family_key("SBX-C5JK01") == "SBX-C5JK"
+    assert _family_key("SBX-C5JK22") == "SBX-C5JK"
+    assert _family_key("SBX-C57L40") == "SBX-C57L"
 
 
-def test_family_key_strips_trailing_size_paren():
-    assert _family_key("Photo Finish Primer (1.7 oz)") == "PHOTO FINISH PRIMER"
-    assert _family_key("Photo Finish Primer (0.5 oz)") == "PHOTO FINISH PRIMER"
-
-
-def test_family_key_does_not_split_internal_hyphens():
-    # "ALL-IN-ONE" / "ANTI-REDNESS" have no spaces around the hyphen → untouched.
-    assert _family_key("Halo All-In-One Tinted Moisturizer") == \
-        "HALO ALL-IN-ONE TINTED MOISTURIZER"
-
-
-def test_family_key_none_for_empty():
+def test_family_key_none_when_no_two_digit_shade_suffix():
+    # No trailing shade number → can't be a shade range; renders flat.
+    assert _family_key("SBX-SOLO") is None
+    assert _family_key("SBX-PRIMER") is None
     assert _family_key(None) is None
     assert _family_key("") is None
+
+
+def test_common_label_picks_shared_word_prefix():
+    assert _common_label(["Wonder Foundation Fair", "Wonder Foundation Tan"]) == \
+        "Wonder Foundation"
+    # Trailing size paren is ignored when finding the shared prefix.
+    assert _common_label(["Glow Tint Light (1 oz)", "Glow Tint Deep (1 oz)"]) == \
+        "Glow Tint"
+
+
+def test_common_label_trims_trailing_separator():
+    # A shared " - " / "-" shade delimiter must not leave a dangling dash.
+    assert _common_label(["Lipstick - Red", "Lipstick - Blue"]) == "Lipstick"
+    assert _common_label(["Highlighter- Opal", "Highlighter- Rose"]) == "Highlighter"
 
 
 # ---------------- badge mapping (pure) ----------------
@@ -90,11 +100,13 @@ def test_worst_badge_picks_most_urgent():
 def test_multi_shade_family_rolls_up_into_one_group():
     with SessionLocal() as db:
         b = _batch(db)
-        for i, (code, oh, cogs) in enumerate([
-            ("SBX-F1", 10, "4.00"), ("SBX-F2", 20, "5.00"), ("SBX-F3", 0, "6.00")
-        ]):
-            db.add(Sku(sku=code, name=f"Wonder Foundation - Shade {i+1}",
-                       brand="smashbox", tiktok_sku_id=f"20{i}",
+        for code, oh, cogs, shade in [
+            ("SBX-WF01", 10, "4.00", "Fair"),
+            ("SBX-WF02", 20, "5.00", "Light"),
+            ("SBX-WF03", 0, "6.00", "Tan"),
+        ]:
+            db.add(Sku(sku=code, name=f"Wonder Foundation {shade}",
+                       brand="smashbox", tiktok_sku_id=f"2{code[-2:]}",
                        unit_cogs=Decimal(cogs)))
             _snap(db, b, code, oh)
         db.commit()
@@ -103,6 +115,7 @@ def test_multi_shade_family_rolls_up_into_one_group():
     fam = [g for g in view.groups if g.is_family]
     assert len(fam) == 1
     g = fam[0]
+    assert g.key == "SBX-WF"
     assert g.member_count == 3
     assert len(g.members) == 3
     assert g.label == "Wonder Foundation"
@@ -116,13 +129,13 @@ def test_multi_shade_family_rolls_up_into_one_group():
 def test_single_product_stays_flat():
     with SessionLocal() as db:
         b = _batch(db)
-        db.add(Sku(sku="SBX-S", name="Solo Primer", brand="smashbox",
+        db.add(Sku(sku="SBX-SOLO", name="Solo Primer", brand="smashbox",
                    tiktok_sku_id="900", unit_cogs=Decimal("3.00")))
-        _snap(db, b, "SBX-S", 5)
+        _snap(db, b, "SBX-SOLO", 5)
         db.commit()
         view = compute_inventory_report(db)
 
-    g = next(g for g in view.groups if g.sku_code == "SBX-S")
+    g = next(g for g in view.groups if g.sku_code == "SBX-SOLO")
     assert g.is_family is False
     assert g.member_count == 1
     assert g.sellable_on_hand == 5
@@ -132,19 +145,19 @@ def test_flat_rows_still_present_for_csv_email():
     # The flat per-member `rows` list is preserved (CSV / xlsx / email read it).
     with SessionLocal() as db:
         b = _batch(db)
-        db.add(Sku(sku="SBX-F1", name="Wonder Foundation - Shade 1",
+        db.add(Sku(sku="SBX-WF01", name="Wonder Foundation Fair",
                    brand="smashbox", tiktok_sku_id="201", unit_cogs=Decimal("4.00")))
-        db.add(Sku(sku="SBX-F2", name="Wonder Foundation - Shade 2",
+        db.add(Sku(sku="SBX-WF02", name="Wonder Foundation Light",
                    brand="smashbox", tiktok_sku_id="202", unit_cogs=Decimal("5.00")))
-        _snap(db, b, "SBX-F1", 10)
-        _snap(db, b, "SBX-F2", 20)
+        _snap(db, b, "SBX-WF01", 10)
+        _snap(db, b, "SBX-WF02", 20)
         db.commit()
         view = compute_inventory_report(db)
 
     codes = {r.sku_code for r in view.rows}
-    assert codes == {"SBX-F1", "SBX-F2"}
+    assert codes == {"SBX-WF01", "SBX-WF02"}
     # New per-row fields exist.
-    r = next(r for r in view.rows if r.sku_code == "SBX-F1")
+    r = next(r for r in view.rows if r.sku_code == "SBX-WF01")
     assert hasattr(r, "status")
     assert hasattr(r, "days_of_cover")
 
@@ -154,9 +167,9 @@ def test_page_renders_family_group_with_expandable_members():
     from app.main import app
     with SessionLocal() as db:
         b = _batch(db)
-        for i in range(3):
-            code = f"SBX-G{i}"
-            db.add(Sku(sku=code, name=f"Glow Tint - Shade {i}", brand="smashbox",
+        for i, shade in enumerate(["Fair", "Light", "Tan"]):
+            code = f"SBX-GL0{i}"
+            db.add(Sku(sku=code, name=f"Glow Tint {shade}", brand="smashbox",
                        tiktok_sku_id=f"30{i}", unit_cogs=Decimal("4.00")))
             _snap(db, b, code, 10)
         db.add(Sku(sku="SBX-SOLO", name="Solo Primer", brand="smashbox",
@@ -165,21 +178,21 @@ def test_page_renders_family_group_with_expandable_members():
         db.commit()
 
     html = TestClient(app).get("/reports/inventory").text
-    assert "3 shades" in html                    # parent count chip
-    assert 'data-member data-parent="GLOW TINT"' in html  # collapsible members
-    assert 'data-key="cover"' in html            # new column header
-    assert "Solo Primer" in html                 # singleton still listed
+    assert "3 shades" in html                       # parent count chip
+    assert 'data-member data-parent="SBX-GL"' in html  # collapsible members
+    assert 'data-key="cover"' in html               # new column header
+    assert "Solo Primer" in html                    # singleton still listed
 
 
 def test_no_velocity_yields_neutral_status_and_no_cover():
     with SessionLocal() as db:
         b = _batch(db)
-        db.add(Sku(sku="SBX-S", name="Solo Primer", brand="smashbox",
+        db.add(Sku(sku="SBX-SOLO", name="Solo Primer", brand="smashbox",
                    tiktok_sku_id="900", unit_cogs=Decimal("3.00")))
-        _snap(db, b, "SBX-S", 5)
+        _snap(db, b, "SBX-SOLO", 5)
         db.commit()
         view = compute_inventory_report(db)
 
-    g = next(g for g in view.groups if g.sku_code == "SBX-S")
+    g = next(g for g in view.groups if g.sku_code == "SBX-SOLO")
     assert g.status == "none"
     assert g.days_of_cover is None

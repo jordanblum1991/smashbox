@@ -6,9 +6,10 @@ Sources both warehouses from their latest SAP snapshot (`InventorySnapshot` and
 metadata (Sku / Bundle). Unlike the sample-inventory report, zero-balance SKUs
 are KEPT — this is the full picture, including out-of-stock items.
 
-Rows that share a base product name but differ only by shade/size (each its own
-SBX code + own on-hand) are rolled up into one expandable **family group** so the
-list is scannable; single products, bundles, and unmapped keys stay flat. Each
+Shades of one product share an SBX code base (differing only by a trailing
+2-digit shade number) and each carries its own on-hand; they roll up into one
+expandable **family group** keyed on that code base so the list is scannable.
+Single products, bundles, size/format variants, and unmapped keys stay flat. Each
 row/group also carries a stock-status badge + days-of-cover, sourced from the
 demand planner so the inventory report agrees with the Demand Planning page.
 
@@ -99,6 +100,7 @@ class InventoryReportView:
 # ---- family-key derivation + status badges --------------------------------
 
 _TRAILING_SIZE_RE = re.compile(r"\s*\([^)]*\)\s*$")
+_SHADE_SUFFIX_RE = re.compile(r"\d{2}$")
 
 
 def _strip_trailing_size(name: str) -> str:
@@ -106,20 +108,40 @@ def _strip_trailing_size(name: str) -> str:
     return _TRAILING_SIZE_RE.sub("", str(name))
 
 
-def _family_label(name: str) -> str:
-    """Base product name: size paren removed and a trailing ' - <shade>' segment
-    dropped. Splits only on ' - ' (spaces required) so internal hyphens like
-    'ALL-IN-ONE' / 'ANTI-REDNESS' are preserved."""
-    base = _strip_trailing_size(name)
-    base = base.rsplit(" - ", 1)[0]
-    return re.sub(r"\s+", " ", base).strip()
+def _family_key(sku_code: str | None) -> str | None:
+    """Family key = the SBX code base with its trailing 2-digit shade number
+    removed (e.g. 'SBX-C5JK01' -> 'SBX-C5JK'). Returns None when the code has no
+    2-digit shade suffix — that SKU isn't part of a shade range and renders flat.
 
-
-def _family_key(name: str | None) -> str | None:
-    """Normalized grouping key for a product name (None when there's no name)."""
-    if not name:
+    The product NAME is deliberately NOT used: real shade names are delimited
+    inconsistently (' - ', bare '-', 'MINI-', spaces), so name parsing both
+    misses big ranges and risks false merges. The code base is the clean signal.
+    Size/format variants (mini, jumbo) carry a different code base and so stay
+    separate by design."""
+    if not sku_code:
         return None
-    return (_family_label(name).upper() or None)
+    base = _SHADE_SUFFIX_RE.sub("", sku_code)
+    return base if base != sku_code else None
+
+
+def _common_label(names: list[str]) -> str:
+    """Family display label: the longest shared leading run of words across the
+    member names (trailing size paren ignored). Falls back to the first cleaned
+    name when the members share no leading words."""
+    cleaned = [_strip_trailing_size(n).split() for n in names if n]
+    if not cleaned:
+        return ""
+    prefix: list[str] = []
+    for tup in zip(*cleaned):
+        if all(w == tup[0] for w in tup):
+            prefix.append(tup[0])
+        else:
+            break
+    label = " ".join(prefix) if prefix else (
+        _strip_trailing_size(names[0]) if names and names[0] else "")
+    # Drop a dangling shade delimiter ("Lipstick -" / "Highlighter-") left when
+    # the members share the separator but diverge at the shade itself.
+    return label.strip().rstrip(" -–—·,").strip()
 
 
 _BADGE_FOR_STATUS = {
@@ -319,7 +341,7 @@ def _build_groups(
     by_key: dict[str, list[InventoryReportRow]] = {}
     order: list[str] = []
     for r in rows:
-        fam = _family_key(r.name) if (r.sku_code and not r.is_bundle) else None
+        fam = _family_key(r.sku_code) if (r.sku_code and not r.is_bundle) else None
         gkey = fam if fam else f"\x00solo:{r.canonical_sku}"
         if gkey not in by_key:
             by_key[gkey] = []
@@ -340,7 +362,8 @@ def _build_groups(
         tval = sum((m.total_value for m in members), Decimal("0"))
 
         if is_family:
-            label = _family_label(first.name)
+            label = _common_label([m.name or "" for m in members])
+            code_display = gkey  # the shared code base, e.g. "SBX-C5JK"
             cogs_set = {m.unit_cogs for m in members}
             unit_cogs = members[0].unit_cogs if len(cogs_set) == 1 else None
             status = _worst_badge([m.status for m in members])
@@ -349,12 +372,13 @@ def _build_groups(
             cover = (Decimal(sell) / total_v).quantize(Decimal("0.1")) if total_v > 0 else None
         else:
             label = first.name or first.canonical_sku
+            code_display = first.sku_code
             unit_cogs = first.unit_cogs
             status = first.status
             cover = first.days_of_cover
 
         groups.append(InventoryGroup(
-            key=gkey, label=label, sku_code=first.sku_code,
+            key=gkey, label=label, sku_code=code_display,
             is_family=is_family, is_bundle=first.is_bundle,
             members=members, member_count=len(members),
             sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=tot,
