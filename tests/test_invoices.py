@@ -420,6 +420,20 @@ def test_preview_renders_bare_invoice(client: TestClient):
     assert "TikTok P&L" not in r.text
 
 
+def test_preview_shows_void_watermark_only_when_voided(client: TestClient):
+    """A voided invoice's document carries a VOID watermark; an issued one
+    does not."""
+    with SessionLocal() as db:
+        voided_id = _seed(db, "OL-2026-020", status="voided").id
+        issued_id = _seed(db, "OL-2026-021").id
+    # The CSS rule for .void-watermark is always in the <style> block; the
+    # distinguishing marker is the rendered element with the VOID text.
+    rv = client.get(f"/admin/invoices/{voided_id}/preview")
+    assert '<div class="void-watermark">VOID</div>' in rv.text
+    ri = client.get(f"/admin/invoices/{issued_id}/preview")
+    assert 'class="void-watermark">VOID' not in ri.text
+
+
 # ---------------------------------------------------------------------------
 # 7. PDF download — skipped if WeasyPrint isn't installed (batch 5)
 # ---------------------------------------------------------------------------

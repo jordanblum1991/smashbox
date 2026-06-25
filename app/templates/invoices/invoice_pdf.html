@@ -220,9 +220,31 @@
     font-size: 9pt;
     margin-top: 24px;
   }
+
+  /* VOID watermark — only rendered for voided invoices. position:fixed so
+     WeasyPrint centers it on the page (and repeats it on every page). Light
+     red, behind nothing important, never intercepts clicks. */
+  .void-watermark {
+    position: fixed;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-32deg);
+    font-size: 120pt;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: rgba(220, 38, 38, 0.16);   /* rose-600 @ ~16% */
+    border: 8px solid rgba(220, 38, 38, 0.16);
+    border-radius: 12px;
+    padding: 4px 28px;
+    pointer-events: none;
+    z-index: 9999;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
+
+{% if invoice.status == "voided" %}<div class="void-watermark">VOID</div>{% endif %}
 
 {# ---- Block 1: header band ---------------------------------------------- #}
 <div class="header">
