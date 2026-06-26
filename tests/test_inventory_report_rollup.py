@@ -184,6 +184,44 @@ def test_page_renders_family_group_with_expandable_members():
     assert "Solo Primer" in html                    # singleton still listed
 
 
+def _add_velocity(db, ob, ttid, units_per_day, days=30):
+    """Seed shipped PAID orders so the demand planner computes velocity for `ttid`."""
+    from datetime import timedelta
+    from app.models.order import Order, OrderLine, OrderType
+    base = datetime.now()
+    for d in range(days):
+        o = Order(import_batch_id=ob.id, tiktok_order_id=f"OV{ttid}-{d}",
+                  order_type=OrderType.PAID, status="Shipped",
+                  placed_at=base - timedelta(days=d), brand="smashbox")
+        db.add(o); db.flush()
+        db.add(OrderLine(order_id=o.id, sku=ttid, quantity=units_per_day))
+
+
+def test_family_status_is_worst_plus_affected_count():
+    with SessionLocal() as db:
+        b = _batch(db)
+        ob = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS,
+                         status=ImportBatchStatus.COMPLETED,
+                         original_filename="o", stored_path="o")
+        db.add(ob); db.flush()
+        # Golden shade: 0 on-hand but still selling -> Out. Ivory: deep stock -> not out.
+        db.add(Sku(sku="SBX-MX01", name="Mixy Foundation Golden", brand="smashbox",
+                   tiktok_sku_id="501", unit_cogs=Decimal("4.00")))
+        db.add(Sku(sku="SBX-MX02", name="Mixy Foundation Ivory", brand="smashbox",
+                   tiktok_sku_id="502", unit_cogs=Decimal("4.00")))
+        _snap(db, b, "SBX-MX01", 0)
+        _snap(db, b, "SBX-MX02", 800)
+        _add_velocity(db, ob, "501", 3)
+        _add_velocity(db, ob, "502", 1)
+        db.commit()
+        view = compute_inventory_report(db)
+
+    g = next(g for g in view.groups if g.key == "SBX-MX")
+    assert g.is_family
+    assert g.status == "out"          # worst shade (Golden at 0) wins
+    assert g.status_count == 1        # but only 1 of 2 shades is out — not the whole family
+
+
 def test_no_velocity_yields_neutral_status_and_no_cover():
     with SessionLocal() as db:
         b = _batch(db)

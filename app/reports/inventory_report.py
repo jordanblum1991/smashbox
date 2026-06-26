@@ -75,6 +75,7 @@ class InventoryGroup:
     sample_value: Decimal
     total_value: Decimal
     status: str               # worst member badge (so a stockout can't hide collapsed)
+    status_count: int         # how many members are in that worst status (e.g. "Out ·1")
     days_of_cover: Decimal | None
 
 
@@ -366,7 +367,11 @@ def _build_groups(
             code_display = gkey  # the shared code base, e.g. "SBX-C5JK"
             cogs_set = {m.unit_cogs for m in members}
             unit_cogs = members[0].unit_cogs if len(cogs_set) == 1 else None
-            status = _worst_badge([m.status for m in members])
+            member_badges = [m.status for m in members]
+            status = _worst_badge(member_badges)
+            # How many shades are in that worst status — so "Out ·1" reads as
+            # "1 shade out", not "the whole family is out".
+            status_count = sum(1 for badge in member_badges if badge == status)
             total_v = sum((daily_v_by_key.get(m.canonical_sku, Decimal("0"))
                            for m in members), Decimal("0"))
             cover = (Decimal(sell) / total_v).quantize(Decimal("0.1")) if total_v > 0 else None
@@ -375,6 +380,7 @@ def _build_groups(
             code_display = first.sku_code
             unit_cogs = first.unit_cogs
             status = first.status
+            status_count = 1
             cover = first.days_of_cover
 
         groups.append(InventoryGroup(
@@ -384,7 +390,7 @@ def _build_groups(
             sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=tot,
             in_transit=it, unit_cogs=unit_cogs,
             sellable_value=sval, sample_value=smval, total_value=tval,
-            status=status, days_of_cover=cover,
+            status=status, status_count=status_count, days_of_cover=cover,
         ))
 
     # Default order: most-urgent first, then alphabetical by label.

@@ -206,7 +206,9 @@
             {% elif g.name %}{{ g.name | strip_size | title_case }}
             {% else %}<span class="text-rose-700">—</span>{% endif %}
           </td>
-          <td class="px-4 py-2">{{ status_badge(g.status) }}</td>
+          <td class="px-4 py-2">
+            {{ status_badge(g.status) }}{% if g.is_family and g.status in ['out','low','overstock'] %}<span class="ml-1 text-[11px] font-medium text-slate-400" title="{{ g.status_count }} of {{ g.member_count }} shades">·{{ g.status_count }}</span>{% endif %}
+          </td>
           <td class="col-sellable px-4 py-2 text-right tabular-nums">{{ "{:,}".format(g.sellable_on_hand) }}</td>
           <td class="col-sample px-4 py-2 text-right tabular-nums">{{ "{:,}".format(g.sample_on_hand) }}</td>
           <td class="px-4 py-2 text-right font-semibold tabular-nums {% if g.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ "{:,}".format(g.total_on_hand) }}</td>
@@ -222,8 +224,11 @@
               data-name="{{ m.name or '' }}"
               hidden
               class="bg-white {% if m.total_on_hand == 0 %}text-slate-400{% endif %}">
-            <td class="whitespace-nowrap py-1.5 pl-10 pr-4">
-              <span class="font-mono text-xs {% if m.total_on_hand == 0 %}text-slate-400{% else %}text-slate-600{% endif %}">{{ m.sku_code or m.canonical_sku }}</span>
+            <td class="whitespace-nowrap py-1.5 pl-8 pr-4">
+              <span class="inline-flex items-center gap-1.5">
+                <span class="text-slate-300" aria-hidden="true">└</span>
+                <span class="font-mono text-xs {% if m.total_on_hand == 0 %}text-slate-400{% else %}text-slate-500{% endif %}">{{ m.sku_code or m.canonical_sku }}</span>
+              </span>
             </td>
             <td class="py-1.5 px-4 text-slate-600">{% if m.name %}{{ m.name | strip_size | title_case }}{% else %}—{% endif %}</td>
             <td class="py-1.5 px-4">{{ status_badge(m.status) }}</td>
