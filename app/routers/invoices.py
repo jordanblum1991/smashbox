@@ -481,6 +481,7 @@ def invoice_detail(
     request: Request,
     db: Session = Depends(get_db),
     notice: str | None = None,
+    error: str | None = None,
 ) -> Response:
     inv = db.get(Invoice, invoice_id)
     if inv is None:
@@ -491,7 +492,7 @@ def invoice_detail(
     return templates.TemplateResponse(
         request,
         "admin/invoices_detail.html",
-        {"invoice": inv, "notice": notice},
+        {"invoice": inv, "notice": notice, "error": error},
     )
 
 
@@ -551,6 +552,11 @@ def invoice_mark_paid(
             f"/admin/invoices?{urlencode({'error': 'Invoice not found.'})}",
             status_code=303,
         )
+    if inv.status == "voided":
+        return RedirectResponse(
+            f"/admin/invoices/{inv.id}?{urlencode({'error': 'Cannot mark a voided invoice as paid.'})}",
+            status_code=303,
+        )
     if inv.status != "paid":
         inv.status = "paid"
         db.commit()
@@ -559,5 +565,40 @@ def invoice_mark_paid(
         notice = f"Invoice {inv.number} is already paid."
     return RedirectResponse(
         f"/admin/invoices/{inv.id}?{urlencode({'notice': notice})}",
+        status_code=303,
+    )
+
+
+@router.post(
+    "/admin/invoices/{invoice_id}/void", dependencies=[Depends(require_admin)]
+)
+def invoice_void(
+    invoice_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Void (soft-delete) an unpaid invoice: 'issued' → 'voided'. The record and
+    its number are kept for audit; the invoice can no longer be paid. A paid
+    invoice cannot be voided; a second void is an idempotent no-op."""
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        return RedirectResponse(
+            f"/admin/invoices?{urlencode({'error': 'Invoice not found.'})}",
+            status_code=303,
+        )
+    if inv.status == "paid":
+        return RedirectResponse(
+            f"/admin/invoices/{inv.id}?{urlencode({'error': 'Cannot void a paid invoice.'})}",
+            status_code=303,
+        )
+    if inv.status == "voided":
+        return RedirectResponse(
+            f"/admin/invoices/{inv.id}?{urlencode({'notice': f'Invoice {inv.number} is already voided.'})}",
+            status_code=303,
+        )
+    inv.status = "voided"
+    db.commit()
+    return RedirectResponse(
+        f"/admin/invoices/{inv.id}?{urlencode({'notice': f'Invoice {inv.number} voided.'})}",
         status_code=303,
     )

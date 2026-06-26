@@ -220,9 +220,33 @@
     font-size: 9pt;
     margin-top: 24px;
   }
+
+  /* Status watermark — only rendered for voided (red) / paid (green) invoices.
+     position:fixed so WeasyPrint centers it on the page (and repeats it on
+     every page). Translucent, behind nothing important, never intercepts
+     clicks. */
+  .void-watermark, .paid-watermark {
+    position: fixed;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-32deg);
+    font-size: 120pt;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    border: 8px solid;
+    border-radius: 12px;
+    padding: 4px 28px;
+    pointer-events: none;
+    z-index: 9999;
+    white-space: nowrap;
+  }
+  .void-watermark { color: rgba(220, 38, 38, 0.16); }   /* rose-600 @ ~16% */
+  .paid-watermark { color: rgba(5, 150, 105, 0.16); }   /* emerald-600 @ ~16% */
 </style>
 </head>
 <body>
+
+{% if invoice.status == "voided" %}<div class="void-watermark">VOID</div>{% elif invoice.status == "paid" %}<div class="paid-watermark">PAID</div>{% endif %}
 
 {# ---- Block 1: header band ---------------------------------------------- #}
 <div class="header">
