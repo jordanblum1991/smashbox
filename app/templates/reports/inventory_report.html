@@ -224,7 +224,7 @@
               data-name="{{ m.name or '' }}"
               hidden
               class="bg-white {% if m.total_on_hand == 0 %}text-slate-400{% endif %}">
-            <td class="whitespace-nowrap py-1.5 pl-8 pr-4">
+            <td class="whitespace-nowrap py-1.5 pl-12 pr-4">
               <span class="inline-flex items-center gap-1.5">
                 <span class="text-slate-300" aria-hidden="true">└</span>
                 <span class="font-mono text-xs {% if m.total_on_hand == 0 %}text-slate-400{% else %}text-slate-500{% endif %}">{{ m.sku_code or m.canonical_sku }}</span>
