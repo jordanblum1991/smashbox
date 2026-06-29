@@ -40,6 +40,16 @@ class Shop(Base):
         String(64), default="mon,tue,wed,thu,fri"
     )
 
+    # ---- TikTok Marketing (GMV-Max) auto-sync schedule (admin-managed on
+    # /admin/tiktok-ads). Same scheduling shape as the SAP sync above; decoupled
+    # from the inventory job so the ad data can refresh on its own cadence.
+    gmv_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    gmv_sync_hour: Mapped[int] = mapped_column(Integer, default=7)
+    gmv_sync_minute: Mapped[int] = mapped_column(Integer, default=45)
+    gmv_sync_days: Mapped[str] = mapped_column(
+        String(64), default="mon,tue,wed,thu,fri,sat,sun"
+    )
+
     # ---- Weekly inventory-report email (admin-managed on /reports/inventory) --
     # Same scheduling shape as the SAP sync above. Recipients is a comma-
     # separated list; the report emails to all of them. Off + no recipients by

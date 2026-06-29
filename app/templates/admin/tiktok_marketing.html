@@ -102,4 +102,43 @@
     </tbody>
   </table>
 </section>
+
+{# GMV-Max auto-sync schedule — user-editable days/time/on-off. #}
+{% if shop %}
+<section class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <div class="border-b border-slate-200 px-4 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Auto-sync schedule</h2>
+    <p class="mt-0.5 text-xs text-slate-500">When the GMV-Max ad data refreshes automatically (shop timezone).</p>
+  </div>
+  <form action="/admin/tiktok-ads/schedule" method="post" class="px-4 py-4">
+    <label class="mb-3 inline-flex items-center gap-2 text-sm text-slate-700">
+      <input type="checkbox" name="enabled" value="on" {% if shop.gmv_sync_enabled %}checked{% endif %}
+             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+      <span class="font-medium">Auto-sync enabled</span>
+    </label>
+
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+      <span class="text-xs font-medium text-slate-500">Days</span>
+      {% for d in valid_days %}
+      <label class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700">
+        <input type="checkbox" name="days" value="{{ d }}" {% if d in gmv_days %}checked{% endif %}
+               class="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+        {{ d | capitalize }}
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="flex items-center gap-2">
+      <label class="text-xs font-medium text-slate-500" for="gmv-sync-time">Time</label>
+      <input id="gmv-sync-time" type="time" name="sync_time"
+             value="{{ "%02d:%02d" % (shop.gmv_sync_hour, shop.gmv_sync_minute) }}"
+             class="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm">
+      <button type="submit"
+              class="ml-2 rounded-md bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        Save schedule
+      </button>
+    </div>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

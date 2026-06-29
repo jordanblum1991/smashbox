@@ -16,7 +16,7 @@ import pytest
 from app.db import Base, SessionLocal, engine
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.ad_credit import AdCredit
-from app.models.ad_spend import AdSpend
+from app.models.gmv_max_daily_metric import GmvMaxDailyMetric
 from app.models.order import Order, OrderLine, OrderType
 from app.reports.monthly_pnl import compute_monthly_pnl
 
@@ -45,8 +45,9 @@ def _order(db, bid, gross):
 
 
 def _adspend(db, bid, amount):
-    db.add(AdSpend(import_batch_id=bid, spend_date=datetime(2026, 5, 15),
-                   campaign_id="C1", amount=amount))
+    # GMV-Max ad spend now flows through the auto-synced daily-metric feed.
+    db.add(GmvMaxDailyMetric(import_batch_id=bid, metric_date=date(2026, 5, 15),
+                             cost=amount))
     db.flush()
 
 

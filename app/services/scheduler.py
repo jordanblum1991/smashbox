@@ -29,6 +29,7 @@ from app.models.shop import Shop
 logger = logging.getLogger(__name__)
 
 INVENTORY_JOB_ID = "inventory_sap_sync"
+GMV_JOB_ID = "gmv_max_sync"
 TIKTOK_JOB_ID = "tiktok_api_sync"
 HEARTBEAT_JOB_ID = "scheduler_heartbeat"
 REPORT_JOB_ID = "inventory_report_email"
@@ -73,10 +74,8 @@ def _run_alert_check(db) -> None:
 
 def _run_inventory_sync_job() -> None:
     """Scheduler entry point: own DB session, never propagate exceptions. Runs the
-    SAP inventory sync AND the GMV-Max API pull on the same weekday schedule; each
-    is independent so one failing never aborts the other (both also record their
-    own failures)."""
-    from app.services.gmv_max_sync import sync_gmv_max
+    SAP inventory sync. (GMV-Max has its own job on a user-editable schedule —
+    see _run_gmv_sync_job / apply_gmv_schedule.)"""
     from app.services.inventory_sync import sync_inventory_from_sap
 
     with SessionLocal() as db:
@@ -84,6 +83,16 @@ def _run_inventory_sync_job() -> None:
             sync_inventory_from_sap(db, source="scheduled")
         except Exception:  # noqa: BLE001
             logger.exception("scheduled SAP inventory sync failed")
+        _run_alert_check(db)
+
+
+def _run_gmv_sync_job() -> None:
+    """Scheduler entry point: pull the GMV-Max (Marketing API) ad data on its own
+    user-editable schedule, then run the alert check. Own DB session; never
+    propagates exceptions."""
+    from app.services.gmv_max_sync import sync_gmv_max
+
+    with SessionLocal() as db:
         try:
             sync_gmv_max(db)
         except Exception:  # noqa: BLE001
@@ -250,6 +259,40 @@ def apply_tiktok_schedule(shop: Shop) -> None:
     )
 
 
+def apply_gmv_schedule(shop: Shop) -> None:
+    """Register / reschedule / remove the GMV-Max (Marketing API) sync job to
+    match ``shop``'s current schedule. Fires in the shop's timezone. Safe to call
+    when the scheduler isn't running (no-op)."""
+    if _scheduler is None:
+        return
+
+    if not shop.gmv_sync_enabled:
+        if _scheduler.get_job(GMV_JOB_ID):
+            _scheduler.remove_job(GMV_JOB_ID)
+            logger.info("GMV-Max auto-sync disabled — job removed")
+        return
+
+    trigger = CronTrigger(
+        day_of_week=shop.gmv_sync_days,
+        hour=shop.gmv_sync_hour,
+        minute=shop.gmv_sync_minute,
+        timezone=shop.timezone,
+    )
+    _scheduler.add_job(
+        _run_gmv_sync_job,
+        trigger=trigger,
+        id=GMV_JOB_ID,
+        replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=3600,
+        max_instances=1,
+    )
+    logger.info(
+        "GMV-Max auto-sync scheduled: %s %02d:%02d %s",
+        shop.gmv_sync_days, shop.gmv_sync_hour, shop.gmv_sync_minute, shop.timezone,
+    )
+
+
 def _primary_shop(db) -> Shop | None:
     return db.query(Shop).order_by(Shop.id).first()
 
@@ -383,6 +426,7 @@ def start_scheduler() -> None:
         shop = _primary_shop(db)
         if shop is not None:
             apply_inventory_schedule(shop)
+            apply_gmv_schedule(shop)
             apply_tiktok_schedule(shop)
             apply_inventory_report_schedule(shop)
             apply_sales_report_schedule(shop)
