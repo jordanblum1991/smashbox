@@ -129,4 +129,36 @@
     </dl>
   </footer>
 </section>
+
+{# Ad spend rides a SEPARATE connection (Marketing API). Compact status + link;
+   full controls live on /admin/tiktok-ads. #}
+<section class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+    <div class="flex items-start gap-2.5">
+      {% if ads_cred %}{{ ui.icon("check", "mt-0.5 h-5 w-5 shrink-0 text-emerald-500") }}
+      {% else %}{{ ui.icon("triangle-alert", "mt-0.5 h-5 w-5 shrink-0 text-amber-500") }}{% endif %}
+      <div>
+        <p class="text-sm font-semibold text-slate-900">Ad spend <span class="font-normal text-slate-400">· Marketing API</span></p>
+        <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+          <span>
+            {% if ads_cred %}Connected{% if ads_cred.advertiser_name %} · {{ ads_cred.advertiser_name }}{% endif %}
+            {% elif not ads_configured %}App not configured
+            {% else %}Not connected{% endif %}
+          </span>
+          {% if ads_state %}
+          <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold
+            {% if ads_state.last_status == 'ok' %}bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200
+            {% elif ads_state.last_status == 'error' %}bg-rose-50 text-rose-700 ring-1 ring-rose-200
+            {% elif ads_state.last_status == 'pending' %}bg-amber-50 text-amber-700 ring-1 ring-amber-200
+            {% else %}bg-slate-100 text-slate-600{% endif %}">{{ ads_state.last_status }}</span>
+          {% if ads_state.synced_through %}<span class="text-slate-400">synced through {{ ads_state.synced_through.strftime("%Y-%m-%d %H:%M") }}</span>{% endif %}
+          {% endif %}
+        </p>
+      </div>
+    </div>
+    <a href="/admin/tiktok-ads" class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+      Manage ad spend <span aria-hidden="true">&rarr;</span>
+    </a>
+  </div>
+</section>
 {% endblock %}

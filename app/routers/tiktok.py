@@ -18,7 +18,8 @@ from starlette.concurrency import run_in_threadpool
 from app.auth import require_admin
 from app.config import settings
 from app.db import get_db
-from app.services import tiktok_api, tiktok_sync
+from app.models.tiktok_sync_state import TikTokSyncState
+from app.services import tiktok_api, tiktok_marketing_api as mkt, tiktok_sync
 from app.templating import templates
 
 router = APIRouter(tags=["tiktok"])
@@ -33,11 +34,18 @@ def tiktok_status(request: Request, db: Session = Depends(get_db),
     auto_sync = None
     if settings.scheduler_enabled and settings.tiktok_auto_sync_enabled:
         auto_sync = f"{settings.tiktok_sync_hour:02d}:{settings.tiktok_sync_minute:02d}"
+    # Ad spend rides a SEPARATE connection (Marketing API). Surface its connection
+    # + last-sync status here as a compact card so both are visible from one page;
+    # the full controls stay on /admin/tiktok-ads.
+    ads_state = db.query(TikTokSyncState).filter_by(stream=mkt.ADS_STREAM).first()
     return templates.TemplateResponse(
         request, "admin/tiktok.html",
         {"cred": cred, "configured": settings.tiktok_oauth_enabled,
          "sync_states": tiktok_sync.all_states(db),
          "auto_sync": auto_sync,
+         "ads_cred": mkt.get_credential(db),
+         "ads_configured": settings.tiktok_marketing_oauth_enabled,
+         "ads_state": ads_state,
          "error": error, "notice": notice},
     )
 
