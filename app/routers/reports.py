@@ -1571,12 +1571,20 @@ def ad_spend_view(
     else:
         monthly = compute_ad_spend_monthly(db, start, end)
 
+    # When the GMV-Max (Marketing API) data was last refreshed — completion time
+    # of the most-recent import that wrote a daily metric, in shop-local time.
+    from app.services.inventory_sync import last_synced_at
+    from app.services.reporting_tz import utc_to_shop_local
+    _gmv_synced = last_synced_at(db, GmvMaxDailyMetric)
+    gmv_synced_at = utc_to_shop_local(_gmv_synced) if _gmv_synced else None
+
     return templates.TemplateResponse(
         request,
         "reports/ad_spend.html",
         {
             "monthly": monthly,
             "daily": daily,
+            "gmv_synced_at": gmv_synced_at,
             "scope": scope,
             "start_date": start_date,
             "end_date": end_date,
