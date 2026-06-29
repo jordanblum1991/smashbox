@@ -35,14 +35,18 @@ def test_api_connection_page_shows_ad_spend_card_and_link(client):
     assert "/admin/tiktok-ads" in r.text
 
 
-def test_ad_spend_card_reflects_sync_state(client):
-    # A recorded ad-spend sync state should surface on the card. Use a distinctive
-    # synced-through date so the assertion can't be satisfied by the Shop streams.
+def test_ad_spend_card_shows_full_sync_detail(client):
+    # The card shows the full sync detail (status, synced-through, last run, rows).
+    # Distinctive values so the assertions can't be satisfied by the Shop streams.
     from datetime import datetime
     with SessionLocal() as db:
         db.add(TikTokSyncState(stream=mkt.ADS_STREAM, last_status="ok",
-                               synced_through=datetime(2026, 6, 28, 9, 0)))
+                               synced_through=datetime(2026, 6, 28, 9, 0),
+                               last_run_at=datetime(2026, 6, 29, 7, 45),
+                               rows_last_run=137))
         db.commit()
     r = client.get("/admin/tiktok")
     assert r.status_code == 200
-    assert "2026-06-28" in r.text
+    assert "2026-06-28 09:00" in r.text          # synced through
+    assert "2026-06-29 07:45" in r.text          # last run
+    assert "137" in r.text                        # rows synced
