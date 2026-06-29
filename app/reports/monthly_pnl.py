@@ -21,12 +21,12 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ad_credit import AdCredit
-from app.models.ad_spend import AdSpend
 from app.models.gmv_max_reimbursement import GmvMaxReimbursement
 from app.models.order import Order, OrderLine, OrderType
 from app.models.sample import Sample
 from app.models.settlement import Adjustment
 from app.models.sku import Sku
+from app.reports.gmv_max_campaign_kpis import compute_gmv_max_campaign_kpis
 from app.services.reporting_tz import placed_window
 
 
@@ -61,7 +61,7 @@ class MonthlyPnL:
     tiktok_managed_service: Decimal
     affiliate_commission: Decimal
     shop_ads_cost: Decimal
-    gmv_max_ad_spend: Decimal                  # TikTok Ads (GMV Max) — from Cost export
+    gmv_max_ad_spend: Decimal                  # TikTok Ads (GMV Max) — auto-synced daily feed
     gmv_max_reimbursement: Decimal             # Manually-entered Smashbox-paid
                                                # reimbursement to Outlandish for GMV
                                                # Max spend. Independent pipeline from
@@ -340,8 +340,8 @@ def compute_window_pnl(
     Order.placed_at is filtered on the shop-local window converted to its source
     zone (p_start/p_end), so order revenue buckets like TikTok Seller Center —
     the -1h/-2h offset was empirically validated against the daily Sales tile.
-    Calendar/user dates (AdSpend.spend_date, AdCredit.applied_date) AND the
-    settlement adjustment stream (Adjustment.create_time) keep the raw
+    Calendar/user dates (GmvMaxDailyMetric.metric_date, AdCredit.applied_date)
+    AND the settlement adjustment stream (Adjustment.create_time) keep the raw
     [start, end): the offset was never validated for adjustments, which are a
     separate (settlement-level) feed and a minor P&L line — shifting them across
     month boundaries on an unverified assumption would risk making the P&L worse.
@@ -379,12 +379,13 @@ def compute_window_pnl(
 
     cogs = _paid_cogs(db, start, end)
 
-    gmv_max_ad_spend = Decimal(str(
-        db.execute(
-            select(func.coalesce(func.sum(AdSpend.amount), 0))
-            .where(AdSpend.spend_date >= start, AdSpend.spend_date < end)
-        ).scalar() or 0
-    ))
+    # GMV-Max ad spend reads the auto-synced daily-metric feed
+    # (`GmvMaxDailyMetric` via the shared campaign-KPI helper), NOT the manual
+    # TikTok Ads Manager "Cost" export (`AdSpend`). The Cost export only refreshes
+    # on a manual upload, so it goes stale mid-month and understates this line;
+    # the daily feed auto-pulls from the Marketing API. Sourcing both the P&L and
+    # the Ad Spend page from the same helper keeps the two numbers in lockstep.
+    gmv_max_ad_spend = compute_gmv_max_campaign_kpis(db, start, end).ad_cost
 
     # AdCredit filter: same [start, end) convention as orders. Compared on the
     # Date column directly, so a credit dated on the exclusive-end day is out.

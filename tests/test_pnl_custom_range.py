@@ -19,7 +19,7 @@ import pytest
 from app.db import Base, SessionLocal, engine
 from app.models import (
     AdCredit,
-    AdSpend,
+    GmvMaxDailyMetric,
     GmvMaxReimbursement,
     ImportBatch,
     ImportBatchStatus,
@@ -149,11 +149,12 @@ def _seed_march_and_april(db) -> int:
     db.add(_ad_credit(2026, 3, 15, "100.00", "Mar credit"))
     db.add(_ad_credit(2026, 4, 10, "200.00", "Apr credit"))
 
-    # AdSpend — a row in each month so gmv_max_ad_spend has data to filter.
-    db.add(AdSpend(import_batch_id=bid, spend_date=datetime(2026, 3, 10),
-                   campaign_id="C1", amount=Decimal("50.00")))
-    db.add(AdSpend(import_batch_id=bid, spend_date=datetime(2026, 4, 10),
-                   campaign_id="C2", amount=Decimal("75.00")))
+    # GMV-Max daily metrics — a row in each month so gmv_max_ad_spend has data
+    # to filter (sourced from the auto-synced feed, not the manual Cost export).
+    db.add(GmvMaxDailyMetric(import_batch_id=bid, metric_date=date(2026, 3, 10),
+                             cost=Decimal("50.00")))
+    db.add(GmvMaxDailyMetric(import_batch_id=bid, metric_date=date(2026, 4, 10),
+                             cost=Decimal("75.00")))
 
     db.commit()
     return bid
@@ -603,13 +604,13 @@ def _gmv_reimb(year: int, month: int, amount: str) -> GmvMaxReimbursement:
     return GmvMaxReimbursement(year=year, month=month, amount=Decimal(amount))
 
 
-def _ad_spend(db, batch_id: int, spend_date: datetime, amount: str, *, campaign_id: str = "C1") -> AdSpend:
-    """Seed a TikTok Ads (GMV Max) row so gmv_max_ad_spend has a value to offset."""
-    s = AdSpend(
+def _ad_spend(db, batch_id: int, spend_date: datetime, amount: str, *, campaign_id: str = "C1") -> GmvMaxDailyMetric:
+    """Seed a GMV-Max daily metric so gmv_max_ad_spend has a value to offset.
+    (campaign_id retained for call-site compatibility; the daily feed is by-day.)"""
+    s = GmvMaxDailyMetric(
         import_batch_id=batch_id,
-        spend_date=spend_date,
-        campaign_id=campaign_id,
-        amount=Decimal(amount),
+        metric_date=spend_date.date(),
+        cost=Decimal(amount),
     )
     db.add(s)
     db.flush()
