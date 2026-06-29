@@ -411,6 +411,7 @@ def fetch_payouts(db: Session, cred: TikTokCredential, since: datetime | None) -
 # they default to 0 — the reconciliation keys on gmv (+ orders), which are exact.
 
 _ANALYTICS_LOOKBACK_DAYS = 30  # first sync (no watermark) backfills this much
+_ANALYTICS_REPULL_DAYS = 14    # always re-pull at least this trailing window
 
 
 def fetch_analytics(db: Session, cred: TikTokCredential, since: datetime | None) -> int:
@@ -420,6 +421,12 @@ def fetch_analytics(db: Session, cred: TikTokCredential, since: datetime | None)
     from datetime import date, timedelta
 
     start = since.date() if since is not None else (date.today() - timedelta(days=_ANALYTICS_LOOKBACK_DAYS))
+    # TikTok publishes provisional daily metrics (often GMV=0) and finalizes them
+    # a few days later. A watermark-only pull (start = synced_through ≈ yesterday)
+    # fetches each day once and never corrects it, so finalized values never
+    # overwrite the provisional 0s and the days freeze. Floor `start` to a
+    # trailing window so every run re-pulls and overwrites the recent days.
+    start = min(start, date.today() - timedelta(days=_ANALYTICS_REPULL_DAYS))
     end = date.today() + timedelta(days=2)  # exclusive; API caps at latest available
     intervals = tiktok_api.get_shop_performance(cred, start.isoformat(), end.isoformat())
     if not intervals:
