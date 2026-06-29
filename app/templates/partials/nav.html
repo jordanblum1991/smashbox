@@ -90,6 +90,10 @@
              class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
             TikTok Ad Spend (sync &amp; schedule)
           </a>
+          <a href="/admin/gmv-max-reimbursements"
+             class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+            GMV Max Reimbursements
+          </a>
           {% endif %}
         </div>
       </div>
@@ -158,11 +162,7 @@
             </a>
             <a href="/admin/tiktok"
                class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              API Connection
-            </a>
-            <a href="/admin/gmv-max-reimbursements"
-               class="block rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              GMV Max Reimbursements
+              TikTok Shop API
             </a>
             <a href="/admin/invoices"
                class="flex items-center justify-between rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
@@ -228,6 +228,7 @@
           {% if _user and _user.role.value == 'admin' %}
           <a href="/admin/ad-budget" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Ad Budget</a>
           <a href="/admin/tiktok-ads" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">TikTok Ad Spend (sync &amp; schedule)</a>
+          <a href="/admin/gmv-max-reimbursements" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">GMV Max Reimbursements</a>
           {% endif %}
 
           <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Inventory</div>
@@ -244,8 +245,7 @@
           {% if _user.role.value == 'admin' %}
           <div class="mt-2 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin</div>
           <a href="/admin/catalog" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Product Catalog</a>
-          <a href="/admin/tiktok" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">API Connection</a>
-          <a href="/admin/gmv-max-reimbursements" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">GMV Max Reimbursements</a>
+          <a href="/admin/tiktok" class="block rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">TikTok Shop API</a>
           <a href="/admin/invoices" class="flex items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
             <span>Invoices &amp; AP</span>
             {% if overdue_ap.count > 0 %}<span class="ml-2 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">{{ overdue_ap.count }}</span>{% endif %}
