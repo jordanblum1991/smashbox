@@ -29,6 +29,16 @@
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 print:hidden">Print</button>
 {% endcall %}
 
+{# GMV-Max API data freshness — when the Marketing API last synced. #}
+<div class="mb-5 inline-flex items-center gap-1.5 rounded-md bg-slate-50 px-3 py-1.5 text-xs text-slate-600 ring-1 ring-slate-200 print:hidden">
+  {{ ui.icon("refresh-cw", "h-3.5 w-3.5 text-slate-400") }}
+  {% if gmv_synced_at %}
+  GMV-Max API data last synced <span class="font-semibold text-slate-800">{{ gmv_synced_at.strftime("%b %d, %Y · %I:%M %p") }}</span>
+  {% else %}
+  GMV-Max API data <span class="font-semibold text-slate-800">not yet synced</span>
+  {% endif %}
+</div>
+
 {% if error %}
 <div class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
   <strong>Could not load:</strong> {{ error }}
