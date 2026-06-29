@@ -121,18 +121,21 @@ class MonthlyPnL:
         return self.net_customer_sales / Decimal(self.orders_count)
 
     # -----------------------------------------------------------------
-    # MANAGED-P&L PROPERTIES — contra-net-zero presentation of the
-    # Smashbox-Funded Discount.
+    # MANAGED-P&L PROPERTIES — contra-net-zero presentation of the two
+    # REIMBURSED discounts: the Smashbox-Funded and the TikTok-Funded
+    # (platform) discounts.
     #
-    # Smashbox funds the Smashbox-Funded portion of the seller discount
-    # directly. The P&L shows the deduction (for transparency) and offsets
-    # it in the same revenue grouping so the pair nets to $0 and no
-    # downstream operator subtotal is reduced by this item.
+    # Smashbox funds its portion of the seller discount directly; TikTok funds
+    # the platform discount and reimburses it (settlements pay on the full gross
+    # basis, never deducting the platform discount). The P&L shows each deduction
+    # for transparency and offsets it in the same revenue grouping so each pair
+    # nets to $0 and no downstream operator subtotal is reduced by a discount
+    # someone else funded.
     #
     # Stored fields (net_customer_sales, gross_profit, net_profit) are
-    # left UNCHANGED — they remain settlement-real for reconciliation
+    # left UNCHANGED — they remain settlement/GMV-real for reconciliation
     # tie-out against TikTok Seller Center. The `managed_*` properties
-    # below add the offset back and are what the rendered P&L displays.
+    # below add the offsets back and are what the rendered P&L displays.
     # -----------------------------------------------------------------
 
     @property
@@ -143,20 +146,40 @@ class MonthlyPnL:
         return self.smashbox_discount
 
     @property
+    def platform_discount_offset(self) -> Decimal:
+        """Contra credit equal in magnitude to platform_discount (the
+        TikTok-funded discount). TikTok funds AND reimburses this — settlements
+        credit merchant revenue on the full gross basis (Gross − Seller
+        discount), never deducting the platform discount — so it must be added
+        back to the rendered P&L. Verified against settlement Net Order Margin
+        for fiscal Mar/Apr 2026 to the dollar. Mirror of smashbox_discount_offset:
+        auto-derived, so deduction + offset net to $0 in every period."""
+        return self.platform_discount
+
+    @property
+    def _managed_offsets(self) -> Decimal:
+        """Sum of the contra add-backs that the rendered (managed) P&L applies
+        to the settlement-real figures: the Smashbox- and TikTok-funded
+        discounts, both of which are reimbursed (by Smashbox and TikTok
+        respectively) and so must not reduce the operator's bottom line."""
+        return self.smashbox_discount_offset + self.platform_discount_offset
+
+    @property
     def managed_net_customer_sales(self) -> Decimal:
         """Net Customer Sales for the rendered P&L — settlement-real value
-        plus the Smashbox offset."""
-        return self.net_customer_sales + self.smashbox_discount_offset
+        plus the Smashbox and TikTok-funded (platform) offsets."""
+        return self.net_customer_sales + self._managed_offsets
 
     @property
     def managed_gross_profit(self) -> Decimal:
-        return self.gross_profit + self.smashbox_discount_offset
+        return self.gross_profit + self._managed_offsets
 
     @property
     def managed_net_profit(self) -> Decimal:
-        """Net Profit for the rendered P&L. Equals net_profit computed as if
-        the Smashbox-funded discount were $0 — the load-bearing invariant."""
-        return self.net_profit + self.smashbox_discount_offset
+        """Net Profit for the rendered P&L. Equals net_profit computed as if the
+        Smashbox- and TikTok-funded discounts were $0 — the load-bearing
+        invariant (both are reimbursed, so neither reduces operator profit)."""
+        return self.net_profit + self._managed_offsets
 
     @property
     def managed_gross_margin(self) -> Decimal:

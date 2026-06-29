@@ -235,12 +235,13 @@ def test_stored_net_customer_sales_still_subtracts_smashbox():
         v = compute_monthly_pnl(db, 2026, 5)
     # gross - platform - outlandish - smashbox - refunds == net_customer_sales
     assert v.net_customer_sales == Decimal("755.00")
-    # managed_net_customer_sales adds the offset back
-    assert v.managed_net_customer_sales == Decimal("830.00")
+    # managed_net_customer_sales adds BOTH reimbursed-discount offsets back:
+    # smashbox (75) + platform/TikTok-funded (100) -> 755 + 175 = 930
+    assert v.managed_net_customer_sales == Decimal("930.00")
     # sales_pre_refund (TikTok-aligned) unchanged: net_customer_sales + refunds
     assert v.sales_pre_refund == Decimal("775.00")
-    # managed_sales_pre_refund includes the offset
-    assert v.managed_sales_pre_refund == Decimal("850.00")
+    # managed_sales_pre_refund includes both offsets: 930 + 20 refunds = 950
+    assert v.managed_sales_pre_refund == Decimal("950.00")
 
 
 # ---------------------------------------------------------------------------

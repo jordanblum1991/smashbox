@@ -155,6 +155,12 @@
         {{ section("Revenue") }}
         {{ line("Gross Product Sales", pnl.gross_sales) }}
         {{ line("Less: TikTok-Funded Discount", -pnl.platform_discount, indent=1) }}
+        {{ line("TikTok-Funded Discount Reimbursed by TikTok (contra entry)", pnl.platform_discount_offset, indent=1) }}
+        <tr>
+          <td colspan="3" class="pl-6 pr-1 pb-2 text-xs italic leading-relaxed text-slate-500">
+            TikTok funds this discount and reimburses it — settlements pay on the full gross sales basis, never deducting it. Shown for transparency and offset above so it does not reduce the managed P&amp;L.
+          </td>
+        </tr>
         {{ line("Less: Outlandish-Funded Discount", -pnl.outlandish_discount, indent=1) }}
         {{ line("Less: Smashbox-Funded Discount", -pnl.smashbox_discount, indent=1) }}
         {{ line("Smashbox-Funded Discount Reimbursed by Smashbox (contra entry)", pnl.smashbox_discount_offset, indent=1) }}
@@ -397,6 +403,13 @@
 
       {{ section_header("Discounts & Refunds") }}
       {{ line_row("TikTok-Funded Discount", "platform_discount", indent=1, deduction=true) }}
+      {{ line_row("TikTok-Funded Discount Reimbursed by TikTok (contra entry)", "platform_discount_offset", indent=1) }}
+      <tr>
+        <td colspan="{{ months | length + 2 }}"
+            class="sticky left-0 bg-white pl-9 pr-4 pb-2 text-xs italic leading-relaxed text-slate-500">
+          TikTok funds this discount and reimburses it — settlements pay on the full gross sales basis, never deducting it. Shown for transparency and offset above so it does not reduce the managed P&amp;L.
+        </td>
+      </tr>
       {{ line_row("Outlandish-Funded Discount", "outlandish_discount", indent=1, deduction=true) }}
       {{ line_row("Smashbox-Funded Discount", "smashbox_discount", indent=1, deduction=true) }}
       {{ line_row("Smashbox-Funded Discount Reimbursed by Smashbox (contra entry)", "smashbox_discount_offset", indent=1) }}
