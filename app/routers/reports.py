@@ -37,6 +37,7 @@ from app.reports.dashboard_trends import (
 )
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
+from app.reports.pnl_statement import available_fiscal_months
 from app.reports.policy_violations import (
     all_policy_violations,
     compute_policy_violations,
@@ -157,6 +158,16 @@ def pnl_view(
         {"view": view, "PeriodKind": PeriodKind, "trends": trends, "charts": charts,
          "error": error, "freshness": compute_freshness(db),
          "fiscal_banner": fiscal_banner_payload(view.period_kind.value, view.year, view.month)},
+    )
+
+
+@router.get("/reports/pnl/downloads")
+def pnl_downloads(request: Request, db: Session = Depends(get_db)):
+    """List every fiscal month with data, each linking to a per-month P&L
+    CSV + PDF download (newest first)."""
+    return templates.TemplateResponse(
+        request, "reports/pnl_downloads.html",
+        {"months": available_fiscal_months(db)},
     )
 
 

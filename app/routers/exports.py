@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 
 import xlsxwriter
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from app.reports.inventory_report import compute_inventory_report
 from app.reports.monthly_pnl import compute_monthly_pnl
 from app.reports.purchase_statement import compute_purchase_statement
 from app.reports.pnl import PeriodKind, compute_pnl_view, window_for
+from app.reports.pnl_statement import statement_lines
 from app.reports.sample_tracking import samples_by_sku_shipped
 from app.services.reporting_tz import today_local
 from app.services.sample_report_email import build_sample_csv
@@ -351,6 +352,78 @@ def export_samples_by_sku_csv(
     return Response(
         content=build_sample_csv(rows),
         media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _pnl_download_filename(view, ext: str) -> str:
+    """`smashbox_pnl_fiscal_2026-05.csv` for a fiscal month; a generic
+    year[-month] suffix otherwise."""
+    if view.period_kind == PeriodKind.FISCAL_MONTH and view.month:
+        return f"smashbox_pnl_fiscal_{view.year}-{view.month:02d}.{ext}"
+    suffix = f"{view.year}" + (f"-{view.month:02d}" if view.month else "")
+    return f"smashbox_pnl_{suffix}.{ext}"
+
+
+def _pnl_csv(view) -> str:
+    """Single-period P&L as CSV — the shared statement_lines waterfall, deductions
+    negative, margins as percentages."""
+    import csv
+    import io
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Smashbox P&L"])
+    w.writerow([view.title_suffix])
+    w.writerow([])
+    w.writerow(["Line Item", "Amount"])
+    for ln in statement_lines(view.total):
+        if ln.amount is None:
+            amt = ""
+        elif ln.kind == "margin":
+            amt = f"{float(ln.amount) * 100:.2f}%"
+        else:
+            amt = f"{ln.amount:.2f}"
+        label = f"    {ln.label}" if ln.kind == "subline" else ln.label
+        w.writerow([label, amt])
+    return buf.getvalue()
+
+
+@router.get("/pnl.csv")
+def export_pnl_csv(
+    period: PeriodKind = PeriodKind.FISCAL_MONTH,
+    year: int | None = None,
+    month: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Single-period P&L as CSV. Defaults to a fiscal month; the downloads page
+    links one per fiscal month."""
+    view = compute_pnl_view(db, period, year, month)
+    filename = _pnl_download_filename(view, "csv")
+    return Response(
+        content=_pnl_csv(view),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/pnl.pdf")
+def export_pnl_pdf(
+    request: Request,
+    period: PeriodKind = PeriodKind.FISCAL_MONTH,
+    year: int | None = None,
+    month: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Single-period P&L as a one-page PDF statement (WeasyPrint)."""
+    from app.services.pnl_pdf import render_pnl_pdf
+
+    view = compute_pnl_view(db, period, year, month)
+    data = render_pnl_pdf(view, request)
+    filename = _pnl_download_filename(view, "pdf")
+    return Response(
+        content=data,
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Smashbox P&amp;L</title>
+<style>
+  @page { size: letter; margin: 1.8cm; }
+  body { font-family: Helvetica, Arial, sans-serif; color: #1e293b; font-size: 11px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .sub { color: #64748b; font-size: 12px; margin-bottom: 18px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 3px 0; vertical-align: baseline; }
+  td.amt { text-align: right; white-space: nowrap; }
+  tr.deduction td, tr.credit td { color: #475569; }
+  tr.subline td.label { padding-left: 20px; color: #64748b; font-size: 10px; }
+  tr.subline td.amt { color: #64748b; font-size: 10px; }
+  tr.memo td { color: #94a3b8; font-style: italic; }
+  tr.subtotal td { font-weight: 600; border-top: 1px solid #cbd5e1; }
+  tr.total td { font-weight: 700; font-size: 13px; border-top: 2px solid #334155;
+                border-bottom: 2px solid #334155; }
+  tr.margin td { color: #475569; }
+  .neg { color: #b91c1c; }
+  .foot { margin-top: 22px; color: #94a3b8; font-size: 9px; }
+</style>
+</head>
+<body>
+  <h1>Smashbox P&amp;L</h1>
+  <div class="sub">{{ view.title_suffix }}</div>
+  <table>
+    {% for ln in lines %}
+    <tr class="{{ ln.kind }}">
+      <td class="label">{{ ln.label }}</td>
+      <td class="amt">
+        {%- if ln.amount is none -%}
+        {%- elif ln.kind == 'margin' -%}{{ "%.1f"|format(ln.amount * 100) }}%
+        {%- else -%}<span class="{% if ln.amount < 0 %}neg{% endif %}">{{ ln.amount | money }}</span>
+        {%- endif -%}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="foot">Managed P&amp;L — the Smashbox-funded and TikTok-funded discounts are
+    shown for transparency and offset (each pair nets to $0), so neither reduces the bottom line.</div>
+</body>
+</html>

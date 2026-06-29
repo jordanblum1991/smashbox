@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}P&L Statements · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Reports",
+  title="P&L Statements",
+  subtitle="Download a profit & loss statement for any fiscal month (29th–28th).",
+  accent_bar=true,
+) %}
+  <a href="/reports/pnl"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ ui.icon("arrow-left", "h-3.5 w-3.5") }} Back to P&L
+  </a>
+{% endcall %}
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <table class="min-w-full text-sm">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-6 py-2">Fiscal Month</th>
+        <th class="px-4 py-2">Period</th>
+        <th class="px-4 py-2 text-right">Download</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for m in months %}
+      <tr>
+        <td class="px-6 py-3 font-medium text-slate-900">{{ m.label }}</td>
+        <td class="px-4 py-3 text-slate-500">{{ m.range_str }}</td>
+        <td class="px-4 py-3">
+          <div class="flex items-center justify-end gap-2">
+            <a href="/export/pnl.csv?period=fiscal_month&year={{ m.year }}&month={{ m.month }}" download
+               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
+              {{ ui.icon("download", "h-3.5 w-3.5") }} CSV
+            </a>
+            <a href="/export/pnl.pdf?period=fiscal_month&year={{ m.year }}&month={{ m.month }}" download
+               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
+              {{ ui.icon("file-text", "h-3.5 w-3.5") }} PDF
+            </a>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="3" class="px-6 py-10 text-center text-slate-400">No P&amp;L data yet — import orders first.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
