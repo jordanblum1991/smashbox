@@ -20,7 +20,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models.import_batch import ImportBatch, ImportBatchStatus
+from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.reports.coverage_gaps import compute_order_coverage
 from app.reports.in_transit import in_transit_summary
 from app.reports.inventory_alerts import get_inventory_alert_summary
@@ -173,17 +173,35 @@ def compute_action_center(db: Session) -> "ActionCenterView":
         ))
     # Only "stale" (imported before, now >7 days old) — NOT "missing". A source
     # the shop never uses would otherwise flag forever; staleness means a source
-    # you DO use has gone old.
-    stale_sources = [
-        f.label for f in compute_freshness(db) if f.staleness == "stale"
-    ]
-    if stale_sources:
-        n = len(stale_sources)
+    # you DO use has gone old. Route by HOW it's refreshed: auto-synced sources
+    # point to their sync (NOT a CSV re-import); only manual sources say
+    # "re-import via /uploads". Shop-API streams are skipped here — their
+    # staleness is the TikTok-sync health check's job (below).
+    _SHOP_API_KINDS = {
+        ImportFileKind.TIKTOK_ORDERS, ImportFileKind.TIKTOK_SETTLEMENTS,
+        ImportFileKind.TIKTOK_PAYOUTS, ImportFileKind.TIKTOK_ANALYTICS,
+    }
+    _MARKETING_KINDS = {ImportFileKind.TIKTOK_GMV_MAX, ImportFileKind.TIKTOK_ADS}
+    stale = [f for f in compute_freshness(db) if f.staleness == "stale"]
+    manual_stale = [f.label for f in stale
+                    if f.kind not in _SHOP_API_KINDS and f.kind not in _MARKETING_KINDS]
+    marketing_stale = [f.label for f in stale if f.kind in _MARKETING_KINDS]
+
+    if manual_stale:
+        n = len(manual_stale)
         imp.items.append(ActionItem(
             "data_stale", "warn",
             f"{n} data {_plural(n, 'source')} stale", n,
-            ", ".join(stale_sources) + " — re-import to keep reports current.",
+            ", ".join(manual_stale) + " — re-import to keep reports current.",
             "/uploads", "Manage imports",
+        ))
+    if marketing_stale:
+        n = len(marketing_stale)
+        imp.items.append(ActionItem(
+            "ad_spend_stale", "warn",
+            "Ad-spend data stale", n,
+            ", ".join(marketing_stale) + " — the GMV-Max auto-sync may have stalled.",
+            "/admin/tiktok-ads", "Open ad-spend sync",
         ))
 
     # TikTok auto-sync health — a stream in `error`, or a sync that hasn't run in

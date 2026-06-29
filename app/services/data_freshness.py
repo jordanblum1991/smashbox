@@ -27,7 +27,9 @@ DATA_KINDS: tuple[tuple[ImportFileKind, str], ...] = (
     (ImportFileKind.TIKTOK_ORDERS, "Orders"),
     (ImportFileKind.TIKTOK_SETTLEMENTS, "Settlements"),
     (ImportFileKind.TIKTOK_PAYOUTS, "Payouts"),
-    (ImportFileKind.TIKTOK_ADS, "Ad spend"),
+    # Ad spend now auto-syncs as GMV-Max (the manual TIKTOK_ADS "Cost upload" is
+    # deprecated), so track the live source — otherwise it reads perpetually stale.
+    (ImportFileKind.TIKTOK_GMV_MAX, "Ad spend"),
     (ImportFileKind.SAMPLES, "Samples"),
 )
 
