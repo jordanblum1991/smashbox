@@ -51,14 +51,16 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
             f'<td style="{_TD_R}">{r.sellable_on_hand}</td>'
             f'<td style="{_TD_R}">{r.sample_on_hand}</td>'
             f'<td style="{_TD_R}">{r.total_on_hand}</td>'
-            f'<td style="{_TD_R}">{r.in_transit}</td></tr>'
+            f'<td style="{_TD_R}">{r.in_transit}</td>'
+            f'<td style="{_TD_R}">{r.sample_in_transit}</td></tr>'
         )
     totals = (
         f'<tr><td style="{_TOT}" colspan="2">Total · {view.sku_count} SKUs</td>'
         f'<td style="{_TOT_R}">{view.total_sellable}</td>'
         f'<td style="{_TOT_R}">{view.total_sample}</td>'
         f'<td style="{_TOT_R}">{view.total_units}</td>'
-        f'<td style="{_TOT_R}">{view.total_in_transit}</td></tr>'
+        f'<td style="{_TOT_R}">{view.total_in_transit}</td>'
+        f'<td style="{_TOT_R}">{view.total_sample_in_transit}</td></tr>'
     )
     html = (
         f'<div style="{_CARD}">'
@@ -70,22 +72,26 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
         f'<th style="{_TH}">SKU</th><th style="{_TH}">Product</th>'
         f'<th style="{_TH_R}">Sellable</th><th style="{_TH_R}">Sample</th>'
         f'<th style="{_TH_R}">Total</th>'
-        f'<th style="{_TH_R}">On Order</th></tr></thead>'
+        f'<th style="{_TH_R}">On order (sellable)</th>'
+        f'<th style="{_TH_R}">On order (sample)</th></tr></thead>'
         f'<tbody>{"".join(rows_html)}{totals}</tbody></table></div>'
     )
 
     text_lines = [
         "Smashbox Weekly Inventory Snapshot", snap, "",
-        f"{'SKU':<18}{'Product':<28}{'Sellable':>9}{'Sample':>8}{'Total':>7}{'OnOrder':>8}",
+        f"{'SKU':<18}{'Product':<26}{'Sellable':>9}{'Sample':>8}{'Total':>7}"
+        f"{'On order (sellable)':>21}{'On order (sample)':>20}",
     ]
     for r in view.rows:
         text_lines.append(
-            f"{(r.sku_code or 'Unmapped'):<18}{(r.name or '')[:27]:<28}"
-            f"{r.sellable_on_hand:>9}{r.sample_on_hand:>8}{r.total_on_hand:>7}{r.in_transit:>8}"
+            f"{(r.sku_code or 'Unmapped'):<18}{(r.name or '')[:25]:<26}"
+            f"{r.sellable_on_hand:>9}{r.sample_on_hand:>8}{r.total_on_hand:>7}"
+            f"{r.in_transit:>21}{r.sample_in_transit:>20}"
         )
     text_lines.append(
-        f"{'TOTAL':<18}{f'{view.sku_count} SKUs':<28}"
-        f"{view.total_sellable:>9}{view.total_sample:>8}{view.total_units:>7}{view.total_in_transit:>8}"
+        f"{'TOTAL':<18}{f'{view.sku_count} SKUs':<26}"
+        f"{view.total_sellable:>9}{view.total_sample:>8}{view.total_units:>7}"
+        f"{view.total_in_transit:>21}{view.total_sample_in_transit:>20}"
     )
     return subject, html, "\n".join(text_lines)
 
@@ -116,8 +122,8 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
     ws.write("A2", _snapshot_line(view) if view.last_synced_at
              else "Inventory as of: no snapshot yet", caption)
 
-    headers = ["SKU", "Product", "Sellable", "Sample", "On Order",
-               "Total On Hand"]
+    headers = ["SKU", "Product", "Sellable", "Sample", "Total On Hand",
+               "On order (sellable)", "On order (sample)"]
     hrow = 3
     for c, h in enumerate(headers):
         ws.write(hrow, c, h, hdr_r if c >= 2 else hdr)
@@ -128,22 +134,25 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
         ws.write(r, 1, row.name or "")
         ws.write_number(r, 2, row.sellable_on_hand, num)
         ws.write_number(r, 3, row.sample_on_hand, num)
-        ws.write_number(r, 4, row.in_transit, num)
-        ws.write_number(r, 5, row.total_on_hand, num)
+        ws.write_number(r, 4, row.total_on_hand, num)
+        ws.write_number(r, 5, row.in_transit, num)
+        ws.write_number(r, 6, row.sample_in_transit, num)
         r += 1
 
     ws.write(r, 0, "TOTAL", tot)
     ws.write(r, 1, f"{view.sku_count} SKUs", tot)
     ws.write_number(r, 2, view.total_sellable, tot_n)
     ws.write_number(r, 3, view.total_sample, tot_n)
-    ws.write_number(r, 4, view.total_in_transit, tot_n)
-    ws.write_number(r, 5, view.total_units, tot_n)
+    ws.write_number(r, 4, view.total_units, tot_n)
+    ws.write_number(r, 5, view.total_in_transit, tot_n)
+    ws.write_number(r, 6, view.total_sample_in_transit, tot_n)
 
     ws.freeze_panes(hrow + 1, 0)
     ws.autofilter(hrow, 0, r - 1, len(headers) - 1)
     ws.set_column(0, 0, 18)
     ws.set_column(1, 1, 34)
-    ws.set_column(2, 5, 13)
+    ws.set_column(2, 4, 13)
+    ws.set_column(5, 6, 18)
     wb.close()
     buf.seek(0)
     return buf.getvalue()

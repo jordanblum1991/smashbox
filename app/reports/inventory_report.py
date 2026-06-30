@@ -30,6 +30,7 @@ from app.models.inventory_snapshot import InventorySnapshot
 from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.sku import Sku
 from app.reports.in_transit import compute_in_transit
+from app.reports.sample_inbound import compute_sample_inbound, sample_inbound_summary
 from app.services.demand.replenishment import ReplenishmentStatus
 from app.services.inventory_sync import last_synced_at
 from app.services.reporting_tz import now_local, utc_to_shop_local
@@ -54,6 +55,7 @@ class InventoryReportRow:
     status: str = "none"     # badge: out | low | healthy | overstock | none
     days_of_cover: Decimal | None = None  # sellable days of supply; None = no sales signal
     family_override: str | None = None    # manual Sku.family — overrides the auto family key
+    sample_in_transit: int = 0            # open sample inbound orders (email column)
 
 
 @dataclass
@@ -97,6 +99,7 @@ class InventoryReportView:
     # callers that only need the flat `rows` (email/xlsx renderers, their tests)
     # can construct a view without it.
     groups: list[InventoryGroup] = field(default_factory=list)
+    total_sample_in_transit: int = 0        # open sample inbound units (email)
 
 
 # ---- family-key derivation + status badges --------------------------------
@@ -263,17 +266,18 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
 
     # Units on order (placed, un-received POs). compute_in_transit replicates each
     # qty under every catalog identifier, so a lookup by any of a row's keys hits.
-    in_transit_map = compute_in_transit(db)
+    in_transit_map = compute_in_transit(db)               # sellable, placed POs
+    sample_inbound_map = compute_sample_inbound(db)        # sample, open inbound orders
 
-    def _in_transit_for(key: str, sku: Sku | None, bundle: Bundle | None) -> int:
+    def _units_for(m: dict[str, int], key: str, sku: Sku | None, bundle: Bundle | None) -> int:
         cands = [key]
         if sku:
             cands += [sku.tiktok_sku_id, sku.sku, sku.tiktok_alt_sku]
         if bundle:
             cands += [bundle.tiktok_sku_id, bundle.bundle_sku]
         for c in cands:
-            if c and str(c).strip() in in_transit_map:
-                return in_transit_map[str(c).strip()]
+            if c and str(c).strip() in m:
+                return m[str(c).strip()]
         return 0
 
     # Per-physical-SKU status + days-of-cover from the planner (best-effort).
@@ -303,7 +307,8 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         row = InventoryReportRow(
             canonical_sku=key, sku_code=sku_code, name=name, is_bundle=is_bundle,
             sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=sell + samp,
-            in_transit=_in_transit_for(key, sku, bundle),
+            in_transit=_units_for(in_transit_map, key, sku, bundle),
+            sample_in_transit=_units_for(sample_inbound_map, key, sku, bundle),
             unit_cogs=cogs,
             sellable_value=sellable_value, sample_value=Decimal("0"),
             total_value=sellable_value,
@@ -332,6 +337,7 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         total_sample=sum(sample.values()),
         total_units=sum(sellable.values()) + sum(sample.values()),
         total_in_transit=sum((r.in_transit for r in rows), 0),
+        total_sample_in_transit=sample_inbound_summary(db)["units_inbound"],
         sku_count=len(rows),
         total_sellable_value=sum((r.sellable_value for r in rows), Decimal("0")),
         total_sample_value=sum((r.sample_value for r in rows), Decimal("0")),

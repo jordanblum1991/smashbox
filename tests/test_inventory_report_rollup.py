@@ -167,6 +167,25 @@ def test_family_override_groups_even_unrelated_codes():
     assert fam[0].member_count == 2
 
 
+def test_sample_on_order_folds_into_row_and_total():
+    from app.models.sample_inbound_order import SampleInboundOrder, SampleInboundOrderLine
+    with SessionLocal() as db:
+        b = _batch(db)
+        db.add(Sku(sku="SBX-X", name="X", brand="smashbox", tiktok_sku_id="111",
+                   unit_cogs=Decimal("3.00")))
+        _snap(db, b, "SBX-X", 5)                       # on-hand row
+        o = SampleInboundOrder(source="s", status="open"); db.add(o); db.flush()
+        db.add(SampleInboundOrderLine(sample_inbound_order_id=o.id, sku="SBX-X", quantity=12))
+        o2 = SampleInboundOrder(source="s", status="received"); db.add(o2); db.flush()
+        db.add(SampleInboundOrderLine(sample_inbound_order_id=o2.id, sku="SBX-X", quantity=99))
+        db.commit()
+        view = compute_inventory_report(db)
+
+    row = next(r for r in view.rows if r.sku_code == "SBX-X")
+    assert row.sample_in_transit == 12                 # open inbound counts
+    assert view.total_sample_in_transit == 12          # received (99) excluded
+
+
 def test_single_product_stays_flat():
     with SessionLocal() as db:
         b = _batch(db)

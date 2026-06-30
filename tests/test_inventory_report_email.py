@@ -16,13 +16,14 @@ def _view(last_sync=datetime(2026, 6, 23, 7, 30)):
         is_bundle=False, sellable_on_hand=640, sample_on_hand=8, total_on_hand=648,
         in_transit=48, unit_cogs=Decimal("3.00"),
         sellable_value=Decimal("1920.00"), sample_value=Decimal("24.00"),
-        total_value=Decimal("1944.00"))
+        total_value=Decimal("1944.00"), sample_in_transit=15)
     return InventoryReportView(
         rows=[row], total_sellable=640, total_sample=8, total_units=648,
         total_in_transit=48, sku_count=1,
         total_sellable_value=Decimal("1920.00"), total_sample_value=Decimal("24.00"),
         total_inventory_value=Decimal("1944.00"),
-        last_synced_at=last_sync, as_of=datetime(2026, 6, 23, 9, 0))
+        last_synced_at=last_sync, as_of=datetime(2026, 6, 23, 9, 0),
+        total_sample_in_transit=15)
 
 
 def test_render_html_has_row_totals_and_snapshot():
@@ -34,6 +35,13 @@ def test_render_html_has_row_totals_and_snapshot():
     assert "648" in html  # total units
     assert "2026-06-23" in html and "2026-06-23" in text
     assert "style=" in html and "class=" not in html
+
+
+def test_render_includes_both_on_order_columns():
+    subject, html, text = ire.render_inventory_email(_view())
+    assert "On order (sellable)" in html and "On order (sample)" in html
+    assert "On order (sellable)" in text and "On order (sample)" in text
+    assert "15" in html and "15" in text          # sample on-order value/total
 
 
 def test_render_handles_no_snapshot():
@@ -64,7 +72,9 @@ def test_build_xlsx_readback():
     # COGS + value columns are intentionally excluded from the workbook.
     assert "Unit COGS" not in flat
     assert "Sellable COGS Value" not in flat
-    assert "Total On Hand" in flat   # last retained column header
+    assert "Total On Hand" in flat
+    assert "On order (sellable)" in flat and "On order (sample)" in flat  # both on-order cols
+    assert 15 in flat                # sample on-order value
 
 
 def test_send_inventory_report_calls_mailer(monkeypatch):
