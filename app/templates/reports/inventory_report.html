@@ -192,11 +192,13 @@
               <span class="font-semibold {% if g.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ g.sku_code }}</span>
               <span class="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">{{ g.member_count }} shades</span>
             {% elif g.sku_code %}
+              <span class="mr-1 inline-block h-4 w-4 align-middle" aria-hidden="true"></span>
               <span class="font-medium {% if g.total_on_hand == 0 %}text-slate-400{% else %}text-slate-900{% endif %}">{{ g.sku_code }}</span>
               {% if g.is_bundle %}
                 <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700">Bundle</span>
               {% endif %}
             {% else %}
+              <span class="mr-1 inline-block h-4 w-4 align-middle" aria-hidden="true"></span>
               <span class="text-rose-700">Unmapped</span>
               <span class="ml-1 font-mono text-[10px] text-slate-400">{{ g.label }}</span>
             {% endif %}
