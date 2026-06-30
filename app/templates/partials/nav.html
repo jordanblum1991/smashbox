@@ -31,10 +31,27 @@
       {% set action_items = request.state.action_items if request.state is defined and request.state.action_items is defined else 0 %}
       {% set _user = request.state.user if request.state is defined and request.state.user is defined else none %}
       {% for href, label in primary_links_left %}
+        {% if href == "/reports/pnl" %}
+        {# P&L stays a direct link; a hover panel reveals the Statements page under it. #}
+        <div class="group relative">
+          <a href="{{ href }}"
+             class="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+            {{ label }}
+            {{ ui.icon("chevron-down", "h-3 w-3 text-slate-400 transition-transform group-hover:rotate-180 group-focus-within:rotate-180") }}
+          </a>
+          <div class="invisible absolute left-0 top-full z-20 mt-1 w-48 rounded-md border border-slate-200 bg-white py-1 shadow-lg group-hover:visible group-focus-within:visible">
+            <a href="/reports/pnl/downloads"
+               class="block px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+              P&amp;L Statements
+            </a>
+          </div>
+        </div>
+        {% else %}
         <a href="{{ href }}"
            class="rounded-md px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">
           {{ label }}
         </a>
+        {% endif %}
       {% endfor %}
 
       <a href="/action-center" title="Action Center — open items needing attention"
@@ -210,6 +227,9 @@
         <div class="absolute inset-x-0 top-full z-30 mt-1 max-h-[80vh] overflow-y-auto border-y border-slate-200 bg-white px-4 py-3 shadow-lg">
           {% for href, label in primary_links_left %}
           <a href="{{ href }}" class="block rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">{{ label }}</a>
+          {% if href == "/reports/pnl" %}
+          <a href="/reports/pnl/downloads" class="block rounded-md px-6 py-2 text-sm text-slate-600 hover:bg-slate-100">P&amp;L Statements</a>
+          {% endif %}
           {% endfor %}
           <a href="/action-center" class="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
             <span>Action Center</span>
