@@ -9,6 +9,10 @@
   subtitle="Sample-pool (SBS) on-hand per SKU.",
   accent_bar=true,
 ) %}
+  <a href="/admin/sample-inbound"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ ui.icon("package", "h-3.5 w-3.5") }} Manage inbound sample orders
+  </a>
   <button onclick="window.print()"
           class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Print</button>
 {% endcall %}
@@ -22,8 +26,10 @@
 
 <!-- Headline KPIs -->
 <section class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-  {{ ui.kpi("Total On-Hand Units", view.total_on_hand_units, "Sum across all SKUs in the sample pool") }}
-  {{ ui.kpi("SKUs with Stock", view.sku_count, "Distinct canonical SKUs with a positive balance") }}
+  {{ ui.kpi("Total On-Hand Units", view.total_on_hand_units, "Sample pool (SBS) on-hand, from SAP") }}
+  {{ ui.kpi("Inbound (On Order)", view.total_inbound_units, "Open sample inbound orders, not yet received") }}
+  {{ ui.kpi("Total (On-Hand + Inbound)", view.total_units, "What you'll have once inbound lands") }}
+  {{ ui.kpi("SKUs", view.sku_count, "Distinct SKUs with on-hand or inbound") }}
 </section>
 
 <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -38,7 +44,9 @@
           <th class="px-4 py-2">SKU</th>
           <th class="px-4 py-2">Product Name</th>
           <th class="px-4 py-2">Canonical SKU</th>
-          <th class="px-4 py-2 text-right">On-Hand Units</th>
+          <th class="px-4 py-2 text-right">On-Hand</th>
+          <th class="px-4 py-2 text-right">Inbound</th>
+          <th class="px-4 py-2 text-right">Total</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100">
@@ -58,11 +66,13 @@
             {% if r.name %}{{ r.name | strip_size | title_case }}{% else %}<span class="text-rose-700">—</span>{% endif %}
           </td>
           <td class="px-4 py-2 font-mono text-[11px] text-slate-500">{{ r.canonical_sku }}</td>
-          <td class="px-4 py-2 text-right font-semibold tabular-nums">{{ r.on_hand_units }}</td>
+          <td class="px-4 py-2 text-right tabular-nums {% if r.on_hand_units == 0 %}text-slate-300{% endif %}">{{ r.on_hand_units }}</td>
+          <td class="px-4 py-2 text-right tabular-nums {% if r.inbound_units == 0 %}text-slate-300{% else %}text-sky-700{% endif %}">{{ r.inbound_units }}</td>
+          <td class="px-4 py-2 text-right font-semibold tabular-nums">{{ r.total_units }}</td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="4" class="px-4 py-8 text-center text-slate-400">No sample inventory on hand. Sync from SAP on the Imports page to pull SBS stock.</td>
+          <td colspan="6" class="px-4 py-8 text-center text-slate-400">No sample inventory yet. Sync from SAP to pull SBS stock, or add an inbound order.</td>
         </tr>
         {% endfor %}
       </tbody>

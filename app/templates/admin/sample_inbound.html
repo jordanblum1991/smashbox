@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Sample Inbound · Smashbox{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  eyebrow="Inventory",
+  title="Sample Inbound Orders",
+  subtitle="Track incoming sample stock. While open it counts as inbound (on order) on the Sample Inventory report; mark received once it lands (SAP then owns on-hand).",
+  accent_bar=true,
+) %}
+  <a href="/reports/sample-inventory"
+     class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+    {{ ui.icon("arrow-left", "h-3.5 w-3.5") }} Sample Inventory
+  </a>
+{% endcall %}
+
+{% if notice %}<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{{ notice }}</div>{% endif %}
+{% if error %}<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"><strong>Error:</strong> {{ error }}</div>{% endif %}
+
+<section class="mb-6 grid grid-cols-2 gap-4 sm:max-w-md">
+  {{ ui.kpi("Open orders", summary.open_orders, "Incoming, not yet received") }}
+  {{ ui.kpi("Units inbound", "{:,}".format(summary.units_inbound), "On order across open orders") }}
+</section>
+
+{# Create an inbound order — source/note + a few SKU × qty lines (blank rows skipped). #}
+<section class="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">New inbound order</h2>
+  </header>
+  <form method="post" action="/admin/sample-inbound" class="px-6 py-4">
+    <div class="grid gap-3 sm:grid-cols-2">
+      <label class="block text-sm">
+        <span class="text-xs font-medium text-slate-500">Source (supplier / origin)</span>
+        <input type="text" name="source" placeholder="e.g. Outlandish, gratis sample drop"
+               class="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5">
+      </label>
+      <label class="block text-sm">
+        <span class="text-xs font-medium text-slate-500">Note (optional)</span>
+        <input type="text" name="note" class="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5">
+      </label>
+    </div>
+
+    <div class="mt-4">
+      <div class="mb-1 grid grid-cols-[1fr,7rem] gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <span>SKU</span><span>Quantity</span>
+      </div>
+      {% for i in range(10) %}
+      <div class="mb-1.5 grid grid-cols-[1fr,7rem] gap-2">
+        <select name="sku" class="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm">
+          <option value="">— select —</option>
+          {% for code, name in sku_options %}
+          <option value="{{ code }}">{{ code }} · {{ name | strip_size | title_case }}</option>
+          {% endfor %}
+        </select>
+        <input type="number" name="quantity" min="1" placeholder="0"
+               class="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm tabular-nums">
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="mt-4">
+      <button type="submit" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800">
+        Create inbound order
+      </button>
+    </div>
+  </form>
+</section>
+
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <header class="border-b border-slate-200 px-6 py-3">
+    <h2 class="text-base font-semibold text-slate-900">Orders</h2>
+  </header>
+  <table class="min-w-full text-sm">
+    <thead class="border-b border-slate-200 bg-slate-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <tr>
+        <th class="px-6 py-2">Created</th>
+        <th class="px-4 py-2">Source</th>
+        <th class="px-4 py-2">Items</th>
+        <th class="px-4 py-2 text-right">Units</th>
+        <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for o in orders %}
+      <tr class="{% if o.is_received %}text-slate-400{% endif %}">
+        <td class="whitespace-nowrap px-6 py-3 text-slate-600">{{ o.created_at.strftime("%Y-%m-%d") }}</td>
+        <td class="px-4 py-3 text-slate-700">{{ o.source or "—" }}{% if o.note %}<span class="block text-xs text-slate-400">{{ o.note }}</span>{% endif %}</td>
+        <td class="px-4 py-3 text-slate-600">
+          {% for ln in o.lines %}<span class="mr-2 whitespace-nowrap">{{ ln.sku }} ×{{ ln.quantity }}</span>{% endfor %}
+        </td>
+        <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ "{:,}".format(o.unit_count) }}</td>
+        <td class="px-4 py-3">
+          {% if o.is_received %}
+          <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">Received</span>
+          {% else %}
+          <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">Open</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex items-center justify-end gap-2">
+            {% if o.is_open %}
+            <form method="post" action="/admin/sample-inbound/{{ o.id }}/receive">
+              <button class="rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Mark received</button>
+            </form>
+            {% else %}
+            <form method="post" action="/admin/sample-inbound/{{ o.id }}/unreceive">
+              <button class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">Reopen</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/admin/sample-inbound/{{ o.id }}/delete"
+                  onsubmit="return confirm('Delete this inbound order?');">
+              <button class="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="px-6 py-10 text-center text-slate-400">No inbound sample orders yet — add one above.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

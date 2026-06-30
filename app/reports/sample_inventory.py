@@ -15,8 +15,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.bundle import Bundle
+from app.models.sample_inbound_order import SampleInboundOrder, SampleInboundOrderLine
 from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.sku import Sku
+from app.reports.sample_inbound import compute_sample_inbound
 from app.services.inventory_sync import last_synced_at
 from app.services.reporting_tz import now_local, utc_to_shop_local
 from app.services.sku_alias import load_alias_map
@@ -67,16 +69,23 @@ class SampleOnHandRow:
     sku_code: str | None     # SBX-form from Sku.sku or Bundle.bundle_sku; None=unmapped
     name: str | None         # product name; None=unmapped
     is_bundle: bool          # True when matched to Bundle
-    on_hand_units: int       # current ledger balance
+    on_hand_units: int       # SAP SBS on-hand
+    inbound_units: int = 0   # on-order (open sample inbound orders), not yet received
+
+    @property
+    def total_units(self) -> int:
+        return self.on_hand_units + self.inbound_units
 
 
 @dataclass
 class SampleInventoryView:
     rows: list[SampleOnHandRow]  # mapped rows sorted by sku_code asc, unmapped last
     total_on_hand_units: int     # headline KPI: sum of all on_hand_units
-    sku_count: int               # distinct SKUs with positive stock
+    sku_count: int               # distinct SKUs with on-hand or inbound stock
     as_of: datetime              # snapshot date (captured_at)
     last_synced_at: datetime | None  # shop-local time of the last SBS sync, or None
+    total_inbound_units: int = 0     # sum of inbound (on-order) units
+    total_units: int = 0             # total_on_hand_units + total_inbound_units
 
 
 def compute_sample_inventory_view(
@@ -98,7 +107,11 @@ def compute_sample_inventory_view(
     synced = last_synced_at(db, SampleInventorySnapshot)
     synced_local = utc_to_shop_local(synced) if synced else None
 
-    if not on_hand:
+    # Inbound (on-order) sample units — counts open sample inbound orders,
+    # keyed under every catalog identifier so a lookup by any key hits.
+    inbound = compute_sample_inbound(db)
+
+    if not on_hand and not inbound:
         return SampleInventoryView(
             rows=[],
             total_on_hand_units=0,
@@ -107,71 +120,72 @@ def compute_sample_inventory_view(
             last_synced_at=synced_local,
         )
 
-    canonical_skus = list(on_hand.keys())
-
+    # Catalog resolver over the full (small) Sku/Bundle tables — used to
+    # canonicalize inbound SKUs into the same key space as the SAP on-hand.
     sku_by_key: dict[str, Sku] = {}
-    for s in db.execute(
-        select(Sku).where(
-            (Sku.tiktok_sku_id.in_(canonical_skus))
-            | (Sku.sku.in_(canonical_skus))
-            | (Sku.tiktok_alt_sku.in_(canonical_skus))
-        )
-    ).scalars():
+    for s in db.execute(select(Sku)).scalars():
         for key in (s.tiktok_sku_id, s.sku, s.tiktok_alt_sku):
             if key:
-                sku_by_key[str(key)] = s
-
+                sku_by_key.setdefault(str(key), s)
     bundle_by_key: dict[str, Bundle] = {}
-    for b in db.execute(
-        select(Bundle).where(
-            (Bundle.tiktok_sku_id.in_(canonical_skus))
-            | (Bundle.bundle_sku.in_(canonical_skus))
-        )
-    ).scalars():
+    for b in db.execute(select(Bundle)).scalars():
         for key in (b.tiktok_sku_id, b.bundle_sku):
             if key:
-                bundle_by_key[str(key)] = b
+                bundle_by_key.setdefault(str(key), b)
+
+    def _canonical(key: str) -> str:
+        s = sku_by_key.get(key)
+        if s:
+            return s.sku
+        b = bundle_by_key.get(key)
+        if b:
+            return b.bundle_sku
+        return key
+
+    # Distinct SKUs that have inbound, collapsed to one canonical key each (the
+    # replicated `inbound` dict would otherwise produce duplicate rows).
+    inbound_line_skus = db.execute(
+        select(SampleInboundOrderLine.sku)
+        .join(SampleInboundOrder,
+              SampleInboundOrder.id == SampleInboundOrderLine.sample_inbound_order_id)
+        .where(SampleInboundOrder.status == "open")
+        .distinct()
+    ).scalars().all()
+    inbound_keys = {_canonical((sku or "").strip()) for sku in inbound_line_skus if sku}
+
+    keys = set(on_hand) | inbound_keys
 
     mapped_rows: list[SampleOnHandRow] = []
     unmapped_rows: list[SampleOnHandRow] = []
-
-    for canonical_sku, units in on_hand.items():
-        sku = sku_by_key.get(canonical_sku)
-        bundle = bundle_by_key.get(canonical_sku)
+    for key in keys:
+        units = on_hand.get(key, 0)
+        inbound_units = inbound.get(key, 0)
+        sku = sku_by_key.get(key)
+        bundle = bundle_by_key.get(key)
         if sku:
-            row = SampleOnHandRow(
-                canonical_sku=canonical_sku,
-                sku_code=sku.sku,
-                name=sku.name,
-                is_bundle=False,
-                on_hand_units=units,
-            )
-            mapped_rows.append(row)
+            mapped_rows.append(SampleOnHandRow(
+                canonical_sku=key, sku_code=sku.sku, name=sku.name,
+                is_bundle=False, on_hand_units=units, inbound_units=inbound_units))
         elif bundle:
-            row = SampleOnHandRow(
-                canonical_sku=canonical_sku,
-                sku_code=bundle.bundle_sku,
-                name=bundle.name,
-                is_bundle=True,
-                on_hand_units=units,
-            )
-            mapped_rows.append(row)
+            mapped_rows.append(SampleOnHandRow(
+                canonical_sku=key, sku_code=bundle.bundle_sku, name=bundle.name,
+                is_bundle=True, on_hand_units=units, inbound_units=inbound_units))
         else:
             unmapped_rows.append(SampleOnHandRow(
-                canonical_sku=canonical_sku,
-                sku_code=None,
-                name=None,
-                is_bundle=False,
-                on_hand_units=units,
-            ))
+                canonical_sku=key, sku_code=None, name=None,
+                is_bundle=False, on_hand_units=units, inbound_units=inbound_units))
 
     mapped_rows.sort(key=lambda r: (r.sku_code or ""))
     rows = mapped_rows + unmapped_rows
 
+    total_on_hand = sum(r.on_hand_units for r in rows)
+    total_inbound = sum(r.inbound_units for r in rows)
     return SampleInventoryView(
         rows=rows,
-        total_on_hand_units=sum(on_hand.values()),
-        sku_count=len(on_hand),
+        total_on_hand_units=total_on_hand,
+        sku_count=len(rows),
         as_of=latest_at or now_local(),
         last_synced_at=synced_local,
+        total_inbound_units=total_inbound,
+        total_units=total_on_hand + total_inbound,
     )

@@ -17,6 +17,7 @@ from app.routers import auth as auth_router
 from app.routers import gmv_max_reimbursements as gmv_max_reimbursements_router
 from app.routers import purchase_invoices as purchase_invoices_router
 from app.routers import purchase_orders as purchase_orders_router
+from app.routers import sample_inbound as sample_inbound_router
 from app.routers import tiktok as tiktok_router
 from app.routers import tiktok_marketing as tiktok_marketing_router
 from app.routers import invoices as invoices_router
@@ -348,6 +349,7 @@ app.include_router(ad_budget_router.router)
 app.include_router(gmv_max_reimbursements_router.router)
 app.include_router(purchase_invoices_router.router)
 app.include_router(purchase_orders_router.router)
+app.include_router(sample_inbound_router.router)
 app.include_router(tiktok_router.router)
 app.include_router(tiktok_marketing_router.router)
 app.include_router(invoices_router.router)

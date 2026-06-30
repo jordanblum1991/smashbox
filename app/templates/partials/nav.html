@@ -23,6 +23,8 @@
         ("/reports/demand-planning", "Demand Planning"),
         ("/reports/planner-accuracy", "Planner Accuracy"),
         ("/admin/purchase-orders", "Purchase Orders"),
+        ("/reports/sample-inventory", "Sample Inventory"),
+        ("/admin/sample-inbound", "Sample Inbound"),
       ] %}
       {% set dh = request.state.data_health if request.state is defined and request.state.data_health is defined else {"unmapped": 0, "orphans": 0, "policy_violations": 0, "missing_cogs": 0} %}
       {% set health_total = dh.unmapped + dh.orphans + dh.policy_violations + (dh.missing_cogs if dh.missing_cogs is defined else 0) %}

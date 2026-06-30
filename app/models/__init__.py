@@ -20,6 +20,7 @@ from app.models.purchase_invoice import (
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.models.sample import Sample
 from app.models.sample_allowance import SampleAllowance
+from app.models.sample_inbound_order import SampleInboundOrder, SampleInboundOrderLine
 from app.models.sample_inventory_movement import SampleInventoryMovement, SampleMovementType
 from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.tiktok_credential import TikTokCredential
@@ -61,6 +62,8 @@ __all__ = [
     "PurchaseOrderLine",
     "Sample",
     "SampleAllowance",
+    "SampleInboundOrder",
+    "SampleInboundOrderLine",
     "SampleInventoryMovement",
     "SampleInventorySnapshot",
     "SampleMovementType",
