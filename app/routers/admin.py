@@ -547,6 +547,7 @@ def _sku_view(s: Sku) -> dict:
         "brand": s.brand or "",
         "category": s.category or "",
         "item_type": s.item_type or "",
+        "family": s.family or "",
         "size": extract_size(s.name),
         "msrp": float(s.msrp) if s.msrp is not None else None,
         "unit_cogs": float(s.unit_cogs) if s.unit_cogs is not None else None,
@@ -592,6 +593,7 @@ def create_sku(
     brand: str | None = Form(default=None),
     category: str | None = Form(default=None),
     item_type: str | None = Form(default=None),
+    family: str | None = Form(default=None),
     msrp: str = Form(default=""),
     unit_cogs: str = Form(default=""),
     active_status: str = Form(default="Active"),
@@ -618,6 +620,7 @@ def create_sku(
     brand = (brand or "").strip() or "unknown"      # matches importer default
     category = (category or "").strip() or None
     item_type = (item_type or "").strip() or None
+    family = (family or "").strip() or None
     if active_status not in ("Active", "Inactive"):
         active_status = "Active"
     is_active = (active_status == "Active")
@@ -677,6 +680,7 @@ def create_sku(
         brand=brand,
         category=category,
         item_type=item_type,
+        family=family,
         msrp=msrp_dec,
         unit_cogs=cogs_dec,
         is_active=is_active,
@@ -767,6 +771,8 @@ def bulk_edit_skus(
     service_level: str = Form(default=""),
     apply_is_reorderable: bool = Form(default=False),
     is_reorderable: str = Form(default=""),
+    apply_family: bool = Form(default=False),
+    family: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     """Bulk-edit planning fields + Reorderable across many SKUs from the Manage
@@ -805,6 +811,8 @@ def bulk_edit_skus(
             updates["service_level"] = _parse_service_level(service_level)
         if apply_is_reorderable:
             updates["is_reorderable"] = str(is_reorderable).strip().lower() in ("true", "1", "yes", "on")
+        if apply_family:
+            updates["family"] = family.strip() or None   # free text; blank clears
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

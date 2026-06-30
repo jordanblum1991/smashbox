@@ -118,6 +118,8 @@
           <option value="true">Yes</option>
           <option value="false">No</option>
         </select>
+        <label class="bf"><input type="checkbox" class="bapply" data-f="family"> Family</label>
+        <input type="text" id="b-family" class="binput" placeholder="e.g. Cali Contour Palette (blank = clear)" disabled>
       </div>
       <div class="bulk-actions">
         <span id="bulk-msg" class="bulk-msg"></span>
@@ -154,6 +156,8 @@
               <input class="input" type="text" name="category" maxlength="256"></div>
             <div class="field c6"><label class="lbl">Item Type <span class="opt">(optional)</span></label>
               <input class="input" type="text" name="item_type" maxlength="64"></div>
+            <div class="field c6"><label class="lbl">Family <span class="opt">(optional — groups shades on the inventory report)</span></label>
+              <input class="input" type="text" name="family" maxlength="128" placeholder="e.g. Cali Contour Palette"></div>
           </div>
         </div>
 
@@ -325,6 +329,8 @@ const columnDefs = [
     getQuickFilterText:p=>`${p.data.name} ${p.data.sku} ${p.data.tiktok_sku_id} ${p.data.tiktok_alt_sku}`, sortable:true },
   { headerName:"Category", field:"category", width:140, cellRenderer:tagRenderer(""), sortable:true },
   { headerName:"Item type", field:"item_type", width:132, cellRenderer:tagRenderer("type"), sortable:true },
+  { headerName:"Family", field:"family", width:170, sortable:true,
+    valueFormatter:p=>p.value||"—", getQuickFilterText:p=>p.data.family||"" },
   { headerName:"Gross Margin", field:"_margin", width:138, type:"rightAligned",
     headerTooltip:"(MSRP − Unit COGS) ÷ MSRP", cellRenderer:marginRenderer, sortable:true,
     comparator:(a,b,na,nb)=>{ const x=marginPct(na.data), y=marginPct(nb.data); return (x==null?-1:x)-(y==null?-1:y); } },

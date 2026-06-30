@@ -50,6 +50,7 @@ def _call(**kwargs):
         brand="TestBrand",
         category=None,
         item_type=None,
+        family=None,
         msrp="50.00",
         unit_cogs="10.0000",
         active_status="Active",

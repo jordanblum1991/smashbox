@@ -145,6 +145,28 @@ def test_unmapped_zero_stock_rows_are_hidden():
     assert any(g.sku_code == "SBX-MAP" for g in view.groups)
 
 
+def test_family_override_groups_even_unrelated_codes():
+    # Two SKUs with unrelated code bases but the same manual `family` group into
+    # one family, labeled by the family value.
+    with SessionLocal() as db:
+        b = _batch(db)
+        db.add(Sku(sku="SBX-C70N01", name="Cali Contour Palette- Medium To Dark",
+                   brand="smashbox", tiktok_sku_id="701", unit_cogs=Decimal("5.00"),
+                   family="Cali Contour Palette"))
+        db.add(Sku(sku="SBX-C49T01", name="Cali Contour Palette -Light To Medium",
+                   brand="smashbox", tiktok_sku_id="491", unit_cogs=Decimal("5.00"),
+                   family="Cali Contour Palette"))
+        _snap(db, b, "SBX-C70N01", 10)
+        _snap(db, b, "SBX-C49T01", 5)
+        db.commit()
+        view = compute_inventory_report(db)
+
+    fam = [g for g in view.groups if g.is_family and g.label == "Cali Contour Palette"]
+    assert len(fam) == 1
+    assert {m.sku_code for m in fam[0].members} == {"SBX-C70N01", "SBX-C49T01"}
+    assert fam[0].member_count == 2
+
+
 def test_single_product_stays_flat():
     with SessionLocal() as db:
         b = _batch(db)

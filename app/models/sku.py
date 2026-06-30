@@ -49,6 +49,11 @@ class Sku(Base):
     category: Mapped[str | None] = mapped_column(String(256), nullable=True)
     item_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Optional manual family label. When set, the inventory report groups this SKU
+    # under it, overriding the auto code-base family rule (which misses lines whose
+    # shade isn't a trailing 2-digit suffix). Blank = use the auto rule.
+    family: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+
     msrp: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     unit_cogs: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=Decimal("0"))
 

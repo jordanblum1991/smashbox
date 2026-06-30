@@ -53,6 +53,7 @@ class InventoryReportRow:
     # Enrichment from the demand planner (defaults keep direct constructors working).
     status: str = "none"     # badge: out | low | healthy | overstock | none
     days_of_cover: Decimal | None = None  # sellable days of supply; None = no sales signal
+    family_override: str | None = None    # manual Sku.family — overrides the auto family key
 
 
 @dataclass
@@ -308,6 +309,7 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
             total_value=sellable_value,
             status=_badge_for(pr.status if pr else None),
             days_of_cover=(pr.days_of_supply if pr else None),
+            family_override=((sku.family or None) if sku else None),
         )
         daily_v_by_key[key] = pr.daily_velocity if pr else Decimal("0")
         (mapped if sku_code else unmapped).append(row)
@@ -348,7 +350,11 @@ def _build_groups(
     by_key: dict[str, list[InventoryReportRow]] = {}
     order: list[str] = []
     for r in rows:
-        fam = _family_key(r.sku_code) if (r.sku_code and not r.is_bundle) else None
+        if r.sku_code and not r.is_bundle:
+            # Manual Sku.family wins over the auto code-base rule.
+            fam = r.family_override or _family_key(r.sku_code)
+        else:
+            fam = None
         gkey = fam if fam else f"\x00solo:{r.canonical_sku}"
         if gkey not in by_key:
             by_key[gkey] = []
@@ -369,7 +375,9 @@ def _build_groups(
         tval = sum((m.total_value for m in members), Decimal("0"))
 
         if is_family:
-            label = _common_label([m.name or "" for m in members])
+            # A manual-family group is labeled by the family value the operator
+            # typed; an auto code-base group derives a label from member names.
+            label = first.family_override or _common_label([m.name or "" for m in members])
             code_display = gkey  # the shared code base, e.g. "SBX-C5JK"
             cogs_set = {m.unit_cogs for m in members}
             unit_cogs = members[0].unit_cogs if len(cogs_set) == 1 else None

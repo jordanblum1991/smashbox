@@ -39,6 +39,7 @@ def _call(db, sku_ids, **kw):
         apply_safety_stock_pct=False, safety_stock_pct="",
         apply_service_level=False, service_level="",
         apply_is_reorderable=False, is_reorderable="",
+        apply_family=False, family="",
     )
     base.update(kw)
     return bulk_edit_skus(sku_ids=sku_ids, db=db, **base)
@@ -104,6 +105,20 @@ def test_bad_value_rejected_no_partial_write():
         assert ei.value.status_code == 400
         s = db.get(Sku, a.id)
         assert s.moq == 5 and s.lead_time_days is None  # nothing written
+
+
+def test_family_bulk_set_and_cleared():
+    with SessionLocal() as db:
+        a, b = _sku(db, "A"), _sku(db, "B")
+        db.commit()
+        _call(db, f"{a.id},{b.id}", apply_family=True, family="Cali Contour Palette")
+        db.commit()
+        assert db.get(Sku, a.id).family == "Cali Contour Palette"
+        assert db.get(Sku, b.id).family == "Cali Contour Palette"
+        # checked + blank clears it
+        _call(db, str(a.id), apply_family=True, family="")
+        db.commit()
+        assert db.get(Sku, a.id).family is None
 
 
 def test_no_fields_selected_rejected():
