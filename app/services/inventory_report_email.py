@@ -35,6 +35,18 @@ def _snapshot_line(view: InventoryReportView) -> str:
     return f"Inventory as of {view.last_synced_at:%Y-%m-%d %H:%M} (shop local)"
 
 
+def _email_sorted_rows(view: InventoryReportView) -> list:
+    """Rows ordered for the email: items with stock or inbound first, LARGEST
+    total units first (sellable + sample on-hand + on-order sellable + on-order
+    sample); all-zero rows sink to the bottom. sku_code breaks ties for a stable
+    order."""
+    return sorted(
+        view.rows,
+        key=lambda r: (-(r.total_on_hand + r.in_transit + r.sample_in_transit),
+                       r.sku_code or "~"),
+    )
+
+
 def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
     """Return (subject, html_body, text_body). HTML is inline-styled to match the
     dashboard; both bodies state the last-snapshot time up top."""
@@ -44,7 +56,7 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
 
     snap_html = escape(snap)
     rows_html = []
-    for r in view.rows:
+    for r in _email_sorted_rows(view):
         rows_html.append(
             f'<tr><td style="{_TD}">{escape(r.sku_code or "Unmapped")}</td>'
             f'<td style="{_TD}">{escape(r.name or "")}</td>'
@@ -82,7 +94,7 @@ def render_inventory_email(view: InventoryReportView) -> tuple[str, str, str]:
         f"{'SKU':<18}{'Product':<26}{'Sellable':>9}{'Sample':>8}{'Total':>7}"
         f"{'On order (sellable)':>21}{'On order (sample)':>20}",
     ]
-    for r in view.rows:
+    for r in _email_sorted_rows(view):
         text_lines.append(
             f"{(r.sku_code or 'Unmapped'):<18}{(r.name or '')[:25]:<26}"
             f"{r.sellable_on_hand:>9}{r.sample_on_hand:>8}{r.total_on_hand:>7}"
@@ -129,7 +141,7 @@ def build_inventory_xlsx(view: InventoryReportView) -> bytes:
         ws.write(hrow, c, h, hdr_r if c >= 2 else hdr)
 
     r = hrow + 1
-    for row in view.rows:
+    for row in _email_sorted_rows(view):
         ws.write(r, 0, row.sku_code or "Unmapped")
         ws.write(r, 1, row.name or "")
         ws.write_number(r, 2, row.sellable_on_hand, num)

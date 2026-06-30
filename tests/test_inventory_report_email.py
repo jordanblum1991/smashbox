@@ -44,6 +44,33 @@ def test_render_includes_both_on_order_columns():
     assert "15" in html and "15" in text          # sample on-order value/total
 
 
+def test_email_rows_sorted_by_total_units_desc():
+    def _row(sku, sell=0, samp=0, intransit=0, samp_in=0):
+        return InventoryReportRow(
+            canonical_sku=sku, sku_code=sku, name=sku, is_bundle=False,
+            sellable_on_hand=sell, sample_on_hand=samp, total_on_hand=sell + samp,
+            in_transit=intransit, unit_cogs=Decimal("0"),
+            sellable_value=Decimal("0"), sample_value=Decimal("0"),
+            total_value=Decimal("0"), sample_in_transit=samp_in)
+    rows = [_row("SBX-ZERO"), _row("SBX-SMALL", sell=5),
+            _row("SBX-BIG", sell=100, samp_in=50)]   # totals: 0, 5, 150
+    view = InventoryReportView(
+        rows=rows, total_sellable=105, total_sample=0, total_units=105,
+        total_in_transit=0, sku_count=3, total_sellable_value=Decimal("0"),
+        total_sample_value=Decimal("0"), total_inventory_value=Decimal("0"),
+        last_synced_at=datetime(2026, 6, 23, 7, 0), as_of=datetime(2026, 6, 23, 9, 0),
+        total_sample_in_transit=50)
+    _, html, text = ire.render_inventory_email(view)
+    # Largest total units (on-hand + on-order) first; all-zero last.
+    assert html.index("SBX-BIG") < html.index("SBX-SMALL") < html.index("SBX-ZERO")
+    assert text.index("SBX-BIG") < text.index("SBX-SMALL") < text.index("SBX-ZERO")
+    import io
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(ire.build_inventory_xlsx(view)))
+    col_a = [c[0] for c in wb.active.iter_rows(values_only=True)]
+    assert col_a.index("SBX-BIG") < col_a.index("SBX-SMALL") < col_a.index("SBX-ZERO")
+
+
 def test_render_handles_no_snapshot():
     subject, html, text = ire.render_inventory_email(_view(last_sync=None))
     assert "no snapshot" in html.lower()
