@@ -181,6 +181,22 @@ def test_flat_rows_still_present_for_csv_email():
     assert hasattr(r, "days_of_cover")
 
 
+def test_no_velocity_stocked_sku_shows_no_sales_label():
+    # A SKU with stock but no recent sales has no computable status/cover, so the
+    # cells read "No sales" (not a bare dash).
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with SessionLocal() as db:
+        b = _batch(db)
+        db.add(Sku(sku="SBX-SLOW", name="Slow Mover", brand="smashbox",
+                   tiktok_sku_id="777", unit_cogs=Decimal("3.00")))
+        _snap(db, b, "SBX-SLOW", 12)        # has stock, no orders -> no velocity
+        db.commit()
+
+    html = TestClient(app).get("/reports/inventory").text
+    assert "No sales" in html
+
+
 def test_single_product_row_renders_its_name_in_the_visible_cell():
     # Regression: a non-family (single) SKU must show its product name in the
     # Product Name column, not the "—" placeholder. The title-cased form only
