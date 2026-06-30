@@ -203,7 +203,7 @@
           </td>
           <td class="px-4 py-2">
             {% if g.is_family %}{{ g.label | title_case }}
-            {% elif g.name %}{{ g.name | strip_size | title_case }}
+            {% elif g.sku_code %}{{ g.label | strip_size | title_case }}
             {% else %}<span class="text-rose-700">—</span>{% endif %}
           </td>
           <td class="px-4 py-2">

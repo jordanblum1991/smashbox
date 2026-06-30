@@ -162,6 +162,23 @@ def test_flat_rows_still_present_for_csv_email():
     assert hasattr(r, "days_of_cover")
 
 
+def test_single_product_row_renders_its_name_in_the_visible_cell():
+    # Regression: a non-family (single) SKU must show its product name in the
+    # Product Name column, not the "—" placeholder. The title-cased form only
+    # appears if the visible cell rendered it (the data-name attr is raw-upper).
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with SessionLocal() as db:
+        b = _batch(db)
+        db.add(Sku(sku="SBX-SOLO", name="WIDGET PRIMER", brand="smashbox",
+                   tiktok_sku_id="900", unit_cogs=Decimal("3.00")))
+        _snap(db, b, "SBX-SOLO", 5)
+        db.commit()
+
+    html = TestClient(app).get("/reports/inventory").text
+    assert "Widget Primer" in html
+
+
 def test_page_renders_family_group_with_expandable_members():
     from fastapi.testclient import TestClient
     from app.main import app
