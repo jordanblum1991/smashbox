@@ -126,6 +126,25 @@ def test_multi_shade_family_rolls_up_into_one_group():
     assert g.unit_cogs is None
 
 
+def test_unmapped_zero_stock_rows_are_hidden():
+    # Catalog-gap noise: an unmapped SKU (not in catalog) with no stock is dropped.
+    # Unmapped-with-stock and mapped-zero-stock both stay.
+    with SessionLocal() as db:
+        b = _batch(db)
+        _snap(db, b, "SBX-GHOST", 0)        # unmapped + zero -> hidden
+        _snap(db, b, "SBX-REALGHOST", 4)    # unmapped + has stock -> shown
+        db.add(Sku(sku="SBX-MAP", name="Mapped Primer", brand="smashbox",
+                   tiktok_sku_id="555", unit_cogs=Decimal("3.00")))
+        _snap(db, b, "SBX-MAP", 0)          # mapped + zero -> still shown
+        db.commit()
+        view = compute_inventory_report(db)
+
+    canon = {m.canonical_sku for g in view.groups for m in g.members}
+    assert "SBX-GHOST" not in canon
+    assert "SBX-REALGHOST" in canon
+    assert any(g.sku_code == "SBX-MAP" for g in view.groups)
+
+
 def test_single_product_stays_flat():
     with SessionLocal() as db:
         b = _batch(db)

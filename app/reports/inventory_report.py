@@ -312,6 +312,12 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         daily_v_by_key[key] = pr.daily_velocity if pr else Decimal("0")
         (mapped if sku_code else unmapped).append(row)
 
+    # Drop catalog-gap noise: rows not in the catalog (unmapped) that also have
+    # no stock and nothing on order. SAP keeps feeding discontinued zero-stock
+    # codes; with no catalog row they're pure noise. Mapped out-of-stock products
+    # and unmapped rows that still hold/expect stock are kept.
+    unmapped = [r for r in unmapped if r.total_on_hand > 0 or r.in_transit > 0]
+
     mapped.sort(key=lambda r: (r.sku_code or ""))
     rows = mapped + unmapped
 
@@ -324,7 +330,7 @@ def compute_inventory_report(db: Session) -> InventoryReportView:
         total_sample=sum(sample.values()),
         total_units=sum(sellable.values()) + sum(sample.values()),
         total_in_transit=sum((r.in_transit for r in rows), 0),
-        sku_count=len(keys),
+        sku_count=len(rows),
         total_sellable_value=sum((r.sellable_value for r in rows), Decimal("0")),
         total_sample_value=sum((r.sample_value for r in rows), Decimal("0")),
         total_inventory_value=sum((r.total_value for r in rows), Decimal("0")),
