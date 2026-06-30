@@ -517,11 +517,12 @@ def send_sample_report_now(
 @router.get("/reports/sample-inventory")
 def sample_inventory_view(request: Request, db: Session = Depends(get_db)):
     """Sample pool on-hand inventory, from the latest SAP SBS snapshot."""
+    from app.reports.sample_inbound import likely_received_order_ids
     view = compute_sample_inventory_view(db)
     return templates.TemplateResponse(
         request,
         "reports/sample_inventory.html",
-        {"view": view},
+        {"view": view, "likely_received_count": len(likely_received_order_ids(db))},
     )
 
 

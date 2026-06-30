@@ -9,7 +9,11 @@ from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKi
 from app.models.sample_inbound_order import SampleInboundOrder, SampleInboundOrderLine
 from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.sku import Sku
-from app.reports.sample_inbound import compute_sample_inbound, sample_inbound_summary
+from app.reports.sample_inbound import (
+    compute_sample_inbound,
+    likely_received_order_ids,
+    sample_inbound_summary,
+)
 from app.reports.sample_inventory import compute_sample_inventory_view
 
 
@@ -79,6 +83,59 @@ def test_report_folds_inbound_into_sample_view():
     assert rows["SBX-B"].total_units == 7
     assert view.total_inbound_units == 10
     assert view.total_units == 15
+
+
+def _snap(db, sku, on_hand, when):
+    b = ImportBatch(kind=ImportFileKind.INVENTORY_SNAPSHOT,
+                    status=ImportBatchStatus.COMPLETED, original_filename="t", stored_path="t")
+    db.add(b); db.flush()
+    db.add(SampleInventorySnapshot(import_batch_id=b.id, sku=sku, on_hand=on_hand, captured_at=when))
+
+
+def _open_order(db, sku, qty, created_at):
+    o = SampleInboundOrder(source="x", status="open", created_at=created_at)
+    db.add(o); db.flush()
+    db.add(SampleInboundOrderLine(sample_inbound_order_id=o.id, sku=sku, quantity=qty))
+    return o
+
+
+def test_flagged_when_onhand_grows_after_order():
+    with SessionLocal() as db:
+        db.add(Sku(sku="SBX-A", name="A", brand="smashbox", tiktok_sku_id="111"))
+        _snap(db, "SBX-A", 5, datetime(2026, 6, 20, 7, 0))          # baseline before order
+        o = _open_order(db, "SBX-A", 10, datetime(2026, 6, 21, 9, 0))
+        _snap(db, "SBX-A", 15, datetime(2026, 6, 25, 7, 0))          # grew after → received-ish
+        db.commit()
+        assert o.id in likely_received_order_ids(db)
+
+
+def test_not_flagged_when_onhand_unchanged():
+    with SessionLocal() as db:
+        _snap(db, "SBX-A", 5, datetime(2026, 6, 20, 7, 0))
+        o = _open_order(db, "SBX-A", 10, datetime(2026, 6, 21, 9, 0))
+        _snap(db, "SBX-A", 5, datetime(2026, 6, 25, 7, 0))           # same on-hand
+        db.commit()
+        assert o.id not in likely_received_order_ids(db)
+
+
+def test_not_flagged_when_only_pre_creation_snapshots():
+    with SessionLocal() as db:
+        _snap(db, "SBX-A", 5, datetime(2026, 6, 20, 7, 0))          # only before the order
+        o = _open_order(db, "SBX-A", 10, datetime(2026, 6, 21, 9, 0))
+        db.commit()
+        assert o.id not in likely_received_order_ids(db)
+
+
+def test_received_order_not_flagged():
+    with SessionLocal() as db:
+        _snap(db, "SBX-A", 5, datetime(2026, 6, 20, 7, 0))
+        o = SampleInboundOrder(source="x", status="received",
+                               created_at=datetime(2026, 6, 21, 9, 0))
+        db.add(o); db.flush()
+        db.add(SampleInboundOrderLine(sample_inbound_order_id=o.id, sku="SBX-A", quantity=10))
+        _snap(db, "SBX-A", 15, datetime(2026, 6, 25, 7, 0))
+        db.commit()
+        assert o.id not in likely_received_order_ids(db)
 
 
 def test_summary_counts_orders_and_units_without_replication():

@@ -16,7 +16,7 @@ from app.auth import require_admin
 from app.db import get_db
 from app.models.sample_inbound_order import SampleInboundOrder, SampleInboundOrderLine
 from app.models.sku import Sku
-from app.reports.sample_inbound import sample_inbound_summary
+from app.reports.sample_inbound import likely_received_order_ids, sample_inbound_summary
 from app.templating import templates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -57,6 +57,7 @@ def sample_inbound_list(request: Request, db: Session = Depends(get_db),
         request, "admin/sample_inbound.html",
         {"orders": orders, "sku_options": sku_options,
          "summary": sample_inbound_summary(db),
+         "likely_received": likely_received_order_ids(db),
          "error": error, "notice": notice},
     )
 

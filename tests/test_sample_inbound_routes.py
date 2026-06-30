@@ -70,3 +70,29 @@ def test_sample_inventory_page_shows_inbound_columns_and_link(client):
     assert r.status_code == 200
     assert "Inbound" in r.text
     assert "/admin/sample-inbound" in r.text
+
+
+def test_likely_received_surfaces_on_both_pages(client):
+    from datetime import datetime
+    from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+    from app.models.sample_inbound_order import SampleInboundOrder, SampleInboundOrderLine
+    from app.models.sample_inventory_snapshot import SampleInventorySnapshot
+    with SessionLocal() as db:
+        b1 = ImportBatch(kind=ImportFileKind.INVENTORY_SNAPSHOT, status=ImportBatchStatus.COMPLETED,
+                         original_filename="t", stored_path="t")
+        db.add(b1); db.flush()
+        db.add(SampleInventorySnapshot(import_batch_id=b1.id, sku="SBX-A", on_hand=5,
+                                       captured_at=datetime(2026, 6, 20, 7, 0)))
+        o = SampleInboundOrder(source="x", status="open", created_at=datetime(2026, 6, 21, 9, 0))
+        db.add(o); db.flush()
+        db.add(SampleInboundOrderLine(sample_inbound_order_id=o.id, sku="SBX-A", quantity=10))
+        b2 = ImportBatch(kind=ImportFileKind.INVENTORY_SNAPSHOT, status=ImportBatchStatus.COMPLETED,
+                         original_filename="t", stored_path="t")
+        db.add(b2); db.flush()
+        db.add(SampleInventorySnapshot(import_batch_id=b2.id, sku="SBX-A", on_hand=15,
+                                       captured_at=datetime(2026, 6, 25, 7, 0)))   # grew → looks received
+        db.commit()
+
+    assert "Looks received" in client.get("/admin/sample-inbound").text
+    rep = client.get("/reports/sample-inventory").text
+    assert "look" in rep and "/admin/sample-inbound" in rep

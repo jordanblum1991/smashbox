@@ -11,10 +11,12 @@ whichever key a report uses for that SKU, without double-counting.
 from collections import defaultdict
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.sample_inbound_order import SampleInboundOrder, SampleInboundOrderLine
+from app.models.sample_inventory_snapshot import SampleInventorySnapshot
 from app.models.sku import Sku
+from app.services.sku_alias import load_alias_map
 
 
 def compute_sample_inbound(db: Session) -> dict[str, int]:
@@ -47,6 +49,52 @@ def compute_sample_inbound(db: Session) -> dict[str, int]:
         for ident in set(idents):
             out[ident] += int(qty or 0)
     return dict(out)
+
+
+def likely_received_order_ids(db: Session, *, alias_map: dict[str, str] | None = None) -> set[int]:
+    """Open inbound orders whose SBS on-hand appears to have grown since the order
+    was logged — i.e. SAP has probably already counted the stock as on-hand.
+
+    Advisory only: a HINT to confirm receipt (so on-hand + inbound stop
+    double-counting), not an auto-action — the buyer still clicks "received".
+    For each open order, an SKU is "likely received" when there's a sample
+    snapshot dated AFTER the order's created_at whose on-hand exceeds the on-hand
+    at order-creation time. SKUs are alias-collapsed to match the report."""
+    open_orders = db.execute(
+        select(SampleInboundOrder)
+        .options(selectinload(SampleInboundOrder.lines))
+        .where(SampleInboundOrder.status == "open")
+    ).scalars().all()
+    if not open_orders:
+        return set()
+
+    alias_map = alias_map if alias_map is not None else load_alias_map(db)
+
+    # On-hand timeline per canonical SKU: sorted [(captured_at, on_hand), ...].
+    timeline: dict[str, list] = defaultdict(list)
+    for sku, oh, cap in db.execute(
+        select(SampleInventorySnapshot.sku, SampleInventorySnapshot.on_hand,
+               SampleInventorySnapshot.captured_at)
+    ).all():
+        timeline[alias_map.get(sku, sku)].append((cap, int(oh or 0)))
+    for k in timeline:
+        timeline[k].sort()
+
+    flagged: set[int] = set()
+    for o in open_orders:
+        for ln in o.lines:
+            tl = timeline.get(alias_map.get(ln.sku, ln.sku))
+            if not tl:
+                continue
+            baseline = 0
+            for cap, oh in tl:
+                if cap <= o.created_at:
+                    baseline = oh
+            latest_cap, latest_oh = tl[-1]
+            if latest_cap > o.created_at and latest_oh > baseline:
+                flagged.add(o.id)
+                break
+    return flagged
 
 
 def sample_inbound_summary(db: Session) -> dict:
