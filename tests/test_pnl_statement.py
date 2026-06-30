@@ -91,7 +91,7 @@ def test_available_fiscal_months_spans_earliest_to_current_newest_first():
         refs = available_fiscal_months(db, as_of=date(2026, 6, 28))  # current = fiscal Jun
 
     assert [(r.year, r.month) for r in refs] == [(2026, 6), (2026, 5)]
-    assert refs[0].label == "Fiscal Jun 2026"
+    assert refs[0].label == "Jun 2026"           # no "Fiscal" prefix on the page
     assert "Apr 29, 2026" in refs[1].range_str   # fiscal May = Apr 29 – May 28
 
 

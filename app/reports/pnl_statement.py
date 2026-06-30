@@ -10,6 +10,7 @@ Two pieces:
 """
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -18,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.order import Order
-from app.reports.fiscal_calendar import fiscal_label, fiscal_range_str
+from app.reports.fiscal_calendar import fiscal_range_str
 from app.reports.monthly_pnl import MonthlyPnL
 from app.reports.sales_report import current_fiscal_ym
 from app.services.reporting_tz import today_local
@@ -107,7 +108,9 @@ def available_fiscal_months(
     pairs = _fiscal_months_between(start_ym, end_ym)
     refs = [
         FiscalMonthRef(year=y, month=m,
-                       label=fiscal_label(y, m, "month"),
+                       # Plain month label on the page (e.g. "Feb 2026"); the
+                       # 29th–28th window is shown in range_str alongside.
+                       label=f"{calendar.month_abbr[m]} {y}",
                        range_str=fiscal_range_str(y, m, "month"))
         for y, m in pairs
     ]

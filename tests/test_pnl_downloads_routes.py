@@ -37,7 +37,8 @@ def client() -> TestClient:
 def test_downloads_page_lists_fiscal_month_with_csv_and_pdf_links(client):
     r = client.get("/reports/pnl/downloads")
     assert r.status_code == 200
-    assert "Fiscal May 2026" in r.text
+    assert "May 2026" in r.text
+    assert "Fiscal May 2026" not in r.text       # the "Fiscal" prefix is dropped here
     assert "/export/pnl.csv?period=fiscal_month&year=2026&month=5" in r.text
     assert "/export/pnl.pdf?period=fiscal_month&year=2026&month=5" in r.text
 
