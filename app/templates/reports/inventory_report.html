@@ -144,6 +144,10 @@
         <option value="sellable">Has sellable stock</option>
         <option value="sample">Has sample stock</option>
       </select>
+      <label class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-600">
+        <input id="inv-hidezero" type="checkbox" class="rounded border-slate-300 text-sky-600 focus:ring-sky-500">
+        Hide zero-stock
+      </label>
       <select id="inv-pagesize" title="Lines shown per page"
               class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
         <option value="10">10 / page</option>
@@ -164,7 +168,7 @@
           <th data-key="sellable" class="col-sellable select-none px-4 py-2 text-right hover:text-slate-700">Sellable <span class="sort-ind"></span></th>
           <th data-key="sample" class="col-sample select-none px-4 py-2 text-right hover:text-slate-700">Sample <span class="sort-ind"></span></th>
           <th data-key="total" class="select-none px-4 py-2 text-right hover:text-slate-700">Total <span class="sort-ind"></span></th>
-          <th data-key="in_transit" class="select-none px-4 py-2 text-right hover:text-slate-700" title="Units on placed purchase orders, not yet received">On order <span class="sort-ind"></span></th>
+          <th data-key="in_transit" class="select-none px-4 py-2 text-right hover:text-slate-700" title="Sellable units on placed purchase orders, not yet received. (Sample on-order is on the Sample Inventory report.)">On order (sellable) <span class="sort-ind"></span></th>
           <th data-key="cover" class="select-none px-4 py-2 text-right hover:text-slate-700" title="Days of sellable stock at recent sales velocity">Cover <span class="sort-ind"></span></th>
           <th data-key="value" class="select-none px-4 py-2 text-right hover:text-slate-700">Sellable COGS Value <span class="sort-ind"></span></th>
         </tr>
@@ -307,6 +311,7 @@
 
     var search = document.getElementById("inv-search");
     var stock = document.getElementById("inv-stock");
+    var hideZero = document.getElementById("inv-hidezero");
     var pageSizeSel = document.getElementById("inv-pagesize");
     var count = document.getElementById("inv-count");
     var empty = document.getElementById("inv-empty");
@@ -332,6 +337,7 @@
       var q = (search.value || "").trim().toLowerCase();
       if (q && groupHay(g).indexOf(q) === -1) return false;
       var f = stock.value, total = num(g.p, "total"), sell = num(g.p, "sellable"), samp = num(g.p, "sample");
+      if (hideZero && hideZero.checked && total <= 0) return false;
       if (f === "instock" && total <= 0) return false;
       if (f === "outofstock" && total > 0) return false;
       if (f === "sellable" && sell <= 0) return false;
@@ -428,6 +434,7 @@
 
     search.addEventListener("input", function () { page = 1; render(); });
     stock.addEventListener("change", function () { page = 1; render(); });
+    if (hideZero) hideZero.addEventListener("change", function () { page = 1; render(); });
     pageSizeSel.addEventListener("change", function () { page = 1; render(); });
     prevBtn.addEventListener("click", function () { if (page > 1) { page--; render(); } });
     nextBtn.addEventListener("click", function () { page++; render(); });

@@ -21,3 +21,10 @@ def test_inventory_report_renders_with_view_toggle():
     assert 'data-mode="sellable"' in r.text
     assert 'data-mode="sample"' in r.text
     assert "col-sellable" in r.text and "col-sample" in r.text
+
+
+def test_inventory_report_has_hide_zero_checkbox_and_sellable_onorder_label():
+    r = TestClient(app).get("/reports/inventory")
+    assert r.status_code == 200
+    assert 'id="inv-hidezero"' in r.text          # hide zero-stock checkbox
+    assert "On order (sellable)" in r.text        # clarified column label
