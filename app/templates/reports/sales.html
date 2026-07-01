@@ -108,6 +108,12 @@
       <span class="text-lg font-semibold text-slate-900">{{ view.total_revenue | money }}</span>
       {% if view.revenue_delta %}{{ ui.delta_chip(view.revenue_delta, polarity="higher_better") }}{% endif %}
     </div>
+    {% if seller_center %}
+    <div data-gmv-recon class="mt-0.5 text-[11px] {{ 'text-amber-600' if sc_gmv_delta else 'text-slate-400' }}"
+         title="Booked GMV vs TikTok Seller Center's finalized {{ seller_center.gmv | money }}">
+      {{ '+' if sc_gmv_delta > 0 else '' }}{{ sc_gmv_delta | money }} vs Seller Center
+    </div>
+    {% endif %}
   </div>
   <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
     <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Items Sold</div>

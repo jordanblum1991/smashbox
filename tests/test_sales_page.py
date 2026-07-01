@@ -64,6 +64,27 @@ def test_overview_shows_finalized_reconciliation_strip(client):
     assert "$20.00" in r.text                    # the difference
 
 
+def test_gmv_kpi_card_shows_difference_vs_finalized(client):
+    # The GMV KPI card annotates the booked-vs-finalized difference inline.
+    with SessionLocal() as db:
+        _seed(db, date(2026, 3, 10), 100, 2)          # booked GMV $100
+        _seed_daily(db, date(2026, 3, 10), 80, 1, 1)  # finalized GMV $80
+        db.commit()
+    r = client.get("/reports/sales?granularity=daily&start_date=2026-03-01&end_date=2026-03-31")
+    assert r.status_code == 200
+    assert "data-gmv-recon" in r.text          # the KPI-card annotation marker
+    assert "+$20.00" in r.text                 # booked is $20 above finalized (signed)
+
+
+def test_gmv_kpi_annotation_absent_without_daily_metrics(client):
+    with SessionLocal() as db:
+        _seed(db, date(2026, 3, 10), 100, 2)
+        db.commit()
+    r = client.get("/reports/sales?granularity=daily&start_date=2026-03-01&end_date=2026-03-31")
+    assert r.status_code == 200
+    assert "data-gmv-recon" not in r.text
+
+
 def test_overview_hides_strip_without_daily_metrics(client):
     # No analytics feed → no finalized figure to compare against → no strip, no crash.
     with SessionLocal() as db:
