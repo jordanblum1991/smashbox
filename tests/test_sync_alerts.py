@@ -1,12 +1,20 @@
 """evaluate_sync_alerts (conditions from sync state) + run_alert_check (the
 edge-triggered email state machine). No network — mailer + evaluator stubbed."""
+from datetime import timedelta
+
 import pytest
 
 import app.services.sync_alerts as sa
 from app.config import settings
 from app.db import Base, SessionLocal, engine
-from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.import_batch import (
+    ImportBatch, ImportBatchStatus, ImportFileKind, _utc_now_naive,
+)
+from app.models.shop import Shop
 from app.models.sync_alert import SyncAlert
+from app.models.tiktok_credential import TikTokCredential
+from app.models.tiktok_marketing_credential import TikTokMarketingCredential
+from app.models.tiktok_sync_state import TikTokSyncState
 from app.services.sync_alerts import AlertCondition, run_alert_check
 
 
@@ -47,6 +55,96 @@ def test_evaluate_healthy_returns_none():
                            original_filename="TikTok GMV-Max API sync", stored_path=""))
         db.commit()
         assert sa.evaluate_sync_alerts(db) == []
+
+
+# --- per-feed staleness -----------------------------------------------------
+
+def _shop_connected(db):
+    db.add(TikTokCredential(access_token="t", refresh_token="r", shop_cipher="c"))
+
+
+def _completed_batch(db, kind, fname, *, age_days):
+    db.add(ImportBatch(kind=kind, status=ImportBatchStatus.COMPLETED,
+                       original_filename=fname, stored_path="",
+                       completed_at=_utc_now_naive() - timedelta(days=age_days)))
+
+
+def test_stale_shop_stream_alerts(monkeypatch):
+    """A Shop stream whose last successful sync is older than the threshold
+    alerts per-stream (not masked by other fresh streams)."""
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", True, raising=False)
+    with SessionLocal() as db:
+        _shop_connected(db)
+        db.add(TikTokSyncState(stream="orders", last_status="ok", last_run_at=_utc_now_naive(),
+                               synced_through=_utc_now_naive() - timedelta(days=3)))
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "stale:orders" in keys
+
+
+def test_fresh_shop_stream_no_stale(monkeypatch):
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", True, raising=False)
+    with SessionLocal() as db:
+        _shop_connected(db)
+        db.add(TikTokSyncState(stream="orders", last_status="ok", last_run_at=_utc_now_naive(),
+                               synced_through=_utc_now_naive() - timedelta(hours=1)))
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "stale:orders" not in keys
+
+
+def test_disabled_shop_streams_no_stale(monkeypatch):
+    """When auto-sync is off, a stale stream is expected, not an alert."""
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", False, raising=False)
+    with SessionLocal() as db:
+        _shop_connected(db)
+        db.add(TikTokSyncState(stream="orders", last_status="ok",
+                               synced_through=_utc_now_naive() - timedelta(days=5)))
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "stale:orders" not in keys
+
+
+def test_stale_requires_connection(monkeypatch):
+    """No Shop credential → don't alert (the feed can't run anyway)."""
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", True, raising=False)
+    with SessionLocal() as db:
+        db.add(TikTokSyncState(stream="orders", last_status="ok",
+                               synced_through=_utc_now_naive() - timedelta(days=5)))
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "stale:orders" not in keys
+
+
+def test_stale_gmv_alerts():
+    """GMV-Max staleness comes from the latest COMPLETED batch's age, gated on the
+    Marketing connection + the gmv schedule — independent of the Shop credential."""
+    with SessionLocal() as db:
+        db.add(TikTokMarketingCredential(access_token="t"))
+        db.add(Shop(slug="smashbox", name="Smashbox", timezone="America/Los_Angeles"))
+        _completed_batch(db, ImportFileKind.TIKTOK_GMV_MAX, "TikTok GMV-Max API sync", age_days=3)
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "stale:gmv_max" in keys
+
+
+def test_stale_inventory_alerts():
+    """SAP inventory tolerates a weekend gap but alerts past its longer threshold."""
+    with SessionLocal() as db:
+        db.add(Shop(slug="smashbox", name="Smashbox", timezone="America/Los_Angeles"))
+        _completed_batch(db, ImportFileKind.INVENTORY_SNAPSHOT, "SAP SB+SBS sync", age_days=4)
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "stale:inventory" in keys
+
+
+def test_recent_inventory_no_stale():
+    with SessionLocal() as db:
+        db.add(Shop(slug="smashbox", name="Smashbox", timezone="America/Los_Angeles"))
+        _completed_batch(db, ImportFileKind.INVENTORY_SNAPSHOT, "SAP SB+SBS sync", age_days=1)
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "stale:inventory" not in keys
 
 
 def test_edge_trigger_failure_then_recovery(monkeypatch, enabled):

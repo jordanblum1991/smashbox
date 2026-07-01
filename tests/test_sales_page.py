@@ -12,6 +12,7 @@ from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import ImportBatch, ImportBatchStatus, ImportFileKind
 from app.models.order import Order, OrderLine, OrderType
+from app.models.tiktok_daily_metric import TikTokDailyMetric
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +38,40 @@ def _seed(db, d, gross, units):
     db.add(o); db.flush()
     db.add(OrderLine(order_id=o.id, sku="X", quantity=units))
     db.flush()
+
+
+def _seed_daily(db, d, gmv, orders, items):
+    """Seed one TikTok Shop-Analytics day (the finalized 'Seller Center' figure)."""
+    b = ImportBatch(kind=ImportFileKind.TIKTOK_ANALYTICS, status=ImportBatchStatus.COMPLETED,
+                    original_filename="a", stored_path="a")
+    db.add(b); db.flush()
+    db.add(TikTokDailyMetric(import_batch_id=b.id, metric_date=d,
+                             gmv=Decimal(str(gmv)), orders=orders, items_sold=items))
+    db.flush()
+
+
+def test_overview_shows_finalized_reconciliation_strip(client):
+    # Booked (order-derived) vs finalized (TikTok's own daily GMV) for the window.
+    with SessionLocal() as db:
+        _seed(db, date(2026, 3, 10), 100, 2)          # booked: $100, 2 units, 1 order
+        _seed_daily(db, date(2026, 3, 10), 80, 1, 1)  # finalized: $80, 1 item, 1 order
+        db.commit()
+    r = client.get("/reports/sales?granularity=daily&start_date=2026-03-01&end_date=2026-03-31")
+    assert r.status_code == 200
+    assert "Finalized" in r.text                 # the reconciliation strip rendered
+    assert "$80.00" in r.text                    # finalized GMV
+    assert "$100.00" in r.text                   # booked total
+    assert "$20.00" in r.text                    # the difference
+
+
+def test_overview_hides_strip_without_daily_metrics(client):
+    # No analytics feed → no finalized figure to compare against → no strip, no crash.
+    with SessionLocal() as db:
+        _seed(db, date(2026, 3, 10), 100, 2)
+        db.commit()
+    r = client.get("/reports/sales?granularity=daily&start_date=2026-03-01&end_date=2026-03-31")
+    assert r.status_code == 200
+    assert "Finalized" not in r.text
 
 
 def test_sales_page_renders():

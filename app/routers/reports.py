@@ -65,6 +65,7 @@ from app.reports.ytd_pnl import compute_ytd_pnl
 from app.reports.sales_report import (
     FISCAL_MODES, GRANULARITIES, compute_sales_report, current_fiscal_ym,
 )
+from app.reports.seller_center_kpis import compute_seller_center_kpis
 from app.auth import require_admin
 from app.config import settings
 from app.models.shop import Shop
@@ -225,6 +226,19 @@ def _sales_view_data(db, granularity, start_date, end_date, year, month):
 
     window_label = f"{view.window_start:%b %d} – {view.window_end:%b %d, %Y}"
     cur_y, _ = current_fiscal_ym(today)
+
+    # Reconciliation strip: our as-placed "booked" total vs TikTok's own
+    # finalized Shop-Analytics GMV over the SAME window. The daily-metric window
+    # is inclusive of window_end (compute_seller_center_kpis excludes its end),
+    # so add a day. None when the analytics feed has no data for the period.
+    ws, we = view.window_start, view.window_end
+    sc = compute_seller_center_kpis(
+        db,
+        datetime(ws.year, ws.month, ws.day),
+        datetime(we.year, we.month, we.day) + timedelta(days=1),
+    )
+    seller_center = sc if sc.has_data else None
+
     return {
         "view": view, "granularities": GRANULARITIES, "granularity": granularity,
         "window_label": window_label,
@@ -232,6 +246,10 @@ def _sales_view_data(db, granularity, start_date, end_date, year, month):
         "start_date": start_date or "", "end_date": end_date or "",
         "fiscal_banner": fiscal_banner, "fiscal_year": fy, "fiscal_month": fm,
         "fiscal_years": list(range(cur_y - 2, cur_y + 1)), "error": error,
+        "seller_center": seller_center,
+        "sc_gmv_delta": (view.total_revenue - sc.gmv) if seller_center else None,
+        "sc_orders_delta": (view.total_orders - sc.orders) if seller_center else None,
+        "sc_units_delta": (view.total_units - sc.items_sold) if seller_center else None,
     }
 
 
