@@ -139,6 +139,36 @@ def test_status_page_renders(client):
     assert "Ad Spend" in r.text
 
 
+def test_sync_now_also_runs_gmv_max(client, monkeypatch):
+    """The 'Sync ad spend now' button refreshes BOTH feeds: the AdSpend cost
+    export AND the GMV-Max daily metrics the Ad Spend report reads. Otherwise the
+    button named after the report wouldn't actually update it (the trap that led
+    to this change)."""
+    import app.services.gmv_max_sync as gmv
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        mkt, "run_ads_sync",
+        lambda db, source="manual": (calls.append("ads"), "ok")[1],
+    )
+
+    def fake_gmv(db, **kw):
+        calls.append("gmv")
+        b = ImportBatch(kind=ImportFileKind.TIKTOK_GMV_MAX,
+                        status=ImportBatchStatus.COMPLETED,
+                        original_filename="(api)", stored_path="")
+        b.rows_imported = 5
+        db.add(b)
+        db.flush()
+        return b
+
+    monkeypatch.setattr(gmv, "sync_gmv_max", fake_gmv)
+
+    r = client.post("/admin/tiktok-ads/sync", follow_redirects=False)
+    assert r.status_code == 303
+    assert calls == ["ads", "gmv"]      # both feeds refreshed, in order
+
+
 def test_authorize_requires_config(client):
     # Not configured → redirect back with an error (no crash).
     r = client.get("/auth/tiktok-ads/authorize", follow_redirects=False)
