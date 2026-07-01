@@ -11,14 +11,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.import_batch import (
     ImportBatch, ImportBatchStatus, ImportFileKind, _utc_now_naive,
 )
+from app.models.order import Order, OrderType
 from app.models.sync_alert import SyncAlert
 from app.models.tiktok_sync_state import TikTokSyncState
 from app.services import mailer, tiktok_api
@@ -31,6 +33,14 @@ logger = logging.getLogger(__name__)
 # weekend gap to avoid a Monday-morning false alarm.
 FEED_STALE_HOURS = 36
 INVENTORY_STALE_HOURS = 80
+
+# Canary for the order-status-freeze bug (fixed via the trailing status refresh):
+# PAID orders placed this long ago should have shipped, so a healthy pipeline
+# keeps the aged-unshipped count near 0. A climb past the threshold means the
+# status refresh regressed OR a genuine fulfillment backlog — both worth a look.
+AGED_UNSHIPPED_DAYS = 14
+AGED_UNSHIPPED_ALERT_THRESHOLD = 15
+_UNSHIPPED_STATUSES = ("Pending", "To ship", "On hold", "Unpaid")
 
 
 @dataclass(frozen=True)
@@ -152,6 +162,34 @@ def _feed_staleness(db: Session) -> list[AlertCondition]:
     return out
 
 
+def _aged_unshipped_backlog(db: Session) -> list[AlertCondition]:
+    """Alert when too many PAID orders sit unshipped past AGED_UNSHIPPED_DAYS.
+
+    This is the canary for the order-status-freeze regressing: after the trailing
+    status refresh, aged-unshipped is ~0, so a climb means the refresh stopped
+    working (statuses frozen at Pending/To ship) or a real fulfillment backlog.
+    Gated on the orders sync being connected + enabled — a stopped sync is the
+    staleness alert's job, and dev/disconnected shouldn't fire."""
+    if not (_shop_connected(db) and settings.tiktok_auto_sync_enabled):
+        return []
+    cutoff = _utc_now_naive() - timedelta(days=AGED_UNSHIPPED_DAYS)
+    n = db.execute(
+        select(func.count(Order.id))
+        .where(Order.order_type == OrderType.PAID)
+        .where(Order.status.in_(_UNSHIPPED_STATUSES))
+        .where(Order.placed_at < cutoff)
+    ).scalar() or 0
+    if n <= AGED_UNSHIPPED_ALERT_THRESHOLD:
+        return []
+    return [AlertCondition(
+        key="orders:backlog",
+        title="Orders stuck unshipped",
+        message=(f"{n} PAID orders placed >{AGED_UNSHIPPED_DAYS}d ago are still "
+                 f"unshipped (threshold {AGED_UNSHIPPED_ALERT_THRESHOLD}; healthy is ~0). "
+                 "Likely the order status-refresh regressed (statuses frozen at "
+                 "Pending/To ship) — or a genuine fulfillment backlog."))]
+
+
 def evaluate_sync_alerts(db: Session) -> list[AlertCondition]:
     out: list[AlertCondition] = []
 
@@ -172,6 +210,7 @@ def evaluate_sync_alerts(db: Session) -> list[AlertCondition]:
                 message=_actionable_marketing(msg) if is_marketing else msg))
 
     out += _feed_staleness(db)
+    out += _aged_unshipped_backlog(db)
     # GMV-Max rides the Marketing API too — decorate its auth failures the same way.
     out += [AlertCondition(c.key, c.title, _actionable_marketing(c.message))
             for c in _latest_batch_failed(db, ImportFileKind.TIKTOK_GMV_MAX,
