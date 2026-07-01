@@ -86,6 +86,27 @@
 </p>
 {% endif %}
 
+{# Orientation strip — how to read this page at a glance. Presentation only:
+   points at the three things a buyer does here, in order. #}
+<div class="mb-6 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-2.5 text-xs text-slate-600 print:hidden">
+  <span class="font-semibold uppercase tracking-wider text-slate-500">How to use this page</span>
+  <span class="hidden text-slate-300 sm:inline">·</span>
+  <span class="inline-flex items-center gap-1.5">
+    <span class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-rose-100 text-[10px] font-bold text-rose-700">1</span>
+    <span><strong class="font-semibold text-slate-700">Order today</strong> — the red <em class="not-italic font-medium">Order today</em> tile below</span>
+  </span>
+  <span class="text-slate-300">→</span>
+  <span class="inline-flex items-center gap-1.5">
+    <span class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-700">2</span>
+    <span><strong class="font-semibold text-slate-700">Plan ahead</strong> — the 90-day pipeline buckets</span>
+  </span>
+  <span class="text-slate-300">→</span>
+  <span class="inline-flex items-center gap-1.5">
+    <span class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700">3</span>
+    <span><strong class="font-semibold text-slate-700">Investigate</strong> — search/sort the table, click a SKU to drill in</span>
+  </span>
+</div>
+
 {# Snapshot freshness banner — four-tier:
    fresh (0-7d) → subtle green, aging (8-14d) → amber, stale (15+d) or missing → red.
    Dismissible per-session per-state via sessionStorage; if the state changes
@@ -270,28 +291,34 @@
 </section>
 {% endif %}
 
-{# Status counts row — quick distribution of where each SKU sits in the
-   urgency spectrum. Sits below the pipeline since the pipeline answers
-   the actionable question first; the status mix is descriptive context. #}
+{# Status key — the distribution AND the legend in one. For each status present
+   it shows the count plus a one-line meaning + action, color-matched to the
+   table's row colors, so "what does this color/status mean, and what do I do?"
+   is answered without opening the deep explainer below. #}
 {% set sc = v.counts_by_status %}
-<section aria-label="Status mix" class="mb-6 flex flex-wrap gap-2 text-xs">
-  {% set status_meta = [
-    ('out_of_stock',  'Out of stock',   'neg'),
-    ('at_risk',       'At risk',        'warn'),
-    ('reorder_now',   'Reorder now',    'accent'),
-    ('healthy',       'Healthy',        'pos'),
-    ('overstocked',   'Overstocked',    'info'),
-    ('no_velocity',   'No velocity',    'neutral'),
-    ('discontinued',  'Discontinued',   'neutral'),
-  ] %}
-  {% for key, label, tone in status_meta %}
-  {% if sc.get(key, 0) > 0 %}
-  <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs ring-1 ring-slate-200">
-    <span class="font-medium text-slate-900">{{ sc.get(key) }}</span>
-    <span class="text-slate-500">{{ label }}</span>
-  </span>
-  {% endif %}
-  {% endfor %}
+<section aria-label="Status key" class="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+  <div class="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">What each status means</div>
+  <div class="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+    {% set status_meta = [
+      ('out_of_stock', 'Out of stock', 'bg-rose-500',    'On hand is 0 — buy now.'),
+      ('at_risk',      'At risk',       'bg-amber-500',   'Will run out before a new PO can arrive — expedite.'),
+      ('reorder_now',  'Reorder now',   'bg-indigo-500',  'Below reorder point — place a PO today.'),
+      ('healthy',      'Healthy',       'bg-emerald-500', 'Between reorder point and overstock — no action.'),
+      ('overstocked',  'Overstocked',   'bg-sky-500',     'Over 180 days on hand — capital sitting idle.'),
+      ('no_velocity',  'No velocity',   'bg-slate-400',   'No shipped sales in the last 60 days.'),
+      ('discontinued', 'Discontinued',  'bg-slate-400',   'Flagged not reorderable.'),
+    ] %}
+    {% for key, label, dot, meaning in status_meta %}
+    {% if sc.get(key, 0) > 0 %}
+    <div class="flex items-baseline gap-2 text-xs leading-snug">
+      <span class="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full {{ dot }}"></span>
+      <span class="shrink-0 font-semibold text-slate-900">{{ label }}</span>
+      <span class="shrink-0 tabular-nums text-slate-400">· {{ sc.get(key) }}</span>
+      <span class="text-slate-500">— {{ meaning }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
 </section>
 
 {# Plain-language explainer — collapsed by default so it doesn't dominate
@@ -416,6 +443,7 @@
         Urgency-first by default. Row color marks status — <span class="text-rose-700">red</span> out of stock,
         <span class="text-amber-700">amber</span> at-risk, <span class="text-indigo-700">indigo</span> reorder-now.
         Sort any column; click a row for the SKU drill-down.
+        <span class="mt-0.5 block text-slate-400">Each row is one SKU — hover any column header for what it means.</span>
       </p>
     </div>
     <span class="shrink-0 text-xs text-slate-500">{{ v.rows | length }} SKU{{ "" if v.rows | length == 1 else "s" }}</span>
@@ -534,14 +562,22 @@ const baseCol = { sortable:true, resizable:true, suppressHeaderMenuButton:true }
 function makePipelineGrid(){
   return {
     columnDefs:[
-      { headerName:"Order by", field:"order_by_sort", width:130, cellRenderer:orderByRenderer, sort:"asc" },
-      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuRenderer },
-      { headerName:"Product", field:"name", flex:1.8, minWidth:180, cellRenderer:nameRenderer },
-      { headerName:"Status", field:"status", width:140, cellRenderer:statusRenderer },
-      { headerName:"On hand", field:"on_hand", width:110, type:"rightAligned", cellRenderer:intRenderer },
-      { headerName:"Velocity / day", field:"daily_velocity", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num">${vel(p.value)}</span>` },
-      { headerName:"Reorder qty", field:"suggested_qty", width:130, type:"rightAligned", cellRenderer:qtyRenderer },
-      { headerName:"Investment", field:"investment", width:130, type:"rightAligned", cellRenderer:moneyRenderer },
+      { headerName:"Order by", field:"order_by_sort", width:130, cellRenderer:orderByRenderer, sort:"asc",
+        headerTooltip:"Latest date to place the PO so it arrives before this SKU stocks out. “Today” means it's already due." },
+      { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuRenderer,
+        headerTooltip:"SBX code (top) and canonical component SKU (below). Click a row to drill in." },
+      { headerName:"Product", field:"name", flex:1.8, minWidth:180, cellRenderer:nameRenderer,
+        headerTooltip:"Product name." },
+      { headerName:"Status", field:"status", width:140, cellRenderer:statusRenderer,
+        headerTooltip:"Urgency bucket — see the status key on the main page." },
+      { headerName:"On hand", field:"on_hand", width:110, type:"rightAligned", cellRenderer:intRenderer,
+        headerTooltip:"Sellable units on hand as of the latest inventory snapshot." },
+      { headerName:"Velocity / day", field:"daily_velocity", width:140, type:"rightAligned", cellRenderer:p=>`<span class="num">${vel(p.value)}</span>`,
+        headerTooltip:"60-day daily sales rate (units shipped ÷ 60)." },
+      { headerName:"Reorder qty", field:"suggested_qty", width:130, type:"rightAligned", cellRenderer:qtyRenderer,
+        headerTooltip:"Units to order to cover lead time + cover days of demand. Forecast rows don't apply MOQ/case-pack rounding." },
+      { headerName:"Investment", field:"investment", width:130, type:"rightAligned", cellRenderer:moneyRenderer,
+        headerTooltip:"Reorder qty × unit COGS — cash committed for this PO." },
     ],
     defaultColDef:baseCol, rowData:DP_PIPELINE, domLayout:"autoHeight", suppressCellFocus:true,
     onRowClicked:drill,
@@ -555,20 +591,31 @@ function makeReplenishmentGrid(){
   return {
     columnDefs:[
       { headerName:"SKU", field:"sku_code", flex:1.1, minWidth:150, cellRenderer:skuRenderer,
+        headerTooltip:"Human-readable SBX code (top) and the canonical component SKU (below). Click a row to drill into this SKU.",
         getQuickFilterText:p=>`${p.data.sku_code} ${p.data.component_sku} ${p.data.name}` },
-      { headerName:"Product", field:"name", flex:1.7, minWidth:170, cellRenderer:nameRenderer },
-      { headerName:"On hand", field:"on_hand", width:104, type:"rightAligned", cellRenderer:intRenderer },
+      { headerName:"Product", field:"name", flex:1.7, minWidth:170, cellRenderer:nameRenderer,
+        headerTooltip:"Product name." },
+      { headerName:"On hand", field:"on_hand", width:104, type:"rightAligned", cellRenderer:intRenderer,
+        headerTooltip:"Sellable units in the SB warehouse as of the latest inventory snapshot." },
       { headerName:"In transit", field:"expected_receipts", width:108, type:"rightAligned", cellRenderer:inTransitRenderer,
         headerTooltip:"Units on placed purchase orders, not yet received. Counts toward available stock, so the planner won't re-recommend what's already on order." },
-      { headerName:"14d / 60d", field:"daily_velocity_14d", width:120, type:"rightAligned", headerTooltip:"units/day: 14-day / 60-day", cellRenderer:velocityRenderer,
+      { headerName:"14d / 60d", field:"daily_velocity_14d", width:120, type:"rightAligned", cellRenderer:velocityRenderer,
+        headerTooltip:"Daily sales rate — last 14 days / last 60 days (units shipped ÷ days). Bundles counted per component; only Shipped + Completed orders, samples excluded.",
         comparator:(a,b,na,nb)=> na.data.daily_velocity_14d - nb.data.daily_velocity_14d },
-      { headerName:"Days supply", field:"days_of_supply", width:122, type:"rightAligned", cellRenderer:daysSupplyRenderer },
-      { headerName:"Stockout", field:"stockout_sort", width:110, type:"rightAligned", cellRenderer:p=>`<span class="num${p.value?'':' muted'}">${p.data.stockout_label||"—"}</span>` },
-      { headerName:"Lead", field:"lead_time_days", width:90, type:"rightAligned", cellRenderer:p=>`<span class="num">${p.value} d</span>` },
-      { headerName:"Reorder pt", field:"reorder_point", width:116, type:"rightAligned", cellRenderer:intRenderer },
-      { headerName:"Suggested qty", field:"suggested_order_qty", width:134, type:"rightAligned", cellRenderer:qtyRenderer },
-      { headerName:"Investment", field:"investment", width:124, type:"rightAligned", cellRenderer:moneyRenderer },
-      { headerName:"Status", field:"status", width:138, cellRenderer:statusRenderer },
+      { headerName:"Days supply", field:"days_of_supply", width:122, type:"rightAligned", cellRenderer:daysSupplyRenderer,
+        headerTooltip:"On hand ÷ daily velocity — days until stockout at the current sales rate. Turns red when it's below the lead time." },
+      { headerName:"Stockout", field:"stockout_sort", width:110, type:"rightAligned", cellRenderer:p=>`<span class="num${p.value?'':' muted'}">${p.data.stockout_label||"—"}</span>`,
+        headerTooltip:"Projected stockout date = today + days of supply, if no new inventory arrives." },
+      { headerName:"Lead", field:"lead_time_days", width:90, type:"rightAligned", cellRenderer:p=>`<span class="num">${p.value} d</span>`,
+        headerTooltip:"Supplier lead time in days — how long a PO takes to arrive (default 14; editable per SKU on the drill-down)." },
+      { headerName:"Reorder pt", field:"reorder_point", width:116, type:"rightAligned", cellRenderer:intRenderer,
+        headerTooltip:"On-hand level that triggers a PO = (velocity × lead time) + safety stock. At or below this, the SKU flips to Reorder now." },
+      { headerName:"Suggested qty", field:"suggested_order_qty", width:134, type:"rightAligned", cellRenderer:qtyRenderer,
+        headerTooltip:"Units to order = velocity × (lead time + cover days) − on hand − in transit, rounded up to MOQ and case-pack when set." },
+      { headerName:"Investment", field:"investment", width:124, type:"rightAligned", cellRenderer:moneyRenderer,
+        headerTooltip:"Suggested order quantity × unit COGS — the cash needed to place this PO." },
+      { headerName:"Status", field:"status", width:138, cellRenderer:statusRenderer,
+        headerTooltip:"Urgency bucket — see the “What each status means” key above the table." },
     ],
     defaultColDef:baseCol, rowData:DP_ROWS, suppressCellFocus:true,
     pagination:true, paginationPageSize:25, paginationPageSizeSelector:[10,25,50,100],

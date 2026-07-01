@@ -68,3 +68,27 @@ def test_demand_planning_renders_product_name_title_cased(client: TestClient):
     assert "HALO SCULPT" not in r.text
     # Trailing size paren must be gone too.
     assert "(15.7G/0.55OZ)" not in r.text
+
+
+def test_demand_planning_shows_orientation_and_status_key(client: TestClient):
+    """The clarity polish: an always-on 'how to use' strip and a status key
+    that spells out what each status means, without opening the deep explainer."""
+    with SessionLocal() as db:
+        batch = ImportBatch(kind=ImportFileKind.INVENTORY_SNAPSHOT,
+                            status=ImportBatchStatus.COMPLETED,
+                            original_filename="seed.csv", stored_path="/tmp/seed.csv")
+        db.add(batch); db.flush()
+        db.add(Sku(sku="SBX-KEY-01", tiktok_sku_id="9000000000000009999",
+                   name="Test Product", brand="Smashbox"))
+        db.add(InventorySnapshot(import_batch_id=batch.id, sku="9000000000000009999",
+                                 on_hand=0, captured_at=datetime(2026, 5, 25, 12, 0, 0)))
+        db.commit()
+
+    r = client.get("/reports/demand-planning")
+    assert r.status_code == 200
+    assert "How to use this page" in r.text          # orientation strip
+    assert "What each status means" in r.text         # always-on status key
+    # A meaning/action line from the key (not just the bare status label).
+    assert "place a PO today" in r.text
+    # Column tooltip text is present (self-explanatory headers).
+    assert "days until stockout at the current sales rate" in r.text
