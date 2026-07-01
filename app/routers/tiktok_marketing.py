@@ -50,13 +50,28 @@ def tiktok_ads_status(request: Request, db: Session = Depends(get_db),
 
 @router.post("/admin/tiktok-ads/sync", dependencies=[Depends(require_admin)])
 async def tiktok_ads_sync_now(db: Session = Depends(get_db)):
-    """Manual 'Sync ad spend now'. Runs off the event loop."""
+    """Manual 'Sync ad spend now'. Refreshes BOTH ad feeds so the button matches
+    its label: the AdSpend cost export (credits/reimbursements page) AND the
+    GMV-Max daily metrics that the Ad Spend report's KPI table + the P&L read.
+    Without the GMV-Max pull the button named after the report wouldn't actually
+    update it. Both run off the event loop and are idempotent (upsert on natural
+    keys)."""
+    from app.models.import_batch import ImportBatchStatus
+    from app.services.gmv_max_sync import sync_gmv_max
+
     status = await run_in_threadpool(mkt.run_ads_sync, db, source="manual")
+    gmv_batch = await run_in_threadpool(sync_gmv_max, db)
+    gmv_ok = gmv_batch.status == ImportBatchStatus.COMPLETED
+    gmv_note = (f" GMV-Max refreshed ({gmv_batch.rows_imported} days)."
+                if gmv_ok else " GMV-Max sync didn't complete — see Uploads.")
+
     if status == "pending":
-        return _back(notice="Sync ran — pending until the Marketing API is connected.")
+        return _back(notice="Ad-spend sync pending until the Marketing API is "
+                            "connected." + gmv_note)
     if status == "error":
-        return _back(error="Ad-spend sync failed — see the status panel.")
-    return _back(notice=f"Ad-spend sync complete ({status}).")
+        return _back(error="Ad-spend sync failed — see the status panel."
+                            + gmv_note)
+    return _back(notice=f"Ad-spend sync complete ({status})." + gmv_note)
 
 
 @router.post("/admin/tiktok-ads/schedule", dependencies=[Depends(require_admin)])
