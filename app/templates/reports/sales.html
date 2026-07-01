@@ -111,7 +111,7 @@
     {% if seller_center %}
     <div data-gmv-recon class="mt-0.5 text-[11px] text-slate-500"
          title="TikTok Seller Center's finalized GMV for this period (booked is {{ '+' if sc_gmv_delta > 0 else '' }}{{ sc_gmv_delta | money }})">
-      TikTok {{ seller_center.gmv | money }}
+      Seller Center {{ seller_center.gmv | money }}
       <span class="{{ 'text-amber-600' if sc_gmv_delta else 'text-slate-400' }}">({{ '+' if sc_gmv_delta > 0 else '' }}{{ sc_gmv_delta | money }})</span>
     </div>
     {% endif %}
