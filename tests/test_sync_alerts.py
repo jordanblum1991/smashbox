@@ -88,6 +88,46 @@ def test_ads_error_gated_on_marketing_not_shop():
     assert "tiktok:orders" in keys
 
 
+def _cond(conds, key):
+    return next((c for c in conds if c.key == key), None)
+
+
+def test_ads_auth_error_message_is_actionable():
+    """A Marketing-API auth failure (revoked/invalid token — the only real
+    'expiry' failure mode, since these tokens are long-lived) tells the operator
+    to reconnect, not just a raw error string."""
+    with SessionLocal() as db:
+        _marketing_connected(db)
+        db.add(TikTokSyncState(stream="ads", last_status="error",
+                               last_message="TikTok Marketing API error 40105: Access token is invalid"))
+        db.commit()
+        c = _cond(sa.evaluate_sync_alerts(db), "tiktok:ads")
+    assert c is not None and "reconnect the marketing api" in c.message.lower()
+
+
+def test_gmv_auth_failure_message_is_actionable():
+    with SessionLocal() as db:
+        db.add(TikTokMarketingCredential(access_token="t"))
+        db.add(Shop(slug="smashbox", name="Smashbox", timezone="America/Los_Angeles"))
+        db.add(ImportBatch(kind=ImportFileKind.TIKTOK_GMV_MAX, status=ImportBatchStatus.FAILED,
+                           original_filename="TikTok GMV-Max API sync", stored_path="",
+                           error_message="GMV-Max API sync failed: Access token is invalid"))
+        db.commit()
+        c = _cond(sa.evaluate_sync_alerts(db), "gmv_max")
+    assert c is not None and "reconnect the marketing api" in c.message.lower()
+
+
+def test_non_auth_error_message_not_decorated():
+    """A transient (non-auth) error keeps its plain message — no reconnect noise."""
+    with SessionLocal() as db:
+        _marketing_connected(db)
+        db.add(TikTokSyncState(stream="ads", last_status="error",
+                               last_message="read timeout after 40s"))
+        db.commit()
+        c = _cond(sa.evaluate_sync_alerts(db), "tiktok:ads")
+    assert c is not None and "reconnect" not in c.message.lower()
+
+
 # --- per-feed staleness -----------------------------------------------------
 
 def _shop_connected(db):

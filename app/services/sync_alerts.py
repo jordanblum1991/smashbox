@@ -62,6 +62,21 @@ def _latest_batch_failed(db: Session, kind, key: str, title: str,
 # alerts even when the Shop API is disconnected (and vice-versa).
 _MARKETING_STREAMS = frozenset({"ads"})
 
+# Marketing tokens are long-lived with no expiry/refresh, so the one real "expiry"
+# failure is a revoked/invalid token, which surfaces as an auth error. When we see
+# that signature, make the alert actionable — the fix is a manual reconnect.
+_AUTH_SIGNALS = ("access token", "invalid token", "unauthorized")
+_MARKETING_RECONNECT = " → Reconnect the Marketing API at /admin/tiktok-ads."
+
+
+def _actionable_marketing(message: str) -> str:
+    """Append a reconnect hint when a Marketing-API failure looks like an auth
+    error (revoked/invalid token). Transient errors keep their plain message."""
+    low = message.lower()
+    if any(sig in low for sig in _AUTH_SIGNALS):
+        return message + _MARKETING_RECONNECT
+    return message
+
 
 def _shop_connected(db: Session) -> bool:
     c = tiktok_api.get_credential(db)
@@ -147,15 +162,20 @@ def evaluate_sync_alerts(db: Session) -> list[AlertCondition]:
             continue
         # Gate each stream on the credential that authorizes it, so a Marketing
         # failure isn't hidden by a disconnected Shop API (and vice-versa).
-        connected = mkt_connected if s.stream in _MARKETING_STREAMS else shop_connected
+        is_marketing = s.stream in _MARKETING_STREAMS
+        connected = mkt_connected if is_marketing else shop_connected
         if connected:
+            msg = (s.last_message or "")[:500] or "sync error"
             out.append(AlertCondition(
                 key=f"tiktok:{s.stream}",
                 title=f"TikTok {s.stream} sync failed",
-                message=(s.last_message or "")[:500] or "sync error"))
+                message=_actionable_marketing(msg) if is_marketing else msg))
 
     out += _feed_staleness(db)
-    out += _latest_batch_failed(db, ImportFileKind.TIKTOK_GMV_MAX, "gmv_max", "GMV-Max sync failed")
+    # GMV-Max rides the Marketing API too — decorate its auth failures the same way.
+    out += [AlertCondition(c.key, c.title, _actionable_marketing(c.message))
+            for c in _latest_batch_failed(db, ImportFileKind.TIKTOK_GMV_MAX,
+                                          "gmv_max", "GMV-Max sync failed")]
     out += _latest_batch_failed(db, ImportFileKind.INVENTORY_SNAPSHOT, "inventory",
                                 "SAP inventory sync failed", filename_prefix="SAP")
     return out
