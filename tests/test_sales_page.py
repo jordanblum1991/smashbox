@@ -72,9 +72,13 @@ def test_gmv_kpi_card_shows_difference_vs_finalized(client):
         db.commit()
     r = client.get("/reports/sales?granularity=daily&start_date=2026-03-01&end_date=2026-03-31")
     assert r.status_code == 200
-    assert "data-gmv-recon" in r.text          # the KPI-card annotation marker
+    assert "data-gmv-recon" in r.text          # the GMV KPI-card annotation marker
+    assert "data-items-recon" in r.text        # Items Sold annotation marker
+    assert "data-orders-recon" in r.text       # Orders annotation marker
     assert "Seller Center $80.00" in r.text    # finalized (Seller Center) GMV total shown
-    assert "+$20.00" in r.text                 # booked is $20 above finalized (signed)
+    assert "+$20.00" in r.text                 # booked GMV is $20 above finalized (signed)
+    assert "(+1)" in r.text                    # items: booked 2 vs finalized 1
+    assert "(+0)" in r.text                    # orders: booked 1 vs finalized 1 (parity)
 
 
 def test_gmv_kpi_annotation_absent_without_daily_metrics(client):

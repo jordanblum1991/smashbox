@@ -122,10 +122,24 @@
       <span class="text-lg font-semibold text-slate-900">{{ view.total_units }}</span>
       {% if view.units_delta %}{{ ui.delta_chip(view.units_delta, polarity="higher_better") }}{% endif %}
     </div>
+    {% if seller_center %}
+    <div data-items-recon class="mt-0.5 text-[11px] text-slate-500"
+         title="TikTok Seller Center's finalized items sold for this period">
+      Seller Center {{ seller_center.items_sold }}
+      <span class="{{ 'text-amber-600' if sc_units_delta else 'text-slate-400' }}">({{ '%+d' | format(sc_units_delta) }})</span>
+    </div>
+    {% endif %}
   </div>
   <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
     <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Orders</div>
     <div class="mt-1 text-lg font-semibold text-slate-900">{{ view.total_orders }}</div>
+    {% if seller_center %}
+    <div data-orders-recon class="mt-0.5 text-[11px] text-slate-500"
+         title="TikTok Seller Center's finalized orders for this period">
+      Seller Center {{ seller_center.orders }}
+      <span class="{{ 'text-amber-600' if sc_orders_delta else 'text-slate-400' }}">({{ '%+d' | format(sc_orders_delta) }})</span>
+    </div>
+    {% endif %}
   </div>
   <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
     <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Avg AOV</div>
