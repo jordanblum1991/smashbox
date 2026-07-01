@@ -176,6 +176,58 @@ def test_disabled_shop_streams_no_stale(monkeypatch):
     assert "stale:orders" not in keys
 
 
+# --- aged-unshipped-orders canary (guards the status-freeze fix) -------------
+
+def _seed_aged_orders(db, n, *, status="To ship", age_days=20):
+    from app.models.order import Order, OrderType
+    batch = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS,
+                        status=ImportBatchStatus.COMPLETED,
+                        original_filename="orders", stored_path="")
+    db.add(batch); db.flush()
+    for i in range(n):
+        db.add(Order(import_batch_id=batch.id, tiktok_order_id=f"AGED-{status}-{i}",
+                     placed_at=_utc_now_naive() - timedelta(days=age_days),
+                     order_type=OrderType.PAID, status=status, brand="smashbox"))
+    db.commit()
+
+
+def test_aged_unshipped_backlog_alerts(monkeypatch):
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", True, raising=False)
+    with SessionLocal() as db:
+        _shop_connected(db)
+        _seed_aged_orders(db, sa.AGED_UNSHIPPED_ALERT_THRESHOLD + 1)
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "orders:backlog" in keys
+
+
+def test_aged_unshipped_below_threshold_no_alert(monkeypatch):
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", True, raising=False)
+    with SessionLocal() as db:
+        _shop_connected(db)
+        _seed_aged_orders(db, 3)              # a few genuine slow orders — not an alert
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "orders:backlog" not in keys
+
+
+def test_aged_unshipped_recent_orders_dont_count(monkeypatch):
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", True, raising=False)
+    with SessionLocal() as db:
+        _shop_connected(db)
+        _seed_aged_orders(db, sa.AGED_UNSHIPPED_ALERT_THRESHOLD + 5, age_days=2)  # recent
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "orders:backlog" not in keys
+
+
+def test_aged_unshipped_gated_on_auto_sync(monkeypatch):
+    """Auto-sync off → a backlog is expected (sync isn't running), not an alert."""
+    monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", False, raising=False)
+    with SessionLocal() as db:
+        _shop_connected(db)
+        _seed_aged_orders(db, sa.AGED_UNSHIPPED_ALERT_THRESHOLD + 10)
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "orders:backlog" not in keys
+
+
 def test_stale_requires_connection(monkeypatch):
     """No Shop credential → don't alert (the feed can't run anyway)."""
     monkeypatch.setattr(settings, "tiktok_auto_sync_enabled", True, raising=False)
