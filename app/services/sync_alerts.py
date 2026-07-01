@@ -57,6 +57,38 @@ def _latest_batch_failed(db: Session, kind, key: str, title: str,
     return []
 
 
+# The 'ads' stream is authorized by the Marketing credential; every other stream
+# by the Shop credential. Gating each on the right one means a Marketing failure
+# alerts even when the Shop API is disconnected (and vice-versa).
+_MARKETING_STREAMS = frozenset({"ads"})
+
+# Marketing tokens are long-lived with no expiry/refresh, so the one real "expiry"
+# failure is a revoked/invalid token, which surfaces as an auth error. When we see
+# that signature, make the alert actionable — the fix is a manual reconnect.
+_AUTH_SIGNALS = ("access token", "invalid token", "unauthorized")
+_MARKETING_RECONNECT = " → Reconnect the Marketing API at /admin/tiktok-ads."
+
+
+def _actionable_marketing(message: str) -> str:
+    """Append a reconnect hint when a Marketing-API failure looks like an auth
+    error (revoked/invalid token). Transient errors keep their plain message."""
+    low = message.lower()
+    if any(sig in low for sig in _AUTH_SIGNALS):
+        return message + _MARKETING_RECONNECT
+    return message
+
+
+def _shop_connected(db: Session) -> bool:
+    c = tiktok_api.get_credential(db)
+    return c is not None and bool(c.shop_cipher)
+
+
+def _marketing_connected(db: Session) -> bool:
+    from app.models.tiktok_marketing_credential import TikTokMarketingCredential
+    c = db.query(TikTokMarketingCredential).order_by(TikTokMarketingCredential.id).first()
+    return c is not None and bool(c.access_token)
+
+
 def _latest_completed_batch_at(db: Session, kind, filename_prefix: str | None = None):
     """`completed_at` of the most-recent matching batch IF it COMPLETED — the
     "last success" time that drives staleness. Returns None when the latest
@@ -79,16 +111,13 @@ def _feed_staleness(db: Session) -> list[AlertCondition]:
     fresh (the old coarse max(last_run) check masked this) and even when no batch
     is FAILED (a stalled job writes no batch at all)."""
     from app.models.shop import Shop
-    from app.models.tiktok_marketing_credential import TikTokMarketingCredential
 
     out: list[AlertCondition] = []
     now = _utc_now_naive()
     shop = db.query(Shop).order_by(Shop.id).first()
 
-    shop_cred = tiktok_api.get_credential(db)
-    shop_connected = shop_cred is not None and bool(shop_cred.shop_cipher)
-    mkt_cred = db.query(TikTokMarketingCredential).order_by(TikTokMarketingCredential.id).first()
-    mkt_connected = mkt_cred is not None and bool(mkt_cred.access_token)
+    shop_connected = _shop_connected(db)
+    mkt_connected = _marketing_connected(db)
 
     states = {s.stream: s for s in db.query(TikTokSyncState).all()}
 
@@ -126,18 +155,27 @@ def _feed_staleness(db: Session) -> list[AlertCondition]:
 def evaluate_sync_alerts(db: Session) -> list[AlertCondition]:
     out: list[AlertCondition] = []
 
-    cred = tiktok_api.get_credential(db)
-    if cred is not None and cred.shop_cipher:
-        states = db.query(TikTokSyncState).all()
-        for s in states:
-            if s.last_status == "error":
-                out.append(AlertCondition(
-                    key=f"tiktok:{s.stream}",
-                    title=f"TikTok {s.stream} sync failed",
-                    message=(s.last_message or "")[:500] or "sync error"))
+    shop_connected = _shop_connected(db)
+    mkt_connected = _marketing_connected(db)
+    for s in db.query(TikTokSyncState).all():
+        if s.last_status != "error":
+            continue
+        # Gate each stream on the credential that authorizes it, so a Marketing
+        # failure isn't hidden by a disconnected Shop API (and vice-versa).
+        is_marketing = s.stream in _MARKETING_STREAMS
+        connected = mkt_connected if is_marketing else shop_connected
+        if connected:
+            msg = (s.last_message or "")[:500] or "sync error"
+            out.append(AlertCondition(
+                key=f"tiktok:{s.stream}",
+                title=f"TikTok {s.stream} sync failed",
+                message=_actionable_marketing(msg) if is_marketing else msg))
 
     out += _feed_staleness(db)
-    out += _latest_batch_failed(db, ImportFileKind.TIKTOK_GMV_MAX, "gmv_max", "GMV-Max sync failed")
+    # GMV-Max rides the Marketing API too — decorate its auth failures the same way.
+    out += [AlertCondition(c.key, c.title, _actionable_marketing(c.message))
+            for c in _latest_batch_failed(db, ImportFileKind.TIKTOK_GMV_MAX,
+                                          "gmv_max", "GMV-Max sync failed")]
     out += _latest_batch_failed(db, ImportFileKind.INVENTORY_SNAPSHOT, "inventory",
                                 "SAP inventory sync failed", filename_prefix="SAP")
     return out
