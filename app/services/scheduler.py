@@ -87,12 +87,21 @@ def _run_inventory_sync_job() -> None:
 
 
 def _run_gmv_sync_job() -> None:
-    """Scheduler entry point: pull the GMV-Max (Marketing API) ad data on its own
-    user-editable schedule, then run the alert check. Own DB session; never
-    propagates exceptions."""
+    """Scheduler entry point: refresh BOTH Marketing-API ad feeds on the shared
+    user-editable schedule — the ad-spend cost export (run_ads_sync → AdSpend,
+    which feeds the credits/reimbursements page) AND GMV-Max daily metrics
+    (sync_gmv_max → GmvMaxDailyMetric) — then run the alert check. This mirrors
+    the manual 'Sync ad spend now' button so the ad-spend cost feed is no longer
+    manual-only. Own DB session; each sync is isolated so one failing doesn't
+    skip the other; never propagates exceptions."""
     from app.services.gmv_max_sync import sync_gmv_max
+    from app.services.tiktok_marketing_api import run_ads_sync
 
     with SessionLocal() as db:
+        try:
+            run_ads_sync(db, source="scheduled")
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduled ad-spend sync failed")
         try:
             sync_gmv_max(db)
         except Exception:  # noqa: BLE001

@@ -53,12 +53,14 @@ def exchange_auth_code(auth_code: str) -> dict:
 def refresh_access_token(refresh_token: str) -> dict:
     import httpx
 
-    r = httpx.get(f"{AUTH_BASE}/api/v2/token/refresh", params={
+    from app.services.http_retry import send_with_retry
+
+    r = send_with_retry(lambda: httpx.get(f"{AUTH_BASE}/api/v2/token/refresh", params={
         "app_key": settings.tiktok_app_key,
         "app_secret": settings.tiktok_app_secret,
         "refresh_token": refresh_token,
         "grant_type": "refresh_token",
-    }, timeout=30.0)
+    }, timeout=30.0), label="shop token refresh")
     return _unwrap(r)
 
 
@@ -113,15 +115,21 @@ def _signed_send(method: str, path: str, access_token: str, *,
 
     import httpx
 
+    from app.services.http_retry import send_with_retry
+
     body = _json.dumps(body_obj, separators=(",", ":")) if body_obj is not None else ""
     params = signed_params(path, dict(query or {}), body=body)
     url = f"{OPEN_API_BASE}{path}"
     headers = {"x-tts-access-token": access_token, "content-type": "application/json"}
     if method.upper() == "GET":
-        r = httpx.get(url, params=params, headers=headers, timeout=timeout)
+        r = send_with_retry(
+            lambda: httpx.get(url, params=params, headers=headers, timeout=timeout),
+            label=f"shop {path}")
     else:
-        r = httpx.request(method.upper(), url, params=params, headers=headers,
-                          content=body, timeout=timeout)
+        r = send_with_retry(
+            lambda: httpx.request(method.upper(), url, params=params, headers=headers,
+                                  content=body, timeout=timeout),
+            label=f"shop {path}")
     return _unwrap(r)
 
 

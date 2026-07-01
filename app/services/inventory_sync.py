@@ -53,7 +53,9 @@ def fetch_sap_inventory(url: str) -> list[dict]:
     monkeypatch it with a fixture instead of hitting the network."""
     import httpx
 
-    resp = httpx.get(url, timeout=30.0)
+    from app.services.http_retry import send_with_retry
+
+    resp = send_with_retry(lambda: httpx.get(url, timeout=30.0), label="SAP inventory")
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, list):

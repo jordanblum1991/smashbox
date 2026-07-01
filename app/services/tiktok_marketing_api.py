@@ -97,10 +97,12 @@ def get_ad_spend(access_token: str, advertiser_id: str,
     Pages through the full result set."""
     import httpx
 
+    from app.services.http_retry import send_with_retry
+
     out: list[dict] = []
     page = 1
     while True:
-        r = httpx.get(
+        r = send_with_retry(lambda: httpx.get(
             f"{BASE}/report/integrated/get/",
             params={
                 "advertiser_id": advertiser_id,
@@ -115,7 +117,7 @@ def get_ad_spend(access_token: str, advertiser_id: str,
             },
             headers={"Access-Token": access_token},
             timeout=_TIMEOUT,
-        )
+        ), label="marketing report")
         data = _unwrap(r)
         for item in data.get("list", []) or []:
             dims = item.get("dimensions") or {}
@@ -183,10 +185,12 @@ def _api_get(path: str, params: dict, access_token: str) -> dict:
     dict. Isolated so tests stub it instead of hitting the network."""
     import httpx
 
-    r = httpx.get(
+    from app.services.http_retry import send_with_retry
+
+    r = send_with_retry(lambda: httpx.get(
         f"{BASE}{path}", params=params,
         headers={"Access-Token": access_token}, timeout=_TIMEOUT,
-    )
+    ), label=f"marketing {path}")
     return _unwrap(r)
 
 
