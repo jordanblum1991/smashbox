@@ -23,6 +23,7 @@ from app.models import (
 from app.models.settlement import Adjustment, Settlement
 from app.models.payout import Payout
 from app.models.tiktok_daily_metric import TikTokDailyMetric
+from app.services import tiktok_api
 from app.services.tiktok_fetchers import (
     adjustment_type_label,
     adjustments_to_dataframe,
@@ -33,6 +34,7 @@ from app.services.tiktok_fetchers import (
     orders_to_dataframe,
     payments_to_dataframe,
     placed_at_local,
+    refresh_order_statuses,
     settlement_transactions_to_dataframe,
     statements_to_payout_dataframe,
 )
@@ -66,6 +68,58 @@ def test_create_time_epoch_converts_to_pacific_local_naive():
     # Winter lands in PST (UTC-8), proving DST-awareness:
     # 1768435200 == 2026-01-15 00:00:00 UTC -> 2026-01-14 16:00:00 PST.
     assert placed_at_local(1768435200) == "2026-01-14 16:00:00"
+
+
+# --- status refresh (unfreezes create-time-watermarked statuses) ------------
+
+def _seed_order(db, batch, oid, status, otype=OrderType.PAID, gross="35"):
+    o = Order(import_batch_id=batch.id, tiktok_order_id=oid,
+              placed_at=datetime(2026, 6, 16, 12, 0), order_type=otype,
+              status=status, brand="smashbox", gross_sales=Decimal(gross))
+    db.add(o); db.flush()
+    return o
+
+
+def test_refresh_flips_frozen_status_without_touching_type_or_money(monkeypatch):
+    """A status-only refresh updates Order.status from the live API but leaves
+    order_type, gross, and non-matching orders alone — so it can't reclassify a
+    free sample or disturb settlement back-fills."""
+    with SessionLocal() as db:
+        batch = ImportBatch(kind=ImportFileKind.TIKTOK_ORDERS,
+                            status=ImportBatchStatus.COMPLETED,
+                            original_filename="x", stored_path="x")
+        db.add(batch); db.flush()
+        frozen = _seed_order(db, batch, "111", "To ship", OrderType.PAID, "35")
+        sample = _seed_order(db, batch, "222", "To ship", OrderType.SAMPLE, "0")
+        already = _seed_order(db, batch, "333", "Shipped", OrderType.PAID, "10")
+        db.commit()
+
+        # Live API says all three delivered; plus an order we don't have.
+        monkeypatch.setattr(tiktok_api, "iter_orders", lambda *a, **k: iter([
+            {"id": "111", "status": "DELIVERED"},   # To ship -> Shipped
+            {"id": "222", "status": "DELIVERED"},    # To ship -> Shipped (stays SAMPLE)
+            {"id": "333", "status": "DELIVERED"},    # already Shipped -> no change
+            {"id": "999", "status": "DELIVERED"},    # not in our DB -> ignored
+        ]))
+
+        changed = refresh_order_statuses(db, cred=object())
+        assert changed == 2                          # only 111 and 222 flipped
+
+        db.commit()                                  # sync commits after the stream
+        for o in (frozen, sample, already):
+            db.refresh(o)
+        assert frozen.status == "Shipped"
+        assert already.status == "Shipped"
+        assert sample.status == "Shipped"
+        assert sample.order_type == OrderType.SAMPLE  # NOT reclassified to PAID
+        assert sample.gross_sales == Decimal("0")     # money untouched
+        assert frozen.gross_sales == Decimal("35")
+
+
+def test_refresh_no_live_orders_is_a_noop(monkeypatch):
+    with SessionLocal() as db:
+        monkeypatch.setattr(tiktok_api, "iter_orders", lambda *a, **k: iter(()))
+        assert refresh_order_statuses(db, cred=object()) == 0
 
 
 # --- full round-trip through the importer seam ------------------------------

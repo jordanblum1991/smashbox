@@ -80,8 +80,13 @@ def _fetch_stream(db: Session, stream: str, cred, since) -> int:
     app.services.tiktok_fetchers. The trailing NotImplementedError fires only for
     an unrecognised stream name."""
     if stream == "orders":
-        from app.services.tiktok_fetchers import fetch_orders
-        return fetch_orders(db, cred, since)
+        from app.services.tiktok_fetchers import fetch_orders, refresh_order_statuses
+        # Incremental pull of NEW orders (create-time watermark), then refresh the
+        # status of recently-created orders whose state has since advanced — the
+        # watermark never re-pulls them, so without this their status freezes.
+        n = fetch_orders(db, cred, since)
+        n += refresh_order_statuses(db, cred)
+        return n
     if stream == "settlements":
         from app.services.tiktok_fetchers import fetch_settlements
         return fetch_settlements(db, cred, since)

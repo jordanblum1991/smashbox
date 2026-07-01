@@ -25,10 +25,11 @@ Order field-mapping (validated against prod 2026-06-15):
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from decimal import Decimal
@@ -41,12 +42,20 @@ from app.importers.tiktok_payouts import (
     STMT_COL,
     import_dataframes as import_payout_dataframes,
 )
-from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind
+from app.models.import_batch import ImportBatch, ImportBatchStatus, ImportFileKind, _utc_now_naive
+from app.models.order import Order
 from app.models.tiktok_credential import TikTokCredential
 from app.services import tiktok_api
 from app.services.sku_resolver import resolve_all_order_lines
 
 SHOP_TZ = ZoneInfo("America/Los_Angeles")
+
+# Trailing window the status refresh re-pulls each sync. The create-time
+# watermark pulls each order once (at creation, when it's Pending/To ship) and
+# never again, so downstream status transitions freeze. 30 days covers the full
+# fulfillment lifecycle — prod data showed every order >=31 days old has already
+# reached a terminal status (Shipped/Completed/Canceled).
+ORDER_STATUS_REFRESH_DAYS = 30
 
 # Order API status enum -> Seller-Center display status the reports expect.
 # Validated against stored CSV statuses on prod (AWAITING_SHIPMENT -> Pending,
@@ -160,6 +169,45 @@ def fetch_orders(db: Session, cred: TikTokCredential, since: datetime | None) ->
     result = import_dataframe(df, db, batch)
     resolve_all_order_lines(db)
     return _record_result(batch, result)
+
+
+def refresh_order_statuses(
+    db: Session, cred: TikTokCredential, *,
+    lookback_days: int = ORDER_STATUS_REFRESH_DAYS, as_of: datetime | None = None,
+) -> int:
+    """Re-pull the CURRENT status of orders created in the trailing
+    `lookback_days` and update `Order.status` in place. Fixes the create-time
+    watermark's blind spot: the incremental orders sync fetches each order once,
+    at creation (Pending / To ship), and never again — so as the order ships,
+    its status freezes in our DB while the demand planner, fulfillment views,
+    and reconciliation read the stale value.
+
+    STATUS-ONLY: does not rebuild line items, touch `order_type`, or alter money.
+    That deliberately sidesteps the free-sample landmine — a full re-import would
+    reset `order_type` from gross (the Order API lacks the $0-gross sample
+    signal) and phantom-classify samples as PAID. Idempotent; safe to run every
+    sync. Returns the count of orders whose status actually changed."""
+    now = as_of or _utc_now_naive()
+    since_epoch = int((now - timedelta(days=lookback_days))
+                      .replace(tzinfo=timezone.utc).timestamp())
+    live: dict[str, str] = {}
+    for o in tiktok_api.iter_orders(cred, create_time_ge=since_epoch):
+        oid = str(o.get("id") or "").strip()
+        if oid:
+            live[oid] = display_status(o.get("status"))
+    if not live:
+        return 0
+
+    changed = 0
+    rows = db.execute(
+        select(Order).where(Order.tiktok_order_id.in_(list(live)))
+    ).scalars().all()
+    for order in rows:
+        new_status = live.get(order.tiktok_order_id)
+        if new_status and new_status != order.status:
+            order.status = new_status
+            changed += 1
+    return changed
 
 
 # --- settlements ------------------------------------------------------------
