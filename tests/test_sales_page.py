@@ -73,7 +73,7 @@ def test_gmv_kpi_card_shows_difference_vs_finalized(client):
     r = client.get("/reports/sales?granularity=daily&start_date=2026-03-01&end_date=2026-03-31")
     assert r.status_code == 200
     assert "data-gmv-recon" in r.text          # the KPI-card annotation marker
-    assert "TikTok $80.00" in r.text           # finalized (Seller Center) GMV total shown
+    assert "Seller Center $80.00" in r.text    # finalized (Seller Center) GMV total shown
     assert "+$20.00" in r.text                 # booked is $20 above finalized (signed)
 
 
