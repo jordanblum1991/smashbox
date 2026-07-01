@@ -57,6 +57,37 @@ def test_evaluate_healthy_returns_none():
         assert sa.evaluate_sync_alerts(db) == []
 
 
+# --- error-alert gating decoupled by credential domain ----------------------
+
+def _marketing_connected(db):
+    db.add(TikTokMarketingCredential(access_token="t"))
+
+
+def test_ads_error_alerts_without_shop_connection(monkeypatch):
+    """A Marketing-API ('ads') sync error must alert even when the Shop API is
+    disconnected — the two use separate credentials."""
+    with SessionLocal() as db:
+        _marketing_connected(db)                      # Marketing connected; NO Shop cred
+        db.add(TikTokSyncState(stream="ads", last_status="error",
+                               last_message="40105 invalid access token"))
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "tiktok:ads" in keys
+
+
+def test_ads_error_gated_on_marketing_not_shop():
+    """With the Shop API connected but Marketing disconnected, an 'ads' error is
+    NOT alerted (the feed can't run) — but a Shop stream error still is."""
+    with SessionLocal() as db:
+        _shop_connected(db)                           # Shop connected; NO Marketing cred
+        db.add(TikTokSyncState(stream="ads", last_status="error", last_message="x"))
+        db.add(TikTokSyncState(stream="orders", last_status="error", last_message="y"))
+        db.commit()
+        keys = {c.key for c in sa.evaluate_sync_alerts(db)}
+    assert "tiktok:ads" not in keys
+    assert "tiktok:orders" in keys
+
+
 # --- per-feed staleness -----------------------------------------------------
 
 def _shop_connected(db):
